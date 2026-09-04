@@ -1,0 +1,81 @@
+# Version control, automation metadata, and local agent state
+.git
+.github
+.agents
+.codex
+.claude
+.cursor
+.playwright-cli
+.local-only
+
+# Secrets: runtime configuration is injected, never copied into an image
+.env
+.env.*
+**/.env
+**/.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+**/credentials*.json
+**/service-account*.json
+
+# Dependencies, virtual environments, and caches
+node_modules
+**/node_modules
+.venv
+venv
+**/.venv
+**/venv
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.coverage*
+**/htmlcov
+**/*.egg-info
+
+# Build and test output
+**/.next
+**/out
+**/dist
+**/build
+**/.turbo
+**/*.tsbuildinfo
+**/coverage
+**/.nyc_output
+test-results
+playwright-report
+artifacts
+screenshots
+tempimages
+
+# Runtime data
+logs
+backend/logs
+**/*.log
+**/*.log.*
+backend/documents_storage
+documents_storage
+backups
+certbot
+data
+**/*.db
+**/*.sqlite*
+
+# Development-only material
+docs
+documentation
+backend/tests
+docker-compose*.yml
+AGENTS.md
+*.md
+
+# Editor and operating-system files
+.vscode
+.idea
+**/*.swp
+**/*.swo
+**/.DS_Store
+**/Thumbs.db

@@ -1,0 +1,226 @@
+"""Privacy regressions for database, vector, and storage service diagnostics."""
+
+import ast
+import json
+import re
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
+
+import pytest
+from fastapi import HTTPException
+
+from database.interface import ConnectionConfig, DatabaseBackend, DatabaseError
+from database import mongodb_adapter as mongodb_adapter_module
+from database.mongodb_adapter import MongoDBAdapter
+from middleware import admin as admin_middleware
+from routers import admin as admin_router
+from routers import documents as documents_router
+from services import document_service
+from services import ai_service
+from services.ai import client_manager
+
+
+PRIVATE_CONTENT = "NOT_A_REAL_PRIVATE_CONTENT_SENTINEL"
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+SERVICE_SOURCES = tuple(
+    str(path.relative_to(BACKEND_DIR))
+    for path in sorted(BACKEND_DIR.rglob("*.py"))
+    if path.parts[-2] != "tests"
+    and "venv" not in path.parts
+    and "logs" not in path.parts
+)
+
+SENSITIVE_NAMES = {
+    "admin_user_id",
+    "clause_id",
+    "content",
+    "doc_id",
+    "document_id",
+    "document_text",
+    "email",
+    "enhanced_query",
+    "file_id",
+    "filename",
+    "host",
+    "client_ip",
+    "final_query",
+    "pdf_file_id",
+    "query",
+    "text",
+    "to_email",
+    "user_id",
+}
+
+
+def _logger_or_print_call(node: ast.Call) -> bool:
+    if isinstance(node.func, ast.Name):
+        return node.func.id == "print"
+    return (
+        isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "logger"
+    )
+
+
+def _direct_sensitive_value(node: ast.AST) -> bool:
+    if isinstance(node, ast.Name):
+        return node.id in SENSITIVE_NAMES
+    if isinstance(node, ast.Compare):
+        return False
+    if isinstance(node, ast.Call):
+        if isinstance(node.func, ast.Name) and node.func.id in {"len", "type"}:
+            return False
+    return any(_direct_sensitive_value(child) for child in ast.iter_child_nodes(node))
+
+
+@pytest.mark.parametrize("relative_path", SERVICE_SOURCES)
+def test_service_logs_do_not_render_private_runtime_values(relative_path):
+    source_path = BACKEND_DIR / relative_path
+    source = source_path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    raw_exception_pattern = re.compile(
+        r"str\(\s*(?:e|exc|error|[A-Za-z_]+_error)\s*\)"
+    )
+    assert raw_exception_pattern.search(source) is None
+    assert "query_preview" not in source
+    assert "traceback.format_exc" not in source
+    assert "exc_info=True" not in source
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not _logger_or_print_call(node):
+            continue
+        for argument in node.args:
+            values = (
+                [part.value for part in argument.values if isinstance(part, ast.FormattedValue)]
+                if isinstance(argument, ast.JoinedStr)
+                else [argument]
+            )
+            assert not any(_direct_sensitive_value(value) for value in values), (
+                f"{relative_path}:{node.lineno} logs a private runtime value"
+            )
+
+
+class _FailingCollection:
+    async def find_one(self, _query):
+        raise RuntimeError(PRIVATE_CONTENT)
+
+
+class _FailingDatabase:
+    def __getitem__(self, _name):
+        return _FailingCollection()
+
+
+@pytest.mark.asyncio
+async def test_mongodb_errors_hide_driver_details_from_logs_and_callers():
+    adapter = MongoDBAdapter(
+        ConnectionConfig(
+            backend=DatabaseBackend.MONGODB,
+            uri="mongodb://localhost:27017",
+            database="test",
+        )
+    )
+    adapter.database = _FailingDatabase()
+
+    with patch.object(
+        mongodb_adapter_module.logger,
+        "error",
+    ) as mock_error:
+        with pytest.raises(DatabaseError) as raised:
+            await adapter.get_user_by_email("private@example.test")
+
+    assert str(raised.value) == "Failed to get user"
+    assert PRIVATE_CONTENT not in repr(mock_error.call_args)
+    assert "RuntimeError" in repr(mock_error.call_args)
+
+
+@pytest.mark.asyncio
+async def test_document_analysis_errors_hide_provider_details(monkeypatch, caplog):
+    monkeypatch.setattr(client_manager, "is_ai_available", lambda: True)
+    monkeypatch.setattr(
+        ai_service,
+        "detect_contract_type",
+        AsyncMock(side_effect=RuntimeError(PRIVATE_CONTENT)),
+    )
+
+    with pytest.raises(RuntimeError) as raised:
+        await document_service.process_document_with_llm(
+            "private contract content",
+            "private-contract.pdf",
+        )
+
+    assert str(raised.value) == "AI analysis failed"
+    assert PRIVATE_CONTENT not in caplog.text
+
+
+
+
+
+@pytest.mark.asyncio
+async def test_admin_access_logs_do_not_include_account_email():
+    private_email = "private-admin-candidate@example.test"
+
+    with (
+        patch.object(admin_middleware, "is_admin_email", return_value=False),
+        patch.object(admin_middleware.logger, "warning") as mock_warning,
+        pytest.raises(HTTPException) as raised,
+    ):
+        await admin_middleware.get_admin_user({"email": private_email})
+
+    assert raised.value.status_code == 403
+    assert private_email not in repr(mock_warning.call_args)
+
+
+@pytest.mark.asyncio
+async def test_document_route_errors_hide_storage_details(monkeypatch, caplog):
+    class FailingService:
+        async def get_documents_for_user(self, _user_id):
+            raise RuntimeError(PRIVATE_CONTENT)
+
+    monkeypatch.setattr(
+        documents_router,
+        "get_document_service",
+        lambda: FailingService(),
+    )
+
+    with pytest.raises(HTTPException) as raised:
+        await documents_router.list_documents({"id": "private-user"})
+
+    assert raised.value.status_code == 500
+    assert raised.value.detail == "Failed to retrieve documents"
+    assert PRIVATE_CONTENT not in caplog.text
+
+
+
+def test_admin_database_schema_returns_shapes_not_record_content():
+    private_values = {
+        "email": "private-schema@example.test",
+        "filename": "private-contract.pdf",
+        "content": PRIVATE_CONTENT,
+        "openai_api_key_encrypted": "encrypted-private-value",
+        "nested": {"prompt": PRIVATE_CONTENT},
+        "items": [PRIVATE_CONTENT],
+    }
+
+    schema = admin_router.sanitize_mongo_document(private_values)
+    serialized = json.dumps(schema)
+
+    for value in (
+        "private-schema@example.test",
+        "private-contract.pdf",
+        PRIVATE_CONTENT,
+        "encrypted-private-value",
+    ):
+        assert value not in serialized
+
+    assert schema["email"] == "[string]"
+    assert schema["filename"] == "[string]"
+    assert schema["content"] == "[string]"
+    assert schema["openai_api_key_encrypted"] == "[redacted]"
+    assert schema["nested"] == {"prompt": "[string]"}
+    assert schema["items"] == {
+        "type": "array",
+        "length": 1,
+        "item_schema": "[string]",
+    }

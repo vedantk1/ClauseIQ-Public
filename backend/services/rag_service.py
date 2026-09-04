@@ -1,0 +1,896 @@
+"""
+RAG (Retrieval Augmented Generation) Service for ClauseIQ.
+
+This service provides document chunking, embedding generation, vector storage,
+and chat functionality using Qdrant for vector storage and OpenAI's
+embeddings/chat APIs.
+
+DESIGN PRINCIPLES:
+- Zero disruption to existing functionality
+- Additive enhancement to current document processing
+- Safe fallbacks and error handling
+- Cost-efficient with caching and batching
+
+ARCHITECTURE:
+- Document Chunking: Smart legal document segmentation
+- Embeddings: OpenAI text-embedding-3-large for maximum accuracy
+- Vector Storage: Qdrant (self-hosted) with user isolation via filtering
+- RAG Pipeline: Retrieval + Generation with source attribution
+"""
+import asyncio
+import hashlib
+import json
+import logging
+import uuid
+from typing import List, Dict, Any, Optional, Tuple
+from dataclasses import dataclass
+from datetime import datetime
+
+# Lazy imports for OpenAI with rate limiting
+def _get_openai_client():
+    """Lazy import OpenAI client."""
+    try:
+        # Use the correct relative import path from services directory
+        from .ai.client_manager import get_openai_client
+        return get_openai_client()
+    except ImportError as e:
+        logger.warning("Failed to import OpenAI client: %s", type(e).__name__)
+        return None
+
+def _get_rate_limited_embedding_call():
+    """Lazy import rate-limited embedding call."""
+    try:
+        from .ai.client_manager import safe_embedding_call
+        return safe_embedding_call
+    except ImportError as e:
+        logger.warning("Failed to import rate-limited embedding call: %s", type(e).__name__)
+        return None
+
+def _get_rate_limited_openai_call():
+    """Lazy import rate-limited OpenAI call."""
+    try:
+        from .ai.client_manager import safe_openai_call
+        return safe_openai_call
+    except ImportError as e:
+        logger.warning("Failed to import rate-limited OpenAI call: %s", type(e).__name__)
+        return None
+
+logger = logging.getLogger(__name__)
+
+@dataclass
+class DocumentChunk:
+    """Represents a chunk of a legal document with metadata."""
+    id: str
+    text: str
+    embedding: Optional[List[float]] = None
+    metadata: Dict[str, Any] = None
+
+    def __post_init__(self):
+        if self.metadata is None:
+            self.metadata = {}
+
+@dataclass
+class ChatMessage:
+    """Represents a chat message with sources."""
+    role: str  # 'user' or 'assistant'
+    content: str
+    sources: List[str] = None  # chunk IDs that contributed to this response
+    timestamp: str = None
+
+    def __post_init__(self):
+        if self.sources is None:
+            self.sources = []
+        if self.timestamp is None:
+            self.timestamp = datetime.utcnow().isoformat()
+
+@dataclass
+class ChatSession:
+    """Represents a chat session for a document."""
+    session_id: str
+    document_id: str
+    user_id: str
+    messages: List[ChatMessage]
+    created_at: str
+    updated_at: str
+
+class RAGService:
+    """Core RAG service for document chat functionality."""
+
+    def __init__(self):
+        # Get configuration
+        from config.environments import get_environment_config
+        self.config = get_environment_config()
+
+        self.embedding_model = "text-embedding-3-large"  # Upgraded to 3072 dimensions
+        self.chunk_size = 1000  # tokens
+        self.chunk_overlap = 200  # tokens
+        self.max_chunks_per_query = 5
+
+        # Conversation context settings from config
+        self.conversation_history_window = self.config.ai.conversation_history_window
+
+        # Import Qdrant vector service lazily to avoid circular imports
+        self._vector_service = None
+
+    @staticmethod
+    def _sanitize_chat_response_text(content: Any) -> Optional[str]:
+        """Normalize model output into a non-empty string."""
+        if content is None:
+            return None
+
+        if isinstance(content, str):
+            cleaned = content.strip()
+            return cleaned if cleaned else None
+
+        cleaned = str(content).strip()
+        return cleaned if cleaned else None
+
+    async def is_available(self) -> bool:
+        """Check if RAG service is available."""
+        try:
+            # Check if OpenAI client is available (either user context or global)
+            from services.ai.client_manager import get_openai_client
+
+            client = get_openai_client()
+            if client is None:
+                logger.warning("OpenAI API key not configured")
+                return False
+
+            # Check if Qdrant is available
+            vector_service = self._get_vector_service()
+            if not await vector_service.is_available():
+                logger.warning("Qdrant vector service not available")
+                return False
+
+            # If we get here, both services should be available
+            logger.info("RAG service dependencies are configured - marking as available")
+            return True
+        except Exception as e:
+            logger.warning("RAG service unavailable: %s", type(e).__name__)
+            return False
+
+    def _get_vector_service(self):
+        """Get vector service instance (Qdrant)."""
+        if self._vector_service is None:
+            from services.qdrant_vector_service import get_qdrant_vector_service
+            self._vector_service = get_qdrant_vector_service()
+        return self._vector_service
+
+    def _generate_chunk_id(self, document_id: str, chunk_index: int) -> str:
+        """Generate a unique ID for a document chunk."""
+        return f"{document_id}_chunk_{chunk_index:04d}"
+
+    def _smart_chunk_legal_document(self, text: str, document_id: str) -> List[DocumentChunk]:
+        """
+        Smart chunking for legal documents.
+        Respects legal structure like sections, clauses, and articles.
+        """
+        chunks = []
+
+        # Legal document section patterns
+        section_patterns = [
+            r'\n\s*(?:SECTION|Section)\s+\d+[.:]\s*',
+            r'\n\s*(?:ARTICLE|Article)\s+\d+[.:]\s*',
+            r'\n\s*(?:CLAUSE|Clause)\s+\d+[.:]\s*',
+            r'\n\s*\d+\.\s+[A-Z][A-Za-z\s]+[.:]',
+            r'\n\s*\([a-zA-Z0-9]+\)\s+',
+            r'\n\s*WHEREAS\s*,?\s*',
+            r'\n\s*NOW THEREFORE\s*,?\s*'
+        ]
+
+        # Find all potential split points
+        split_points = [0]
+        for pattern in section_patterns:
+            import re
+            for match in re.finditer(pattern, text):
+                split_points.append(match.start())
+
+        # Add end of document
+        split_points.append(len(text))
+        split_points = sorted(set(split_points))
+
+        # Create chunks based on split points
+        for i in range(len(split_points) - 1):
+            start = split_points[i]
+            end = split_points[i + 1]
+            chunk_text = text[start:end].strip()
+
+            if len(chunk_text) < 50:  # Skip very small chunks
+                continue
+
+            # If chunk is too large, split it further
+            if len(chunk_text) > self.chunk_size * 4:  # Rough token estimate
+                sub_chunks = self._split_large_chunk(chunk_text)
+                for j, sub_chunk in enumerate(sub_chunks):
+                    chunk_id = self._generate_chunk_id(document_id, len(chunks))
+                    chunks.append(DocumentChunk(
+                        id=chunk_id,
+                        text=sub_chunk,
+                        metadata={
+                            "start_char": start + sum(len(sc) for sc in sub_chunks[:j]),
+                            "end_char": start + sum(len(sc) for sc in sub_chunks[:j+1]),
+                            "chunk_type": "sub_section",
+                            "parent_section": i
+                        }
+                    ))
+            else:
+                chunk_id = self._generate_chunk_id(document_id, len(chunks))
+                chunks.append(DocumentChunk(
+                    id=chunk_id,
+                    text=chunk_text,
+                    metadata={
+                        "start_char": start,
+                        "end_char": end,
+                        "chunk_type": "section",
+                        "section_index": i
+                    }
+                ))
+
+        logger.info("Created %s document chunks", len(chunks))
+        return chunks
+
+    def _split_large_chunk(self, text: str) -> List[str]:
+        """Split a large chunk into smaller pieces while preserving sentence boundaries."""
+        sentences = text.split('. ')
+        chunks = []
+        current_chunk = ""
+
+        for sentence in sentences:
+            # Rough token estimate (1 token ≈ 4 characters)
+            if len(current_chunk + sentence) > self.chunk_size * 4:
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+                current_chunk = sentence
+            else:
+                current_chunk += sentence + ". " if not sentence.endswith('.') else sentence + " "
+
+        if current_chunk.strip():
+            chunks.append(current_chunk.strip())
+
+        return chunks
+
+    async def generate_embeddings(self, chunks: List[DocumentChunk]) -> List[DocumentChunk]:
+        """Generate embeddings for document chunks using OpenAI."""
+        if not await self.is_available():
+            logger.warning("OpenAI client not available, skipping embedding generation")
+            return chunks
+
+        try:
+            safe_embedding_call = _get_rate_limited_embedding_call()
+            if not safe_embedding_call:
+                logger.warning("Rate-limited embedding call not available, skipping embedding generation")
+                return chunks
+
+            # Define the embedding API call function
+            async def make_embedding_call(client, model, input_texts):
+                return await client.embeddings.create(model=model, input=input_texts)
+
+            # Batch embeddings for efficiency (max 2048 inputs per request)
+            batch_size = 100  # Conservative batch size
+            for i in range(0, len(chunks), batch_size):
+                batch = chunks[i:i + batch_size]
+                texts = [chunk.text for chunk in batch]
+
+                # Use rate-limited embedding call
+                response = await safe_embedding_call(
+                    make_embedding_call,
+                    self.embedding_model,
+                    texts
+                )
+
+                if response is None:
+                    logger.warning(f"Failed to generate embeddings for batch {i//batch_size + 1}")
+                    continue
+
+                # Assign embeddings to chunks
+                for j, embedding_data in enumerate(response.data):
+                    batch[j].embedding = embedding_data.embedding
+
+                logger.info(f"Generated embeddings for batch {i//batch_size + 1}/{(len(chunks) + batch_size - 1)//batch_size}")
+
+            logger.info(f"Successfully generated embeddings for {len(chunks)} chunks")
+            return chunks
+
+        except Exception as e:
+            logger.error("Embedding generation failed: %s", type(e).__name__)
+            # Return chunks without embeddings - graceful degradation
+            return chunks
+
+    async def process_document_for_rag(self, document_id: str, text: str, filename: str, user_id: str) -> Dict[str, Any]:
+        """
+        Process a document for RAG by creating chunks and storing them in the vector database.
+        Returns data to be stored in MongoDB alongside existing document data.
+        """
+        try:
+            if not await self.is_available():
+                logger.warning("RAG service not available for processing")
+                return None
+
+            # Step 1: Create chunks using legal document chunking
+            chunks = self._smart_chunk_legal_document(text, document_id)
+            logger.info("Created %s document chunks", len(chunks))
+
+            # Step 2: Prepare chunks for vector storage
+            chunk_data = []
+            for i, chunk in enumerate(chunks):
+                chunk_data.append({
+                    "text": chunk.text,
+                    "metadata": {
+                        **chunk.metadata,
+                        "chunk_id": chunk.id,
+                        "filename": filename,
+                        "processed_at": datetime.utcnow().isoformat()
+                    }
+                })
+
+            # Step 3: Store chunks in Qdrant with embeddings
+            vector_service = self._get_vector_service()
+            storage_result = await vector_service.store_document_chunks(
+                document_id=document_id,
+                user_id=user_id,
+                chunks=chunk_data
+            )
+
+            if not storage_result.get("success", False):
+                logger.error("Failed to store document chunks in Qdrant")
+                # Don't raise an exception; the document can still exist without RAG
+                return None
+
+            # Step 4: Prepare RAG metadata for MongoDB
+            rag_data = {
+                "vector_stored": True,
+                "chunk_count": storage_result.get("chunk_count", len(chunks)),
+                "chunk_ids": storage_result.get("chunk_ids", []),
+                "embedding_model": self.embedding_model,
+                "processed_at": datetime.utcnow().isoformat(),
+                "storage_service": "qdrant"
+            }
+
+            logger.info("Processed document for RAG with %s chunks", len(chunks))
+            return rag_data
+
+        except Exception as e:
+            logger.error("RAG document processing failed: %s", type(e).__name__)
+            raise RuntimeError("RAG operation failed") from None
+
+    def _calculate_similarity(self, query_embedding: List[float], chunk_embedding: List[float]) -> float:
+        """Calculate cosine similarity between two embeddings."""
+        try:
+            import numpy as np
+
+            # Convert to numpy arrays
+            query_vec = np.array(query_embedding)
+            chunk_vec = np.array(chunk_embedding)
+
+            # Calculate cosine similarity
+            dot_product = np.dot(query_vec, chunk_vec)
+            norm_query = np.linalg.norm(query_vec)
+            norm_chunk = np.linalg.norm(chunk_vec)
+
+            if norm_query == 0 or norm_chunk == 0:
+                return 0.0
+
+            similarity = dot_product / (norm_query * norm_chunk)
+            return float(similarity)
+
+        except Exception as e:
+            logger.error("Similarity calculation failed: %s", type(e).__name__)
+            return 0.0
+
+    async def _needs_conversation_context(self, query: str) -> bool:
+        """Gate: Determine if query needs conversation context using admin-configured gate model."""
+        try:
+            safe_openai_call = _get_rate_limited_openai_call()
+            if not safe_openai_call:
+                logger.warning("Rate-limited OpenAI call not available for context gate")
+                return False
+
+            # Get the admin-configured query gate model
+            from database.service import get_document_service
+            service = get_document_service()
+            gate_model = await service.get_query_gate_model()
+
+            gate_prompt = """Analyze if this user question requires previous conversation context to be understood correctly.
+
+Return only "YES" if the question contains:
+- Pronouns referring to previous topics ("that", "it", "those", "this")
+- References to earlier discussion ("as we discussed", "you mentioned", "from before")
+- Comparative language needing context ("compare that to", "how does this differ")
+- Follow-up requests ("tell me more", "explain further", "give details")
+
+Return only "NO" if the question is standalone and can be answered independently.
+
+Question: "{query}"
+
+Response (YES or NO only):"""
+
+            # Define the chat completion call function
+            async def make_gate_call(client, model, messages, max_completion_tokens):
+                return await client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    max_completion_tokens=max_completion_tokens
+                )
+
+            response = await safe_openai_call(
+                make_gate_call,
+                gate_model,
+                [{"role": "user", "content": gate_prompt.format(query=query)}],
+                10
+            )
+
+            if response is None:
+                logger.warning("Failed to get context gate response")
+                return False
+
+            result = response.choices[0].message.content.strip().upper()
+            needs_context = result == "YES"
+
+            logger.info(f"🚪 Conversation context gate completed (needs_context={needs_context}, model={gate_model})")
+            return needs_context
+
+        except Exception as e:
+            logger.error("Conversation context gate failed: %s", type(e).__name__)
+            # Default to False on error to avoid breaking the flow
+            return False
+
+    async def _rewrite_query_with_context(self, query: str, conversation_history: List[Dict[str, Any]]) -> str:
+        """Rewrite query using conversation context and admin-configured query gate model."""
+        try:
+            safe_openai_call = _get_rate_limited_openai_call()
+            if not safe_openai_call:
+                logger.warning("Rate-limited OpenAI call not available for query rewriting")
+                return query
+
+            # Use the same admin-configured model as query gate for rewrite calls
+            from database.service import get_document_service
+            service = get_document_service()
+            gate_model = await service.get_query_gate_model()
+
+            # Use last N messages max to avoid token limits (from config)
+            recent_history = conversation_history[-self.conversation_history_window:] if len(conversation_history) > self.conversation_history_window else conversation_history
+
+            # Format conversation context
+            context_parts = []
+            for msg in recent_history:
+                role = msg.get('role', 'unknown')
+                content = msg.get('content', '')
+                if content:
+                    context_parts.append(f"{role.title()}: {content}")
+
+            context_text = "\n".join(context_parts)
+
+            rewrite_prompt = f"""Based on the conversation history, rewrite the follow-up question to be self-contained and clear.
+
+CONVERSATION HISTORY:
+{context_text}
+
+FOLLOW-UP QUESTION: {query}
+
+Rewrite the follow-up question so it can be understood without the conversation history. Replace pronouns and references with specific terms from the context.
+
+Examples:
+- "Tell me about that in detail" → "Tell me about the payment terms in detail"
+- "Is that enforceable?" → "Are the termination clauses enforceable?"
+- "What does it mean?" → "What does the non-compete agreement mean?"
+
+REWRITTEN QUESTION:"""
+
+            # Define the chat completion call function for rewriting
+            async def make_rewrite_call(client, model, messages, max_completion_tokens):
+                return await client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    max_completion_tokens=max_completion_tokens
+                )
+
+            response = await safe_openai_call(
+                make_rewrite_call,
+                gate_model,
+                [{"role": "user", "content": rewrite_prompt}],
+                100
+            )
+
+            if response is None:
+                logger.warning("Failed to get query rewrite response, using original")
+                return query
+
+            rewritten_query = response.choices[0].message.content.strip()
+
+            logger.info(f"✏️ Query rewrite completed (changed={rewritten_query != query}, model={gate_model})")
+            return rewritten_query
+
+        except Exception as e:
+            logger.error("Query rewriting failed: %s", type(e).__name__)
+            # Return original query on error
+            return query
+
+    async def retrieve_relevant_chunks(
+        self,
+        query: str,
+        document_id: str,
+        user_id: str,
+        conversation_history: List[Dict[str, Any]] = None,
+        max_chunks: int = None
+    ) -> Dict[str, Any]:
+        """Retrieve the most relevant chunks for a query with enhanced conversation context."""
+        if not await self.is_available():
+            logger.warning("RAG service not available for query processing")
+            return {"chunks": [], "enhanced_query": query}
+
+        if max_chunks is None:
+            max_chunks = self.max_chunks_per_query
+
+        # Enhanced query processing with conversation context
+        enhanced_query = query
+
+        if conversation_history and len(conversation_history) > 0:
+            # Gate: Check if query needs conversation context
+            needs_context = await self._needs_conversation_context(query)
+
+            if needs_context:
+                # Rewrite query with conversation context
+                enhanced_query = await self._rewrite_query_with_context(query, conversation_history)
+
+        try:
+            # Use Qdrant vector search with enhanced query
+            # Note: Similarity threshold is set low (0.15) because question-to-document
+            # semantic similarity is naturally lower than document-to-document similarity
+            vector_service = self._get_vector_service()
+            search_results = await vector_service.search_similar_chunks(
+                query=enhanced_query,
+                user_id=user_id,
+                document_id=document_id,
+                k=max_chunks,
+                similarity_threshold=0.15
+            )
+
+            # FALLBACK: If enhanced query finds no results, try original query
+            if not search_results and enhanced_query != query:
+                logger.info("🔄 Enhanced query found no results; retrying with the original query")
+                search_results = await vector_service.search_similar_chunks(
+                    query=query,
+                    user_id=user_id,
+                    document_id=document_id,
+                    k=max_chunks,
+                    similarity_threshold=0.1  # Even lower threshold for fallback
+                )
+
+            # Format results for compatibility with existing code
+            formatted_results = []
+            for result in search_results:
+                formatted_results.append({
+                    "content": result["content"],
+                    "metadata": result["metadata"],
+                    "similarity_score": result["similarity_score"],
+                    "source": "qdrant_vector",
+                    "chunk_id": result["metadata"].get("chunk_id"),
+                    "document_id": result["document_id"]
+                })
+
+            logger.info("Retrieved %s relevant document chunks", len(formatted_results))
+
+            return {
+                "chunks": formatted_results,
+                "enhanced_query": enhanced_query
+            }
+
+        except Exception as e:
+            logger.error("Qdrant chunk retrieval failed: %s", type(e).__name__)
+            # Return empty list if search fails - better than crashing
+            return {"chunks": [], "enhanced_query": query}
+
+    async def generate_rag_response(
+        self,
+        query: str,
+        relevant_chunks: List[Dict[str, Any]],
+        enhanced_query: str = None,
+        model: str = None
+    ) -> Dict[str, Any]:
+        """Generate a response using RAG with retrieved chunks."""
+        if not await self.is_available():
+            return {
+                "response": "I'm sorry, but the AI service is currently unavailable. Please try again later.",
+                "sources": [],
+                "model": model if model else "unknown",
+                "error": "AI service unavailable"
+            }
+
+        try:
+            # Get model from settings if not provided
+            if model is None:
+                from config.environments import get_environment_config
+                config = get_environment_config()
+                model = config.ai.default_model
+                logger.info(f"Using default AI model for RAG response: {model}")
+            else:
+                logger.info(f"Using user-specified AI model for RAG response: {model}")
+
+            client = _get_openai_client()
+            if not client:
+                return {
+                    "response": "I'm sorry, but the AI service is currently unavailable. Please try again later.",
+                    "sources": [],
+                    "model": model if model else "unknown",
+                    "error": "OpenAI client not available"
+                }
+
+            # Prepare context from relevant chunks
+            context_parts = []
+            source_chunks = []
+
+            for i, chunk in enumerate(relevant_chunks):
+                context_parts.append(f"[Source {i+1}] {chunk['content']}")
+                source_chunks.append(chunk['chunk_id'])
+
+            context = "\n\n".join(context_parts)
+
+            # Use enhanced query if provided, otherwise use original query
+            final_query = enhanced_query if enhanced_query else query
+
+            # Create prompt for RAG
+            prompt = f"""You are a legal document assistant. Answer the user's question based ONLY on the provided context from their legal document.
+
+IMPORTANT GUIDELINES:
+- Only use information that appears in the provided context
+- If the answer isn't in the context, say "I cannot find that information in your document"
+- Always cite your sources by referencing [Source X] numbers
+- Provide accurate, helpful legal information while noting this is not legal advice
+- Be specific and quote relevant text when appropriate
+
+CONTEXT FROM DOCUMENT:
+{context}
+
+USER QUESTION: {final_query}
+
+RESPONSE:"""
+
+            response = await client.chat.completions.create(
+                model=model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a helpful legal document assistant that answers questions based solely on provided document context."
+                    },
+                    {"role": "user", "content": prompt}
+                ],
+                max_completion_tokens=1000
+            )
+
+            response_text = self._sanitize_chat_response_text(
+                response.choices[0].message.content
+                if response and getattr(response, "choices", None)
+                else None
+            )
+            if not response_text:
+                logger.warning(
+                    "RAG generation returned empty model output (model=%s)",
+                    model,
+                )
+                response_text = (
+                    "I could not generate a complete answer just now. "
+                    "Please try asking the question in a different way."
+                )
+
+            return {
+                "response": response_text,
+                "sources": source_chunks,
+                "model": model,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+
+        except Exception as e:
+            logger.error("RAG response generation failed: %s", type(e).__name__)
+            return {
+                "response": "I'm sorry, but I encountered an error while processing your question.",
+                "sources": [],
+                "model": model if model else "unknown",
+                "error": "RAG response generation failed"
+            }
+
+    async def _get_or_create_vector_store(self, user_id: str) -> str:
+        """
+        LEGACY (OpenAI Vector Store) – not used in current architecture.
+        Qdrant is the active vector storage via `QdrantVectorService`.
+        Kept for potential future migrations; safe to ignore.
+        """
+        try:
+            client = _get_openai_client()
+
+            # For now, create one vector store per user
+            # In production, you might want to optimize this
+            vector_store_name = f"clauseiq-user-{user_id}"
+
+            # Try to find existing vector store
+            vector_stores = await client.vector_stores.list()
+            async for vs in vector_stores:
+                if vs.name == vector_store_name:
+                    logger.info("Using existing legacy vector store")
+                    return vs.id
+
+            # Create new vector store
+            vector_store = await client.vector_stores.create(
+                name=vector_store_name,
+                expires_after={
+                    "anchor": "last_active_at",
+                    "days": 90  # Auto-cleanup after 90 days of inactivity
+                }
+            )
+
+            logger.info("Created legacy vector store")
+            return vector_store.id
+
+        except Exception as e:
+            logger.error("Legacy vector store creation failed: %s", type(e).__name__)
+            raise RuntimeError("RAG operation failed") from None
+
+    async def _upload_to_vector_store(self, vector_store_id: str, text: str, filename: str) -> str:
+        """
+        LEGACY (OpenAI Vector Store) – not used in current architecture.
+        Qdrant ingestion is handled by `QdrantVectorService.store_document_chunks`.
+        """
+        try:
+            import tempfile
+            import os
+
+            client = _get_openai_client()
+
+            # Create a temporary file with the document text
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as temp_file:
+                temp_file.write(text)
+                temp_file_path = temp_file.name
+
+            try:
+                # Upload file to OpenAI
+                with open(temp_file_path, 'rb') as file_obj:
+                    file_response = await client.files.create(
+                        file=file_obj,
+                        purpose="assistants"
+                    )
+
+                # Add file to vector store
+                await client.vector_stores.files.create(
+                    vector_store_id=vector_store_id,
+                    file_id=file_response.id
+                )
+
+                logger.info("Uploaded file to legacy vector store")
+                return file_response.id
+
+            finally:
+                # Clean up temporary file
+                try:
+                    os.unlink(temp_file_path)
+                except Exception as e:
+                    logger.warning(f"Could not delete temporary upload file: {type(e).__name__}")
+
+        except Exception as e:
+            logger.error("Legacy vector store upload failed: %s", type(e).__name__)
+            raise RuntimeError("RAG operation failed") from None
+
+    async def _retrieve_from_local_chunks(self, query: str, chunks: List[Dict[str, Any]], max_chunks: int) -> List[Dict[str, Any]]:
+        """Fallback method to retrieve chunks using local embeddings."""
+        if not chunks:
+            return []
+
+        try:
+            safe_embedding_call = _get_rate_limited_embedding_call()
+            if not safe_embedding_call:
+                logger.warning("Rate-limited embedding call not available, falling back to text matching")
+                # Skip embedding and fall back to text matching below
+                query_embedding = None
+            else:
+                # Define the embedding API call function
+                async def make_query_embedding_call(client, model, input_texts):
+                    return await client.embeddings.create(model=model, input=input_texts)
+
+                # Generate embedding for the query using rate-limited call
+                response = await safe_embedding_call(
+                    make_query_embedding_call,
+                    self.embedding_model,
+                    [query]
+                )
+
+                if response is None:
+                    logger.warning("Failed to generate query embedding, falling back to text matching")
+                    query_embedding = None
+                else:
+                    query_embedding = response.data[0].embedding
+
+            # Calculate similarities with stored chunks
+            chunk_similarities = []
+            for chunk in chunks:
+                # For local chunks, we don't store embeddings yet (would be expensive)
+                # Instead, do simple text matching as fallback
+                text_lower = chunk.get("text", "").lower()
+                query_lower = query.lower()
+
+                # Simple keyword matching score
+                query_words = query_lower.split()
+                text_words = text_lower.split()
+
+                matches = sum(1 for word in query_words if word in text_words)
+                score = matches / len(query_words) if query_words else 0
+
+                if score > 0.1:  # Minimum relevance threshold
+                    chunk_similarities.append((chunk, score))
+
+            # Sort by similarity and return top chunks
+            chunk_similarities.sort(key=lambda x: x[1], reverse=True)
+            relevant_chunks = [chunk for chunk, score in chunk_similarities[:max_chunks]]
+
+            logger.info(f"Retrieved {len(relevant_chunks)} chunks using fallback method")
+            return relevant_chunks
+
+        except Exception as e:
+            logger.error("Fallback chunk retrieval failed: %s", type(e).__name__)
+            # Last resort: return first few chunks
+            return chunks[:max_chunks] if chunks else []
+
+    async def delete_document_from_rag(self, document_id: str, user_id: str) -> bool:
+        """
+        Delete all RAG data for a document when it's deleted from MongoDB.
+        This ensures consistency between MongoDB and vector storage.
+        """
+        try:
+            vector_service = self._get_vector_service()
+            deletion_result = await vector_service.delete_document_chunks(
+                document_id=document_id,
+                user_id=user_id
+            )
+
+            if deletion_result.get("success", False):
+                deleted_count = deletion_result.get("deleted_count", 0)
+                logger.info("Deleted %s chunks from Qdrant", deleted_count)
+                return True
+            else:
+                logger.warning("Failed to delete chunks from Qdrant")
+                return False
+
+        except Exception as e:
+            logger.error("RAG document deletion failed: %s", type(e).__name__)
+            return False
+
+    async def get_document_rag_status(self, document_id: str, user_id: str) -> Dict[str, Any]:
+        """Get RAG processing status for a document."""
+        try:
+            # Get document from MongoDB
+            from database.service import get_document_service
+            doc_service = get_document_service()
+            document = await doc_service.get_document_for_user(document_id, user_id)
+
+            if not document:
+                return {"available": False, "error": "Document not found"}
+
+            # Check if document has RAG data
+            rag_processed = document.get("rag_processed", False)
+            if not rag_processed:
+                return {"available": False, "reason": "Document not processed for RAG"}
+
+            # Get chunk count from Qdrant
+            vector_service = self._get_vector_service()
+            chunk_count = await vector_service.get_document_chunk_count(document_id, user_id)
+
+            return {
+                "available": True,
+                "rag_processed": True,
+                "chunk_count": chunk_count,
+                "embedding_model": document.get("rag_embedding_model", self.embedding_model),
+                "processed_at": document.get("rag_processed_at"),
+                "storage_service": "qdrant"
+            }
+
+        except Exception as e:
+            logger.error("RAG status lookup failed: %s", type(e).__name__)
+            return {"available": False, "error": "RAG status unavailable"}
+
+
+# Global RAG service instance
+_rag_service = None
+
+def get_rag_service() -> RAGService:
+    """Get the global RAG service instance."""
+    global _rag_service
+    if _rag_service is None:
+        _rag_service = RAGService()
+    return _rag_service

@@ -1,0 +1,686 @@
+"use client";
+import React, { useState } from "react";
+import Card from "@/components/Card";
+import Button from "@/components/Button";
+import TextInputModal from "@/components/TextInputModal";
+import ConfirmationModal from "@/components/ConfirmationModal";
+import { getRiskColor, getClauseTypeLabel } from "./clauseUtils";
+import type { Clause } from "@clauseiq/shared-types";
+import { apiClient, handleAPIError } from "@/lib/api";
+import toast from "@/lib/toast";
+
+interface Note {
+  id: string;
+  text: string;
+  created_at?: string;
+}
+
+interface ClauseDetailsPanelProps {
+  selectedClause: Clause | null;
+  flaggedClauses: Set<string>;
+  hasNotes: (clauseId: string) => boolean;
+  getAllNotes: (clauseId: string) => Note[];
+  getNotesCount: (clauseId: string) => number;
+  onAddNote: (clause: Clause, noteText?: string) => void;
+  onEditNote: (clause: Clause, noteId?: string, editedText?: string) => void;
+  onDeleteNote: (clause: Clause, noteId?: string) => void;
+  onFlagForReview: (clause: Clause, event?: React.MouseEvent) => void;
+  onBack?: () => void; // Optional back navigation function
+  documentId?: string; // Add document ID for rewrite functionality
+}
+
+export default function ClauseDetailsPanel({
+  selectedClause,
+  flaggedClauses,
+  hasNotes,
+  getAllNotes,
+  getNotesCount,
+  onAddNote,
+  onEditNote,
+  onDeleteNote,
+  onFlagForReview,
+  onBack,
+  documentId,
+}: ClauseDetailsPanelProps) {
+  // New state for notes drawer - keyed by clause ID to preserve context
+  const [notesDrawerState, setNotesDrawerState] = useState<
+    Record<string, boolean>
+  >({});
+
+  // State for custom note input modal
+  const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
+  const [editingNote, setEditingNote] = useState<Note | null>(null);
+
+  // State for delete confirmation modal
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [noteToDelete, setNoteToDelete] = useState<{
+    clauseId: string;
+    noteId: string;
+  } | null>(null);
+
+  // State for rewrite functionality
+  const [isGeneratingRewrite, setIsGeneratingRewrite] = useState(false);
+  const [rewriteSuggestionsByClause, setRewriteSuggestionsByClause] = useState<
+    Record<string, string>
+  >({});
+
+  // Helper to get/set drawer state for current clause
+  const isNotesDrawerOpen = selectedClause?.id
+    ? notesDrawerState[selectedClause.id] || false
+    : false;
+  const toggleNotesDrawer = () => {
+    if (selectedClause?.id) {
+      setNotesDrawerState((prev) => ({
+        ...prev,
+        [selectedClause.id!]: !prev[selectedClause.id!],
+      }));
+    }
+  };
+
+  // Custom note addition handler
+  const handleAddNote = () => {
+    setEditingNote(null); // Clear any editing state
+    setIsNoteModalOpen(true);
+  };
+
+  // Custom note editing handler
+  const handleEditNote = (note: Note) => {
+    setEditingNote(note);
+    setIsNoteModalOpen(true);
+  };
+
+  // Custom delete confirmation handler
+  const handleDeleteNote = (noteId: string) => {
+    if (selectedClause?.id) {
+      setNoteToDelete({ clauseId: selectedClause.id, noteId });
+      setIsDeleteModalOpen(true);
+    }
+  };
+
+  const confirmDeleteNote = () => {
+    if (noteToDelete && selectedClause) {
+      onDeleteNote(selectedClause, noteToDelete.noteId);
+    }
+    setIsDeleteModalOpen(false);
+    setNoteToDelete(null);
+  };
+
+  const handleNoteSubmit = (noteText: string) => {
+    if (selectedClause && noteText.trim()) {
+      if (editingNote) {
+        // Edit mode: pass the edited text to parent
+        onEditNote(selectedClause, editingNote.id, noteText.trim());
+      } else {
+        // Add mode: pass the note text directly to the parent component
+        onAddNote(selectedClause, noteText.trim());
+      }
+    }
+    // Close modal and clear editing state
+    setIsNoteModalOpen(false);
+    setEditingNote(null);
+  };
+
+  // Handle rewrite generation
+  const handleGenerateRewrite = async () => {
+    if (!selectedClause) {
+      toast.error("No clause selected");
+      return;
+    }
+
+    if (!documentId) {
+      toast.error("Missing document information");
+      return;
+    }
+
+    setIsGeneratingRewrite(true);
+
+    try {
+      const response = await apiClient.generateClauseRewrite(
+        selectedClause.id,
+        documentId,
+      );
+
+      if (response.success && response.data) {
+        const data = response.data;
+        setRewriteSuggestionsByClause((prev) => ({
+          ...prev,
+          [selectedClause.id || ""]: data.rewrite_suggestion,
+        }));
+        if (data.cached) {
+          toast.success("Loaded cached rewrite suggestion");
+        } else {
+          toast.success("Generated new rewrite suggestion");
+        }
+      } else {
+        handleAPIError(response, "Failed to generate rewrite suggestion");
+      }
+    } catch {
+      console.error("Error generating rewrite");
+      toast.error("Failed to generate rewrite suggestion");
+    } finally {
+      setIsGeneratingRewrite(false);
+    }
+  };
+
+  // Key terms + highlighting removed per design decision (UI-only removal).
+
+  // Content section styling with semantic visual hierarchy
+  const cardSection =
+    "rounded-lg border border-border-muted bg-bg-elevated p-4";
+  const riskCardSection =
+    "rounded-lg border border-accent-rose/40 bg-accent-rose/5 p-5";
+  const relationshipCardSection =
+    "rounded-lg border border-accent-blue/40 bg-bg-elevated p-4";
+  const fullTextCardSection =
+    "rounded-lg border border-border-muted bg-bg-primary/20 p-4";
+
+  // Determine if relationships can be rendered inline (single & short)
+  const inlineRelationship =
+    selectedClause?.relationships &&
+    selectedClause.relationships.length === 1 &&
+    (selectedClause.relationships[0] || "").length <= 120
+      ? selectedClause.relationships[0]
+      : null;
+
+  const activeClauseId = selectedClause?.id || "";
+  const inSessionRewriteSuggestion = rewriteSuggestionsByClause[activeClauseId];
+  const displayedRewriteSuggestion =
+    inSessionRewriteSuggestion || selectedClause?.rewrite_suggestion;
+  const hasDisplayedRewrite = Boolean(displayedRewriteSuggestion);
+
+  // Clause Insights (fairness, negotiability, etc.) removed as they were hardcoded placeholders.
+
+  if (!selectedClause) {
+    return (
+      <Card>
+        <h2 className="font-heading text-heading-sm text-text-primary mb-4">
+          Clause Details
+        </h2>
+        <div className="text-center py-12">
+          <svg
+            className="w-12 h-12 text-text-secondary mx-auto mb-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={1.5}
+              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+            />
+          </svg>
+          <p className="text-text-secondary">
+            Select a clause to view detailed analysis
+          </p>
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      {/* Back Button + Title */}
+      {onBack ? (
+        <div className="flex items-center gap-2 mb-4">
+          <button
+            onClick={onBack}
+            className="p-1 rounded-md hover:bg-bg-elevated transition-colors focus:outline-none focus:ring-2 focus:ring-accent-purple focus:ring-offset-2"
+            aria-label="Back to clauses"
+          >
+            <svg
+              className="w-4 h-4 text-text-secondary hover:text-accent-purple transition-colors"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M15 19l-7-7 7-7"
+              />
+            </svg>
+          </button>
+          <h2 className="font-heading text-heading-sm text-text-primary">
+            Clause Details
+          </h2>
+        </div>
+      ) : (
+        <h2 className="font-heading text-heading-sm text-text-primary mb-4">
+          Clause Details
+        </h2>
+      )}
+
+      <div className="space-y-5 pb-6">
+        {/* bottom padding to not hide content behind sticky bar */}
+
+        {/* Clause Header */}
+        <div>
+          <div className="flex items-start justify-between mb-2">
+            <div className="flex-1">
+              <h3 className="font-medium text-text-primary">
+                {selectedClause.heading ||
+                  `${getClauseTypeLabel(selectedClause.clause_type)} Clause`}
+              </h3>
+            </div>
+            <div
+              className={`px-3 py-1 rounded-full text-sm font-medium border ${getRiskColor(
+                selectedClause.risk_level,
+              )}`}
+            >
+              {selectedClause.risk_level
+                ? selectedClause.risk_level.charAt(0).toUpperCase() +
+                  selectedClause.risk_level.slice(1)
+                : "Unknown"}{" "}
+              Risk
+            </div>
+          </div>
+          {/* Meta + compact actions row */}
+          <div className="flex items-start justify-between gap-3 mb-6">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-text-secondary bg-bg-elevated px-2 py-1 rounded">
+                {getClauseTypeLabel(selectedClause.clause_type)}
+              </span>
+              {typeof selectedClause.position_start === "number" && (
+                <span
+                  title="Clause position in document"
+                  className="text-xs text-text-secondary bg-bg-elevated px-2 py-1 rounded border border-border-muted"
+                >
+                  Pos {selectedClause.position_start}
+                  {typeof selectedClause.position_end === "number" &&
+                    selectedClause.position_end !==
+                      selectedClause.position_start && (
+                      <>–{selectedClause.position_end}</>
+                    )}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {selectedClause.id && hasNotes(selectedClause.id) && (
+                <button
+                  onClick={toggleNotesDrawer}
+                  className="text-xs bg-accent-blue/10 text-accent-blue px-2 py-1 rounded-full border border-accent-blue/20 hover:bg-accent-blue/15 transition-colors cursor-pointer"
+                  title="Click to view/edit notes"
+                  aria-expanded={isNotesDrawerOpen}
+                  aria-label={`${getNotesCount(selectedClause.id)} note${
+                    getNotesCount(selectedClause.id) !== 1 ? "s" : ""
+                  }, click to ${isNotesDrawerOpen ? "close" : "open"}`}
+                >
+                  📝 {getNotesCount(selectedClause.id)} Note
+                  {getNotesCount(selectedClause.id) !== 1 ? "s" : ""}{" "}
+                  {isNotesDrawerOpen ? "▲" : "▼"}
+                </button>
+              )}
+              <button
+                onClick={() => handleAddNote()}
+                className="text-xs px-2 py-1 rounded-full border border-border-muted bg-bg-elevated text-text-secondary hover:bg-bg-elevated/80 transition-colors"
+              >
+                ✚ Add Note
+              </button>
+              <button
+                onClick={(event) => onFlagForReview(selectedClause, event)}
+                className={`text-xs px-2 py-1 rounded-full border transition-colors ${
+                  flaggedClauses.has(selectedClause.id || "")
+                    ? "border-accent-rose/40 bg-accent-rose/10 text-accent-rose hover:bg-accent-rose/15"
+                    : "border-border-muted bg-bg-elevated text-text-secondary hover:bg-bg-elevated/80"
+                }`}
+                title={
+                  flaggedClauses.has(selectedClause.id || "")
+                    ? "Remove flag from this clause"
+                    : "Flag this clause for legal review"
+                }
+                aria-pressed={flaggedClauses.has(selectedClause.id || "")}
+              >
+                {flaggedClauses.has(selectedClause.id || "")
+                  ? "🚩 Unflag"
+                  : "🚩 Flag"}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Notes Drawer - Only render when actually open */}
+        {selectedClause.id &&
+          hasNotes(selectedClause.id) &&
+          isNotesDrawerOpen && (
+            <div className="mb-4 animate-in slide-in-from-top-2 duration-200">
+              <div className="bg-accent-blue/5 border border-accent-blue/20 rounded-lg p-4">
+                {/* Notes Header with Add Button */}
+                <div className="mb-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-accent-blue">
+                      Notes
+                    </span>
+                    <button
+                      onClick={handleAddNote}
+                      className="flex items-center justify-center w-6 h-6 text-accent-blue hover:bg-accent-blue/10 rounded-full transition-colors"
+                      title="Add note"
+                    >
+                      <svg
+                        className="w-4 h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 4v16m8-8H4"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Notes List */}
+                <div className="space-y-3 max-h-60 overflow-y-auto">
+                  {getAllNotes(selectedClause.id).length > 0 ? (
+                    getAllNotes(selectedClause.id)
+                      .filter((note) => note && note.id && note.text)
+                      .map((note) => {
+                        if (!note || !note.id || !note.text) {
+                          return null;
+                        }
+
+                        // Format date - relative if today, absolute otherwise
+                        const noteDate = note.created_at
+                          ? new Date(note.created_at)
+                          : new Date();
+                        const now = new Date();
+                        const isToday =
+                          noteDate.toDateString() === now.toDateString();
+                        const formattedDate = isToday
+                          ? `Today ${noteDate.toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}`
+                          : `${noteDate.toLocaleDateString()} ${noteDate.toLocaleTimeString(
+                              [],
+                              {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              },
+                            )}`;
+
+                        return (
+                          <div
+                            key={note.id}
+                            className="border border-border-muted rounded-lg p-2.5 bg-bg-elevated hover:shadow-sm transition-shadow group"
+                          >
+                            <div className="flex items-start justify-between mb-0.5">
+                              <span className="text-xs text-text-secondary">
+                                {formattedDate}
+                              </span>
+                              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button
+                                  onClick={() => handleEditNote(note)}
+                                  className="p-1 hover:bg-accent-blue/10 rounded text-accent-blue transition-colors"
+                                  title="Edit note"
+                                >
+                                  ✏️
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteNote(note.id)}
+                                  className="p-1 hover:bg-accent-rose/10 rounded text-accent-rose transition-colors"
+                                  title="Delete note"
+                                >
+                                  🗑️
+                                </button>
+                              </div>
+                            </div>
+                            <div className="text-sm text-text-primary leading-relaxed">
+                              {/* Truncate long notes to 3 lines */}
+                              <div className="line-clamp-3">{note.text}</div>
+                            </div>
+                          </div>
+                        );
+                      })
+                      .filter(Boolean)
+                  ) : (
+                    <div className="text-center py-6">
+                      <div className="text-accent-blue text-2xl mb-2">✔️</div>
+                      <p className="text-sm text-text-secondary mb-2">
+                        No notes yet
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="tertiary"
+                        onClick={handleAddNote}
+                        className="text-accent-blue hover:bg-accent-blue/10"
+                      >
+                        Add your first note
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+        {/* Risk Assessment */}
+        {selectedClause.risk_assessment && (
+          <div className={riskCardSection}>
+            <h4 className="font-semibold text-accent-rose text-base tracking-wide uppercase mb-2">
+              Risk Assessment
+            </h4>
+            <p className="text-text-secondary text-sm leading-relaxed">
+              {selectedClause.risk_assessment}
+            </p>
+          </div>
+        )}
+
+        {/* Inline single relationship (placed above Risk Reasoning) */}
+        {inlineRelationship && (
+          <div className="mt-3 mb-2 text-sm text-text-secondary">
+            <span className="uppercase tracking-wide text-[11px] font-medium text-accent-blue mr-1">
+              Relationship:
+            </span>
+            {inlineRelationship}
+          </div>
+        )}
+
+        {/* LLM Risk Reasoning */}
+        {selectedClause.risk_reasoning && (
+          <div className={riskCardSection}>
+            <h4 className="font-semibold text-accent-rose text-base tracking-wide uppercase mb-2">
+              Risk Reasoning
+            </h4>
+            <p className="text-text-secondary text-sm leading-relaxed whitespace-pre-line">
+              {selectedClause.risk_reasoning}
+            </p>
+          </div>
+        )}
+
+        {/* Key Terms section removed */}
+
+        {/* Relationships - adaptive: card for multiple/long; inline moved to bottom */}
+        {!inlineRelationship &&
+          selectedClause.relationships &&
+          selectedClause.relationships.length > 0 && (
+            <div className={relationshipCardSection}>
+              <h4 className="font-medium text-accent-blue text-sm tracking-wide uppercase mb-2">
+                Clause Relationships
+              </h4>
+              <ul className="space-y-1">
+                {selectedClause.relationships.map(
+                  (rel: string, idx: number) => (
+                    <li
+                      key={idx}
+                      className="flex items-start gap-2 text-sm text-text-secondary"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-accent-blue mt-2 flex-shrink-0"></span>
+                      {rel}
+                    </li>
+                  ),
+                )}
+              </ul>
+            </div>
+          )}
+
+        {/* Key Points */}
+        {selectedClause.key_points && selectedClause.key_points.length > 0 && (
+          <div className={cardSection}>
+            <h4 className="font-medium text-text-primary mb-2 text-sm tracking-wide uppercase">
+              Key Points
+            </h4>
+            <ul className="space-y-1">
+              {selectedClause.key_points.map((point: string, index: number) => (
+                <li
+                  key={index}
+                  className="flex items-start gap-2 text-sm text-text-secondary"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-accent-purple mt-2 flex-shrink-0"></span>
+                  {point}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Recommendations */}
+        {selectedClause.recommendations &&
+          selectedClause.recommendations.length > 0 && (
+            <div className={cardSection}>
+              <h4 className="font-medium text-text-primary mb-2 text-sm tracking-wide uppercase">
+                Recommendations
+              </h4>
+              <ul className="space-y-2">
+                {selectedClause.recommendations.map(
+                  (rec: string, index: number) => (
+                    <li key={index} className="flex items-start gap-2 text-sm">
+                      <span className="w-5 h-5 rounded-full bg-accent-green/20 text-accent-green flex items-center justify-center text-xs font-medium mt-0.5 flex-shrink-0">
+                        ✓
+                      </span>
+                      <span className="text-text-secondary">{rec}</span>
+                    </li>
+                  ),
+                )}
+              </ul>
+            </div>
+          )}
+
+        {/* Industry Benchmark section removed (was placeholder/fabricated) */}
+
+        {/* Clause Insights removed */}
+
+        {/* Full Clause Text */}
+        <div className={fullTextCardSection}>
+          <div className="mb-2">
+            <h4 className="font-medium text-text-primary text-sm tracking-wide uppercase mb-0">
+              Full Text
+            </h4>
+          </div>
+          <div className="rounded p-3 bg-bg-primary/40 max-h-56 overflow-y-auto text-sm text-text-secondary leading-relaxed whitespace-pre-wrap">
+            {selectedClause.text}
+          </div>
+        </div>
+
+        {/* Rewrite Suggestion */}
+        {hasDisplayedRewrite && (
+          <div className={fullTextCardSection}>
+            <div className="mb-2">
+              <h4 className="font-medium text-text-primary text-sm tracking-wide uppercase mb-0">
+                Rewriting Suggestion
+              </h4>
+            </div>
+            <div className="rounded p-3 bg-accent-blue/10 border border-accent-blue/20 max-h-56 overflow-y-auto text-sm text-text-secondary leading-relaxed whitespace-pre-wrap">
+              {displayedRewriteSuggestion}
+            </div>
+          </div>
+        )}
+
+        {/* Suggest Rewrite Button */}
+        {!hasDisplayedRewrite && (
+          <div className="flex justify-center pt-4">
+            <Button
+              onClick={handleGenerateRewrite}
+              disabled={isGeneratingRewrite}
+              variant="secondary"
+              size="sm"
+              className="flex items-center gap-2"
+            >
+              {isGeneratingRewrite ? (
+                <>
+                  <svg
+                    className="animate-spin -ml-1 mr-2 h-4 w-4 text-white"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    ></circle>
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    ></path>
+                  </svg>
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                    />
+                  </svg>
+                  Suggest Rewrite
+                </>
+              )}
+            </Button>
+          </div>
+        )}
+
+        {/* Inline relationship moved above Risk Reasoning */}
+      </div>
+
+      {/* Former sticky action bar removed; actions now inline under header */}
+
+      {/* Custom Note Input Modal */}
+      <TextInputModal
+        isOpen={isNoteModalOpen}
+        onClose={() => {
+          setIsNoteModalOpen(false);
+          setEditingNote(null);
+        }}
+        onSubmit={handleNoteSubmit}
+        title={editingNote ? "Edit note" : "Add a note for this clause"}
+        placeholder={editingNote ? "Edit your note..." : "Enter your note..."}
+        submitButtonText={editingNote ? "Save Changes" : "Add Note"}
+        cancelButtonText="Cancel"
+        initialValue={editingNote?.text || ""}
+      />
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => {
+          setIsDeleteModalOpen(false);
+          setNoteToDelete(null);
+        }}
+        onConfirm={confirmDeleteNote}
+        title="Delete note?"
+        message="Are you sure you want to delete this note? This action cannot be undone."
+        confirmButtonText="Delete"
+        cancelButtonText="Cancel"
+        variant="danger"
+      />
+    </Card>
+  );
+}

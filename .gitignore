@@ -1,0 +1,93 @@
+# Secrets and local environment configuration
+.env
+.env.*
+**/.env
+**/.env.*
+!backend/.env.example
+!frontend/.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+**/credentials*.json
+**/service-account*.json
+
+# Local agent state and transient handovers
+.agents/
+.codex/
+.claude/
+.cursor/
+.playwright-cli/
+.local-only/
+documentation/AI_AGENT_HANDOVER_REPORT.md
+documentation/HANDOVER_CHECKLIST.md
+
+# Dependencies and virtual environments
+node_modules/
+**/node_modules/
+.venv/
+venv/
+**/.venv/
+**/venv/
+
+# Python caches and packaging output
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.egg-info/
+
+# JavaScript and TypeScript build output
+.next/
+**/.next/
+out/
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+coverage/
+.nyc_output/
+
+# Runtime data and user documents
+backend/documents_storage/
+documents_storage/
+backups/
+certbot/
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs, reports, and generated captures
+/logs/
+/backend/logs/
+*.log
+*.log.*
+test-results/
+playwright-report/
+artifacts/
+screenshots/
+tempimages/
+
+# Editor and operating-system files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-*
+.DS_Store
+._*
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak

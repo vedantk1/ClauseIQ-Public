@@ -1,0 +1,46 @@
+# Web framework and request handling
+fastapi==0.141.1
+starlette==1.6.0
+uvicorn==0.52.4
+python-multipart==0.0.32
+pydantic==2.13.5
+pydantic-settings==2.15.0
+
+# Database
+pymongo==4.18.0
+motor==3.7.1
+
+# Authentication and encryption
+PyJWT==2.13.0
+passlib[bcrypt]==1.7.4
+# Passlib 1.7.4 expects bcrypt's legacy version metadata, removed in 4.1+.
+bcrypt==4.0.1
+cryptography==50.0.1
+
+# Email
+aiosmtplib==5.1.2
+email-validator==2.3.0
+certifi==2026.7.22
+
+# PDF extraction and report generation
+pdfplumber==0.11.10
+reportlab==5.0.1
+
+# AI and vector search
+# Stay on the latest compatible OpenAI Python 1.x release until a deliberate
+# SDK v2 migration is tested against the application's request paths.
+openai==1.109.1
+tiktoken==0.14.0
+qdrant-client==1.19.0
+numpy==2.5.2
+
+# Configuration and diagnostics
+python-dotenv==1.2.3
+psutil==7.2.2
+
+# Tests
+pytest==9.1.1
+pytest-asyncio==1.4.0
+
+# Local shared types package (editable install for single-dev workflow)
+-e ../shared

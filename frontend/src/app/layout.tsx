@@ -1,0 +1,57 @@
+import "./globals.css";
+import { Inter, Space_Grotesk } from "next/font/google";
+import { AppStateProvider } from "@/store/appState";
+import { AuthProvider } from "@/context/AuthContext";
+import { AnalysisProvider } from "@/context/AnalysisContext";
+import ConditionalNavBar from "@/components/ConditionalNavBar";
+import ThemeProvider from "@/components/ThemeProvider";
+import ToasterProvider from "@/components/ToasterProvider";
+import { ErrorBoundary } from "@/components/ui";
+
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+  display: "swap",
+});
+
+const spaceGrotesk = Space_Grotesk({
+  subsets: ["latin"],
+  variable: "--font-space-grotesk",
+  display: "swap",
+});
+
+export const metadata = {
+  title: "ClauseIQ - Contract Analysis Platform",
+  description:
+    "Understand any employment contract in minutes with AI-powered analysis",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html lang="en" data-theme="dark">
+      <body
+        className={`${inter.variable} ${spaceGrotesk.variable} font-sans bg-bg-primary text-text-primary antialiased`}
+      >
+        <AppStateProvider>
+          <ThemeProvider>
+            <AuthProvider>
+              <AnalysisProvider>
+                <ErrorBoundary>
+                  <div className="min-h-screen flex flex-col">
+                    <ConditionalNavBar />
+                    <main className="flex-1">{children}</main>
+                  </div>
+                </ErrorBoundary>
+                <ToasterProvider />
+              </AnalysisProvider>
+            </AuthProvider>
+          </ThemeProvider>
+        </AppStateProvider>
+      </body>
+    </html>
+  );
+}

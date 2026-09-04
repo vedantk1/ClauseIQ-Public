@@ -1,0 +1,51 @@
+# ClauseIQ Docker Compose - Development Mode
+#
+# This file runs ONLY the infrastructure services (MongoDB, Qdrant)
+# while you run the frontend and backend locally for hot-reloading.
+#
+# Usage:
+#   docker-compose -f docker-compose.dev.yml up -d
+#
+# Then run locally:
+#   Terminal 1: cd backend && source venv/bin/activate && uvicorn main:app --reload
+#   Terminal 2: cd frontend && npm run dev
+
+services:
+  # ============================================
+  # MongoDB - Document Database
+  # ============================================
+  mongodb:
+    image: mongo:7
+    container_name: clauseiq-mongodb-dev
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - mongodb_data_dev:/data/db
+    restart: unless-stopped
+    networks:
+      - clauseiq-dev-network
+
+  # ============================================
+  # Qdrant - Vector Database
+  # ============================================
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: clauseiq-qdrant-dev
+    ports:
+      - "127.0.0.1:6333:6333"   # REST API
+      - "127.0.0.1:6334:6334"   # gRPC API
+    volumes:
+      - qdrant_data_dev:/qdrant/storage
+    restart: unless-stopped
+    networks:
+      - clauseiq-dev-network
+
+networks:
+  clauseiq-dev-network:
+    driver: bridge
+
+volumes:
+  mongodb_data_dev:
+    driver: local
+  qdrant_data_dev:
+    driver: local

@@ -1,0 +1,142 @@
+# ClauseIQ Docker Compose Configuration
+# Full-stack development environment with all services
+#
+# Usage:
+#   docker-compose up -d              # Start all services
+#   docker-compose up -d --build      # Rebuild and start
+#   docker-compose down               # Stop all services
+#   docker-compose logs -f backend    # Follow backend logs
+#   docker-compose ps                 # List running services
+
+services:
+  # ============================================
+  # Frontend - Next.js 15 + React 19
+  # ============================================
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: clauseiq-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_ENVIRONMENT=development
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - clauseiq-network
+
+  # ============================================
+  # Backend - FastAPI + Python 3.13
+  # ============================================
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: clauseiq-backend
+    ports:
+      - "8000:8000"
+    environment:
+      # Database
+      - MONGODB_URI=mongodb://mongodb:27017
+      - MONGODB_DATABASE=clauseiq
+      # Vector Store (Qdrant)
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      # Server
+      - HOST=0.0.0.0
+      - PORT=8000
+      # CORS
+      - CORS_ORIGINS=http://localhost:3000,http://frontend:3000
+    env_file:
+      - ./backend/.env
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    volumes:
+      # Persist uploaded documents
+      - backend_storage:/app/backend/documents_storage
+      - backend_logs:/app/backend/logs
+    restart: unless-stopped
+    networks:
+      - clauseiq-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ============================================
+  # MongoDB - Document Database
+  # ============================================
+  mongodb:
+    image: mongo:7
+    container_name: clauseiq-mongodb
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+    restart: unless-stopped
+    networks:
+      - clauseiq-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ============================================
+  # Qdrant - Vector Database
+  # ============================================
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: clauseiq-qdrant
+    ports:
+      - "127.0.0.1:6333:6333"   # REST API
+      - "127.0.0.1:6334:6334"   # gRPC API
+    volumes:
+      - qdrant_data:/qdrant/storage
+      - qdrant_snapshots:/qdrant/snapshots
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    restart: unless-stopped
+    networks:
+      - clauseiq-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:6333/readyz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+# ============================================
+# Networks
+# ============================================
+networks:
+  clauseiq-network:
+    driver: bridge
+
+# ============================================
+# Volumes
+# ============================================
+volumes:
+  mongodb_data:
+    driver: local
+  mongodb_config:
+    driver: local
+  qdrant_data:
+    driver: local
+  qdrant_snapshots:
+    driver: local
+  backend_storage:
+    driver: local
+  backend_logs:
+    driver: local

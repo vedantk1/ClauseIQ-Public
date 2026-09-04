@@ -1,0 +1,38 @@
+{
+  "name": "clauseiq",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ClauseIQ - AI-powered contract analysis platform",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd backend && venv/bin/python -m uvicorn main:app --port 8000 --reload",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "setup": "npm run setup:backend && npm run setup:shared && npm run setup:frontend",
+    "setup:backend": "cd backend && python3.13 -m venv venv && venv/bin/python -m pip install -r requirements.txt",
+    "setup:shared": "npm --prefix shared ci && npm --prefix shared run build",
+    "setup:frontend": "npm --prefix frontend ci",
+    "test": "npm run test:backend",
+    "test:backend": "cd backend && venv/bin/python -m pytest tests -v",
+    "lint": "npm --prefix frontend run lint",
+    "typecheck": "npm --prefix frontend run typecheck",
+    "build": "npm run build:shared && npm run build:frontend",
+    "build:shared": "npm --prefix shared run build",
+    "build:frontend": "npm --prefix frontend run build",
+    "check": "npm run test:backend && npm run build:shared && npm run typecheck && npm run lint && npm run build:frontend"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=24.0.0",
+    "python3": ">=3.13.0"
+  },
+  "keywords": [
+    "ai",
+    "contract-analysis",
+    "legal-tech",
+    "nlp",
+    "document-processing"
+  ],
+  "license": "UNLICENSED"
+}
