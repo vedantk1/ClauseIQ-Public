@@ -30,6 +30,7 @@ class DocumentDetailResponse(BaseModel):
     text: str
     ai_full_summary: Optional[str] = None
     ai_structured_summary: Optional[Dict[str, Any]] = None
+    analysis_generation: Optional[Dict[str, Any]] = None
     summary: Optional[str] = None
     clauses: Optional[List[Clause]] = None
     risk_summary: Optional[RiskSummary] = None
@@ -51,6 +52,7 @@ class AnalyzeDocumentResponse(BaseModel):
     full_text: str
     summary: str
     ai_structured_summary: Optional[Dict[str, Any]] = None
+    analysis_generation: Optional[Dict[str, Any]] = None
     clauses: List[Clause]
     total_clauses: int
     risk_summary: RiskSummary

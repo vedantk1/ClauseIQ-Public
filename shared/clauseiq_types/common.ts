@@ -117,6 +117,7 @@ export interface Clause {
   // Rewrite suggestion fields (optional)
   rewrite_suggestion?: string;
   rewrite_generated_at?: string;
+  rewrite_generation?: Record<string, unknown> | null;
 }
 
 export interface RiskSummary {
@@ -129,6 +130,15 @@ export interface AvailableModel {
   id: string;
   name: string;
   description: string;
+  context_window: number;
+  max_output_tokens: number;
+  reasoning_efforts: string[];
+  default_reasoning_effort: string;
+  input_price_per_million: number;
+  output_price_per_million: number;
+  pricing_verified_on: string;
+  pricing_note: string;
+  legacy: boolean;
 }
 
 export interface Note {
@@ -154,6 +164,7 @@ export interface Document {
   text?: string | null;
   ai_full_summary?: string | null;
   ai_structured_summary?: Record<string, unknown> | null;
+  analysis_generation?: Record<string, unknown> | null;
   clauses?: Clause[] | null;
   risk_summary?: RiskSummary | null;
   workspace_id: string;

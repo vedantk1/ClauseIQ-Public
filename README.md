@@ -51,12 +51,18 @@ and reports remain usable without an AI key.
 
 ## Validation
 
+For routine development, run the tests and type/lint checks affected by the change.
+Batch broader manual UI testing and production builds at meaningful checkpoints;
+neither is required after every small implementation. The complete checkpoint is:
+
 ~~~bash
 npm run check
 ~~~
 
 This runs deterministic backend/frontend tests, shared-type build, frontend
 type checking, lint and production build. It does not call paid AI services.
+See docs/DEVELOPMENT.md for the incremental workflow. Reviewed synthetic PDFs
+and their reproducible sources are in tests/fixtures/pdfs.
 
 ## Documentation
 
@@ -71,8 +77,10 @@ type checking, lint and production build. It does not call paid AI services.
 ## Project status and licensing
 
 Active local development is the priority. There is no supported hosted production
-environment, deployment workflow or CI pipeline. Model support remains the
-existing GPT-5, GPT-5 Mini and GPT-5 Nano catalog for now.
+environment, deployment workflow or CI pipeline. Settings offers GPT-5.6 Luna,
+Terra and Sol, plus GPT-5 Mini and Nano for development/testing. Luna is the
+default when no model selection is saved; existing explicit selections are
+preserved. Choose more expensive models deliberately; there is no model fallback.
 
 No open-source license has been selected. Until one is added, the repository is
 UNLICENSED and no permission to copy, modify or redistribute the code is granted.

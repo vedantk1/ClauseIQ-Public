@@ -1,20 +1,48 @@
+"""Canonical catalog; API metadata verified against OpenAI docs on 2026-09-18.
+
+https://developers.openai.com/api/docs/models
+Provider capacity is not an application spending budget.
 """
-AI Model Configuration
-Centralized configuration for available AI models and their descriptions.
-The local operator selects the model in workspace Settings.
-"""
-from typing import Dict, List, Optional
-from dataclasses import dataclass
+from typing import Any
+from dataclasses import asdict, dataclass
 from pydantic import BaseModel
 
+CATALOG_VERIFIED_ON = "2026-09-18"
+DEFAULT_MODEL = "gpt-5.6-luna"
+DEFAULT_QUERY_GATE_MODEL = "gpt-5-nano"
+_NEW_EFFORTS = ("none", "low", "medium", "high", "xhigh", "max")
+_OLD_EFFORTS = ("minimal", "low", "medium", "high")
+_BASE_PRICE_NOTE = (
+    "Standard USD rates per million tokens, not a per-document estimate. "
+    "Reasoning tokens are billed as output. Caching, service tiers and token "
+    "usage affect the bill; check OpenAI pricing before a paid evaluation."
+)
+_LONG_PRICE_NOTE = (
+    " Above 272,000 input tokens, the full request uses 2x input and 1.5x "
+    "output rates. Cache writes cost 1.25x uncached input."
+)
 
-@dataclass
+
+@dataclass(frozen=True)
 class AIModel:
     """Represents an AI model configuration."""
     id: str
     name: str
     description: str
-    is_default: bool = False
+    context_window: int
+    input_price_per_million: float
+    output_price_per_million: float
+    reasoning_efforts: tuple[str, ...] = _NEW_EFFORTS
+    max_output_tokens: int = 128_000
+    default_reasoning_effort: str = "medium"
+    tokenizer_encoding: str = "o200k_base"
+    pricing_verified_on: str = CATALOG_VERIFIED_ON
+    pricing_note: str = _BASE_PRICE_NOTE + _LONG_PRICE_NOTE
+    legacy: bool = False
+
+    @property
+    def is_default(self) -> bool:
+        return self.id == DEFAULT_MODEL
 
 
 class AIModelResponse(BaseModel):
@@ -22,51 +50,54 @@ class AIModelResponse(BaseModel):
     id: str
     name: str
     description: str
+    context_window: int
+    max_output_tokens: int
+    reasoning_efforts: list[str]
+    default_reasoning_effort: str
+    input_price_per_million: float
+    output_price_per_million: float
+    pricing_verified_on: str
+    pricing_note: str
+    legacy: bool
 
 
 class AIModelConfig:
     """Configuration class for AI models."""
 
-    # Existing catalog; refreshed separately from the workspace migration.
-    _models = [
-        AIModel(
-            id="gpt-5",
-            name="GPT-5",
-            description="Most powerful model with advanced reasoning and 1M token context window",
-            is_default=True
-        ),
-        AIModel(
-            id="gpt-5-mini",
-            name="GPT-5 Mini",
-            description="Balanced performance and cost, great for most contract analysis tasks",
-            is_default=False
-        ),
-        AIModel(
-            id="gpt-5-nano",
-            name="GPT-5 Nano",
-            description="Fastest and most cost-effective, ideal for simple queries and high volume",
-            is_default=False
-        ),
-    ]
+    _models = (
+        AIModel("gpt-5.6-luna", "GPT-5.6 Luna", "Low-cost default for everyday development.",
+                1_050_000, 0.20, 1.20),
+        AIModel("gpt-5.6-terra", "GPT-5.6 Terra", "Middle-tier option for quality and cost comparisons.",
+                1_050_000, 2.00, 12.00),
+        AIModel("gpt-5.6-sol", "GPT-5.6 Sol", "Higher-cost quality evaluation; select deliberately.",
+                1_050_000, 4.00, 20.00,
+                pricing_note=_BASE_PRICE_NOTE + _LONG_PRICE_NOTE +
+                " Sol promotional rates are available at least through 2026-11-21."),
+        AIModel("gpt-5-mini", "GPT-5 Mini", "Retained inexpensive development and comparison option.",
+                400_000, 0.25, 2.00, reasoning_efforts=_OLD_EFFORTS,
+                pricing_note=_BASE_PRICE_NOTE),
+        AIModel("gpt-5-nano", "GPT-5 Nano", "Lowest base rates in this catalog; also used for chat query preparation.",
+                400_000, 0.05, 0.40, reasoning_efforts=_OLD_EFFORTS,
+                pricing_note=_BASE_PRICE_NOTE),
+        AIModel("gpt-5", "GPT-5 (legacy)", "Preserved for existing selections; choose another model explicitly to migrate.",
+                400_000, 1.25, 10.00, reasoning_efforts=_OLD_EFFORTS,
+                pricing_note=_BASE_PRICE_NOTE, legacy=True),
+    )
 
     @classmethod
-    def get_available_models(cls) -> List[AIModel]:
+    def get_available_models(cls) -> list[AIModel]:
         """Get list of all available AI models."""
-        return cls._models.copy()
+        return list(cls._models)
 
     @classmethod
-    def get_model_ids(cls) -> List[str]:
+    def get_model_ids(cls) -> list[str]:
         """Get list of available model IDs."""
         return [model.id for model in cls._models]
 
     @classmethod
     def get_default_model(cls) -> str:
         """Get the default model ID."""
-        for model in cls._models:
-            if model.is_default:
-                return model.id
-        # Fallback to first model if no default is set
-        return cls._models[0].id if cls._models else ""
+        return DEFAULT_MODEL
 
     @classmethod
     def get_model_by_id(cls, model_id: str) -> AIModel:
@@ -74,7 +105,7 @@ class AIModelConfig:
         for model in cls._models:
             if model.id == model_id:
                 return model
-        raise ValueError(f"Model '{model_id}' not found")
+        raise ValueError("Unsupported model. Choose an available model in Settings.")
 
     @classmethod
     def is_valid_model(cls, model_id: str) -> bool:
@@ -82,19 +113,11 @@ class AIModelConfig:
         return model_id in cls.get_model_ids()
 
     @classmethod
-    def get_models_for_api(cls) -> List[Dict[str, str]]:
+    def get_models_for_api(cls) -> list[dict[str, Any]]:
         """Get models formatted for API response."""
-        return [
-            {
-                "id": model.id,
-                "name": model.name,
-                "description": model.description
-            }
-            for model in cls._models
-        ]
+        return [AIModelResponse(**asdict(model)).model_dump() for model in cls._models]
 
 
 # Module-level exports for convenient access
 AVAILABLE_MODELS = AIModelConfig.get_model_ids()
-DEFAULT_MODEL = AIModelConfig.get_default_model()
 MODEL_DESCRIPTIONS = {model.id: model.description for model in AIModelConfig.get_available_models()}

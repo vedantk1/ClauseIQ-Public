@@ -12,6 +12,8 @@ grafted, or pushed into this repository.
 - Dockerfiles, local Compose definitions, and the root .dockerignore
 - Stable architecture, API, security, development, and contributor documents
 - Stable AGENTS.md guidance that applies to the project
+- Reviewed synthetic PDF test fixtures under tests/fixtures/pdfs, together with
+  their readable source, manifest and deterministic generator
 
 ## Local only
 
@@ -25,6 +27,12 @@ grafted, or pushed into this repository.
 Use .local-only for transient project notes. Do not create broad ignore rules
 for every file containing the word agent: stable repository guidance may be
 tracked, but session-specific material may not.
+
+Synthetic fixtures are a narrow exception to the exclusion of document artifacts:
+invent all content, label it synthetic, keep personal/credential metadata out,
+and review rendered pages and extraction expectations. Do not commit uploaded
+agreements, generated review reports or fixture screenshots. Regeneration must
+not require live AI, credentials or private source documents.
 
 ## Before the first public push
 

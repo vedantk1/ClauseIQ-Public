@@ -121,6 +121,7 @@ class Clause(BaseModel):
     # Rewrite suggestion fields (optional)
     rewrite_suggestion: Optional[str] = None
     rewrite_generated_at: Optional[str] = None
+    rewrite_generation: Optional[Dict[str, Any]] = None
 
 
 class RiskSummary(BaseModel):
@@ -156,6 +157,7 @@ class Document(BaseModel):
     text: Optional[str] = None
     ai_full_summary: Optional[str] = None
     ai_structured_summary: Optional[Dict[str, Any]] = None
+    analysis_generation: Optional[Dict[str, Any]] = None
     clauses: Optional[List[Clause]] = None
     risk_summary: Optional[RiskSummary] = None
     workspace_id: str
@@ -168,6 +170,15 @@ class AvailableModel(BaseModel):
     id: str
     name: str
     description: str
+    context_window: int
+    max_output_tokens: int
+    reasoning_efforts: List[str]
+    default_reasoning_effort: str
+    input_price_per_million: float
+    output_price_per_million: float
+    pricing_verified_on: str
+    pricing_note: str
+    legacy: bool
 
 
 class UserInteractions(BaseModel):

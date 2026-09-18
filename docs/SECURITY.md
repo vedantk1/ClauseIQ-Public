@@ -57,7 +57,9 @@ period on the next cleanup run. Treat MongoDB, GridFS, vectors, logs and backups
 as sensitive. AI requests send relevant document content to OpenAI; local
 storage does not imply offline processing.
 
-Never commit credentials, contracts, exports, local state or logs. Rotate a
+Never commit credentials, real contracts, exports, local state or logs. The only
+tracked PDF exception is the reviewed synthetic test corpus described in
+REPOSITORY_POLICY.md; it contains no private source documents. Rotate a
 credential if exposed; removing a file or Git commit is not enough.
 
 ## Known limitations

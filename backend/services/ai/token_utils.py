@@ -1,259 +1,170 @@
+"""Local token estimates and configurable task budgets.
+
+Model capacity comes from the model registry. Task budgets are deliberately
+separate: choosing a larger-context model must not silently increase spending.
+Completion budgets include both visible output and reasoning tokens. Tokenizer
+counts describe plain text, not the complete provider-side chat serialization.
 """
-AI utility functions for token management and text processing.
-Extracted from ai_service.py for better maintainability.
-"""
-from typing import Dict, Any
+
+import os
+import re
+from typing import Any, Dict, Optional
+
+from dotenv import dotenv_values
+
+from ai_models.models import AIModelConfig, DEFAULT_MODEL
 
 
-def _map_model_for_tokenization(model: str) -> str:
-    """
-    Map custom model names to tiktoken-compatible model names.
-
-    Args:
-        model: The model name to map
-
-    Returns:
-        A tiktoken-compatible model name
-    """
-    # Map custom model names to tiktoken-compatible model names for token counting
-    # GPT-5 models use the same tokenizer as GPT-4
-    model_mapping = {
-        "gpt-5": "gpt-4",
-        "gpt-5-mini": "gpt-4",
-        "gpt-5-nano": "gpt-4",
-    }
-    return model_mapping.get(model, model)
+TASK_COMPLETION_BUDGETS = {
+    "classification": 1024,
+    "query_gate": 1024,
+    "query_rewrite": 2048,
+    "chat": 4000,
+    "summary": 4000,
+    "extraction": 16000,
+    "analysis": 10000,
+    "structured": 6000,
+    "rewrite": 6000,
+}
+DEFAULT_MAX_INPUT_TOKENS = 100_000
+DEFAULT_SAFETY_MARGIN = 2048
 
 
-def get_token_count(text: str, model: str = "gpt-5") -> int:
-    """
-    Get accurate token count for text using tiktoken.
-
-    Args:
-        text: Input text to count tokens for
-        model: Model name to get appropriate encoding
-
-    Returns:
-        Exact token count for the text and model
-    """
+def _positive_env_integer(name: str, default: int) -> int:
+    """Read process env before cwd .env, matching the application config source."""
+    raw = os.getenv(name)
+    if raw is None:
+        raw = dotenv_values(".env").get(name)
+    if raw is None:
+        return default
     try:
-        import tiktoken
-        # Map custom model names to tiktoken-compatible names
-        mapped_model = _map_model_for_tokenization(model)
-        encoding = tiktoken.encoding_for_model(mapped_model)
-        return len(encoding.encode(text))
-    except (ImportError, KeyError, ValueError) as e:
-        # Fallback to cl100k_base for unknown models or any other error
-        try:
-            import tiktoken
-            encoding = tiktoken.get_encoding("cl100k_base")
-            return len(encoding.encode(text))
-        except ImportError:
-            # Ultimate fallback: rough estimation
-            return len(text) // 4
+        value = int(raw)
+    except ValueError as error:
+        raise ValueError(f"{name} must be a positive integer") from error
+    if value <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+    return value
 
 
-def truncate_text_by_tokens(text: str, max_tokens: int, model: str = "gpt-5", preserve_sentences: bool = True) -> str:
+def _get_encoding(model: str):
+    """Use a native tokenizer mapping, or the registered encoding as an estimate.
+
+    Registration is checked first, so an unknown model never inherits another
+    model's limits or tokenizer. Missing tokenizer dependencies/vocabulary fail
+    visibly instead of falling back to an unreliable character-count heuristic.
     """
-    Truncate text to stay within token limit while preserving sentence boundaries when possible.
+    configuration = AIModelConfig.get_model_by_id(model)
+    import tiktoken
 
-    Args:
-        text: Input text to truncate
-        max_tokens: Maximum allowed tokens
-        model: Model to use for tokenization
-        preserve_sentences: Whether to try to preserve sentence boundaries
+    try:
+        encoding_name = tiktoken.model.encoding_name_for_model(model)
+    except KeyError:
+        encoding_name = configuration.tokenizer_encoding
+    return tiktoken.get_encoding(encoding_name)
 
-    Returns:
-        Truncated text that fits within token limit
-    """
-    if not text:
+
+def get_token_count(text: str, model: str = DEFAULT_MODEL) -> int:
+    """Estimate plain-text tokens; provider message overhead is not included."""
+    encoding = _get_encoding(model)
+    # Uploaded contracts may contain strings that resemble special tokens.
+    # They are ordinary document content, not tokenizer control instructions.
+    return len(encoding.encode(text, disallowed_special=()))
+
+
+def truncate_text_by_tokens(
+    text: str,
+    max_tokens: int,
+    model: str = DEFAULT_MODEL,
+    preserve_sentences: bool = True,
+) -> str:
+    """Return a text prefix within the local token estimate, without new text."""
+    AIModelConfig.get_model_by_id(model)
+    if max_tokens <= 0 or not text:
         return ""
 
-    current_tokens = get_token_count(text, model)
-
-    if current_tokens <= max_tokens:
+    encoding = _get_encoding(model)
+    tokens = encoding.encode(text, disallowed_special=())
+    if len(tokens) <= max_tokens:
         return text
 
-    if not preserve_sentences:
-        # Simple character-based truncation with binary search
-        try:
-            import tiktoken
-            # Map custom model names to tiktoken-compatible names
-            mapped_model = _map_model_for_tokenization(model)
-            encoding = tiktoken.encoding_for_model(mapped_model)
-            tokens = encoding.encode(text)
-            truncated_tokens = tokens[:max_tokens]
-            return encoding.decode(truncated_tokens)
-        except (ImportError, KeyError, ValueError):
-            # Fallback to character estimation
-            chars_per_token = 4
-            max_chars = max_tokens * chars_per_token
-            return text[:max_chars]
+    # A token cut can split a UTF-8 character. Drop the incomplete character
+    # rather than introduce a replacement character with a different token cost.
+    truncated = encoding.decode(tokens[:max_tokens], errors="ignore")
+    if preserve_sentences:
+        boundaries = list(re.finditer(r"[.!?][\"')\]]*(?:\s+|$)", truncated))
+        if boundaries:
+            truncated = truncated[:boundaries[-1].end()].rstrip()
 
-    # Try to preserve sentence boundaries
-    sentences = text.split('. ')
-    result = ""
-
-    for sentence in sentences:
-        candidate = result + sentence + ". " if result else sentence + ". "
-        if get_token_count(candidate, model) <= max_tokens:
-            result = candidate
-        else:
-            break
-
-    # If we couldn't fit even one sentence, fall back to character truncation
-    if not result and sentences:
-        try:
-            import tiktoken
-            # Map custom model names to tiktoken-compatible names
-            mapped_model = _map_model_for_tokenization(model)
-            encoding = tiktoken.encoding_for_model(mapped_model)
-            tokens = encoding.encode(sentences[0])
-            truncated_tokens = tokens[:max_tokens]
-            result = encoding.decode(truncated_tokens)
-        except (ImportError, KeyError, ValueError):
-            chars_per_token = 4
-            max_chars = max_tokens * chars_per_token
-            result = sentences[0][:max_chars]
-
-    return result.strip()
+    # Retokenization can change merges at the cut; never append punctuation or
+    # claim a bound without checking the exact returned string.
+    while truncated and len(encoding.encode(truncated, disallowed_special=())) > max_tokens:
+        truncated = truncated[:-1]
+    return truncated
 
 
-def calculate_token_budget(model: str = "gpt-5", response_tokens: int = 1000, safety_margin: int = None) -> int:
+def calculate_token_budget(
+    model: str = DEFAULT_MODEL,
+    response_tokens: int = 1000,
+    safety_margin: Optional[int] = None,
+) -> int:
+    """Input budget bounded by capacity and the configured development cost cap.
+
+    ``AI_MAX_INPUT_TOKENS`` limits the entire estimated input; callers still
+    subtract their system prompts and other message content from this budget.
+    The safety margin covers estimation/message overhead, not output tokens.
     """
-    Calculate maximum input tokens based on model context window and required response tokens.
-
-    Args:
-        model: Model name to get context window for
-        response_tokens: Tokens reserved for model response
-        safety_margin: Additional safety buffer (defaults to 10% of context)
-
-    Returns:
-        Maximum input tokens available
-    """
-    # Model context windows
-    context_windows = {
-        "gpt-4": 8192,
-        "gpt-5": 1000000,
-        "gpt-5-mini": 500000,
-        "gpt-5-nano": 128000,
-    }
-
-    max_context = context_windows.get(model, 8192)  # Default to GPT-4 context
-
+    configuration = AIModelConfig.get_model_by_id(model)
+    if response_tokens < 0:
+        raise ValueError("response_tokens must not be negative")
     if safety_margin is None:
-        safety_margin = max(int(max_context * 0.1), 100)  # 10% safety margin, minimum 100 tokens
-
-    available_tokens = max_context - response_tokens - safety_margin
-
-    return max(available_tokens, 100)  # Ensure minimum 100 tokens
-
-
-def get_optimal_response_tokens(use_case: str, model: str = "gpt-5") -> int:
-    """
-    Get optimal response token allocation for different use cases and models.
-
-    Note:
-        The returned token count will not exceed the model's maximum completion token limit (`max_completion`).
-
-    Args:
-        use_case: Type of analysis (summary, extraction, classification, etc.)
-        model: Model being used
-
-    Returns:
-        Optimal response token count (respects model limits and enforces max_completion constraint)
-    """
-    # Base allocations by use case
-    base_allocations = {
-        "classification": 50,      # Simple classification tasks
-        "summary": 2000,          # Comprehensive document summaries
-        "extraction": 8000,       # Detailed clause extraction with relationships (RESTORED)
-        "analysis": 5000,         # Deep legal analysis and risk assessment (RESTORED)
-        "structured": 3000,       # Structured JSON responses (RESTORED)
-    }
-
-    base_tokens = base_allocations.get(use_case, 1000)
-
-    # Model context windows and MAX COMPLETION TOKENS
-    model_limits = {
-        "gpt-4": {"context": 8192, "max_completion": 4096},
-        "gpt-5": {"context": 1000000, "max_completion": 32768},
-        "gpt-5-mini": {"context": 500000, "max_completion": 32768},
-        "gpt-5-nano": {"context": 128000, "max_completion": 16384},
-    }
-
-    model_info = model_limits.get(model, {"context": 8192, "max_completion": 4096})
-    model_context = model_info["context"]
-    max_completion = model_info["max_completion"]
-
-    # Scale up response tokens for high-capacity models
-    if model_context >= 128000:  # Modern high-capacity
-        multiplier = 2.0  # Can afford much richer responses
-    elif model_context >= 32000:  # Mid-capacity
-        multiplier = 1.5
-    else:  # Legacy models
-        multiplier = 1.0
-
-    optimal_tokens = int(base_tokens * multiplier)
-
-    # ENFORCE MODEL COMPLETION LIMITS
-    return min(optimal_tokens, max_completion)
+        safety_margin = DEFAULT_SAFETY_MARGIN
+    if safety_margin < 0:
+        raise ValueError("safety_margin must not be negative")
+    input_cap = _positive_env_integer("AI_MAX_INPUT_TOKENS", DEFAULT_MAX_INPUT_TOKENS)
+    available = configuration.context_window - response_tokens - safety_margin
+    return max(0, min(input_cap, available))
 
 
-def get_model_capabilities(model: str = "gpt-5") -> Dict[str, Any]:
-    """
-    Get detailed capabilities for a given model to show users what ClauseIQ can do.
-    """
+def get_optimal_response_tokens(use_case: str, model: str = DEFAULT_MODEL) -> int:
+    """Get a task completion budget, including reasoning, clamped to capacity."""
+    configuration = AIModelConfig.get_model_by_id(model)
+    if use_case not in TASK_COMPLETION_BUDGETS:
+        raise ValueError(f"Unknown AI task budget: {use_case}")
+    budget = _positive_env_integer(
+        f"AI_{use_case.upper()}_MAX_COMPLETION_TOKENS",
+        TASK_COMPLETION_BUDGETS[use_case],
+    )
+    return min(budget, configuration.max_output_tokens)
+
+
+def get_model_capabilities(model: str = DEFAULT_MODEL) -> Dict[str, Any]:
+    """Report model limits and task budgets without document-quality guarantees."""
+    configuration = AIModelConfig.get_model_by_id(model)
     capabilities = {}
-
-    # Calculate capabilities for each use case
-    use_cases = ["classification", "summary", "extraction", "analysis", "structured"]
-
-    for use_case in use_cases:
+    for use_case in TASK_COMPLETION_BUDGETS:
         response_tokens = get_optimal_response_tokens(use_case, model)
-        input_tokens = calculate_token_budget(model, response_tokens=response_tokens)
-
-        # Estimate document capacity
-        chars_capacity = input_tokens * 4  # Conservative estimate
-        pages_capacity = chars_capacity / 2000  # ~2000 chars per page
-
         capabilities[use_case] = {
             "response_tokens": response_tokens,
-            "input_tokens": input_tokens,
-            "estimated_pages": round(pages_capacity, 1),
-            "estimated_characters": chars_capacity
+            "input_tokens": calculate_token_budget(model, response_tokens),
         }
-
     return {
         "model": model,
-        "total_context": calculate_token_budget(model, 0, 0) + 1000,  # Approximate total
+        "total_context": configuration.context_window,
+        "max_output_tokens": configuration.max_output_tokens,
+        "tokenizer_encoding": configuration.tokenizer_encoding,
+        "token_counts_are_estimates": True,
         "capabilities": capabilities,
-        "competitive_advantage": f"Can analyze {capabilities['extraction']['estimated_pages']:.0f}+ page contracts in full detail"
     }
 
 
 def print_model_comparison():
-    """Print a comparison of model capabilities for strategic planning"""
-    # Only GPT-5 is available in the application
-    models = ["gpt-5"]
-
-    print("\n🚀 ClauseIQ Model Capabilities Analysis")
-    print("=" * 80)
-
-    for model in models:
-        caps = get_model_capabilities(model)
-        extraction_caps = caps["capabilities"]["extraction"]
-
-        print(f"\n📊 {model.upper()}:")
-        print(f"   Contract Analysis: Up to {extraction_caps['estimated_pages']:.0f} pages")
-        print(f"   Detailed Extraction: {extraction_caps['response_tokens']:,} response tokens")
-        print(f"   Input Capacity: {extraction_caps['input_tokens']:,} tokens")
-        print(f"   {caps['competitive_advantage']}")
-
-    print("\n💡 Strategic Advantage:")
-    best_model = get_model_capabilities("gpt-5")
-    best_pages = best_model["capabilities"]["extraction"]["estimated_pages"]
-    print(f"   - Analyze entire {best_pages:.0f}+ page contracts without truncation")
-    print(f"   - Comprehensive clause relationship analysis")
-    print(f"   - Professional-grade legal insights")
-    print(f"   - Competitive differentiation: 'Full document analysis, not snippets'")
+    """Print registry capacities and configured budgets for local diagnostics."""
+    for configuration in AIModelConfig.get_available_models():
+        capabilities = get_model_capabilities(configuration.id)
+        extraction = capabilities["capabilities"]["extraction"]
+        print(
+            f"{configuration.id}: context={capabilities['total_context']:,}; "
+            f"extraction input budget={extraction['input_tokens']:,}; "
+            f"completion budget={extraction['response_tokens']:,} "
+            "(including reasoning)"
+        )

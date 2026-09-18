@@ -69,6 +69,7 @@ data
 docs
 documentation
 backend/tests
+tests/fixtures
 docker-compose*.yml
 AGENTS.md
 *.md

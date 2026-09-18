@@ -13,20 +13,26 @@ branch protection and continuous integration are configured.
 
 ## Validation
 
-Run the full deterministic check:
+For routine changes, run focused tests and affected type/lint checks:
+
+~~~bash
+npm run test:backend
+npm run test:frontend
+npm run typecheck
+npm run lint
+~~~
+
+Narrow the test selection further when appropriate. Batch broader manual UI
+testing and production builds after several related changes or at a substantial
+milestone. Run the complete checkpoint when due:
 
 ~~~bash
 npm run check
 ~~~
 
-Or run focused checks:
-
-~~~bash
-npm run test
-npm run typecheck
-npm run lint
-npm run build
-~~~
+Build sooner for build-specific risks; still run targeted safety checks when
+migration, persistence, access or credential handling changes. See DEVELOPMENT.md
+for the cadence and synthetic PDF fixtures. Report deferred checks clearly.
 
 Tests that call live AI services must not run in the default suite. Use mocks
 for deterministic behavior; keep paid, live-model evaluations manual,

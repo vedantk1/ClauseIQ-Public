@@ -32,7 +32,15 @@ Settings through request-scoped client handling.
 - Check whether local services are already running before starting them.
 - Run application servers in development mode during local development.
 - Update relevant documentation whenever behavior or setup changes.
-- Run migrations and smoke checks when a change introduces or affects them.
+- Use focused automated tests for routine changes, plus affected type/lint checks.
+  Batch broader manual UI testing and full production builds at meaningful
+  milestones or after several related changes; do not repeat them for every edit.
+  Build earlier only when bundling, dependencies, shared output or another
+  build-specific risk requires it. Keep development servers hot-reloading.
+- Run targeted migration/storage smoke checks when those paths change. These
+  safety checks are not deferred just because general UI testing is batched.
+- Use the reviewed synthetic PDFs in tests/fixtures/pdfs for repeatable checks.
+  Never substitute private contracts or run paid AI evaluations without approval.
 - Do not reset passwords, create branches, commit, push, deploy, or change
   remote resources unless the user explicitly asks.
 

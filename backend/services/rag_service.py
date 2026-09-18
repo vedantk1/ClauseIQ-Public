@@ -25,6 +25,9 @@ import uuid
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 from datetime import datetime
+from .ai.client_manager import rate_limited_openai_call
+from .ai.generation import AIRequestError, create_chat_completion, generation_metadata
+from .ai.token_utils import get_optimal_response_tokens
 
 # Lazy imports for OpenAI with rate limiting
 def _get_openai_client():
@@ -44,15 +47,6 @@ def _get_rate_limited_embedding_call():
         return safe_embedding_call
     except ImportError as e:
         logger.warning("Failed to import rate-limited embedding call: %s", type(e).__name__)
-        return None
-
-def _get_rate_limited_openai_call():
-    """Lazy import rate-limited OpenAI call."""
-    try:
-        from .ai.client_manager import safe_openai_call
-        return safe_openai_call
-    except ImportError as e:
-        logger.warning("Failed to import rate-limited OpenAI call: %s", type(e).__name__)
         return None
 
 logger = logging.getLogger(__name__)
@@ -380,11 +374,6 @@ class RAGService:
     async def _needs_conversation_context(self, query: str) -> bool:
         """Gate: Determine if query needs conversation context using workspace-configured gate model."""
         try:
-            safe_openai_call = _get_rate_limited_openai_call()
-            if not safe_openai_call:
-                logger.warning("Rate-limited OpenAI call not available for context gate")
-                return False
-
             # Get the workspace-configured query gate model
             from database.service import get_document_service
             service = get_document_service()
@@ -404,44 +393,32 @@ Question: "{query}"
 
 Response (YES or NO only):"""
 
-            # Define the chat completion call function
-            async def make_gate_call(client, model, messages, max_completion_tokens):
-                return await client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    max_completion_tokens=max_completion_tokens
+            async with rate_limited_openai_call() as client:
+                response = await create_chat_completion(
+                    client,
+                    model=gate_model,
+                    messages=[{"role": "user", "content": gate_prompt.format(query=query)}],
+                    max_completion_tokens=get_optimal_response_tokens("query_gate", gate_model),
+                    reasoning_effort="low",
                 )
 
-            response = await safe_openai_call(
-                make_gate_call,
-                gate_model,
-                [{"role": "user", "content": gate_prompt.format(query=query)}],
-                10
-            )
-
-            if response is None:
-                logger.warning("Failed to get context gate response")
-                return False
-
             result = response.choices[0].message.content.strip().upper()
+            if result not in {"YES", "NO"}:
+                raise AIRequestError("The chat helper model returned an invalid response. Please retry.")
             needs_context = result == "YES"
 
             logger.info(f"🚪 Conversation context gate completed (needs_context={needs_context}, model={gate_model})")
             return needs_context
 
+        except AIRequestError:
+            raise
         except Exception as e:
             logger.error("Conversation context gate failed: %s", type(e).__name__)
-            # Default to False on error to avoid breaking the flow
-            return False
+            raise AIRequestError("Chat context preparation failed. Please retry.") from None
 
     async def _rewrite_query_with_context(self, query: str, conversation_history: List[Dict[str, Any]]) -> str:
         """Rewrite query using conversation context and workspace-configured query gate model."""
         try:
-            safe_openai_call = _get_rate_limited_openai_call()
-            if not safe_openai_call:
-                logger.warning("Rate-limited OpenAI call not available for query rewriting")
-                return query
-
             # Use the same workspace-configured model as query gate for rewrite calls
             from database.service import get_document_service
             service = get_document_service()
@@ -476,34 +453,25 @@ Examples:
 
 REWRITTEN QUESTION:"""
 
-            # Define the chat completion call function for rewriting
-            async def make_rewrite_call(client, model, messages, max_completion_tokens):
-                return await client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    max_completion_tokens=max_completion_tokens
+            async with rate_limited_openai_call() as client:
+                response = await create_chat_completion(
+                    client,
+                    model=gate_model,
+                    messages=[{"role": "user", "content": rewrite_prompt}],
+                    max_completion_tokens=get_optimal_response_tokens("query_rewrite", gate_model),
+                    reasoning_effort="low",
                 )
-
-            response = await safe_openai_call(
-                make_rewrite_call,
-                gate_model,
-                [{"role": "user", "content": rewrite_prompt}],
-                100
-            )
-
-            if response is None:
-                logger.warning("Failed to get query rewrite response, using original")
-                return query
 
             rewritten_query = response.choices[0].message.content.strip()
 
             logger.info(f"✏️ Query rewrite completed (changed={rewritten_query != query}, model={gate_model})")
             return rewritten_query
 
+        except AIRequestError:
+            raise
         except Exception as e:
             logger.error("Query rewriting failed: %s", type(e).__name__)
-            # Return original query on error
-            return query
+            raise AIRequestError("Chat query preparation failed. Please retry.") from None
 
     async def retrieve_relevant_chunks(
         self,
@@ -589,12 +557,7 @@ REWRITTEN QUESTION:"""
     ) -> Dict[str, Any]:
         """Generate a response using RAG with retrieved chunks."""
         if not await self.is_available():
-            return {
-                "response": "I'm sorry, but the AI service is currently unavailable. Please try again later.",
-                "sources": [],
-                "model": model if model else "unknown",
-                "error": "AI service unavailable"
-            }
+            raise AIRequestError("The AI service is currently unavailable. Check Settings and retry.")
 
         try:
             # Get model from settings if not provided
@@ -608,12 +571,7 @@ REWRITTEN QUESTION:"""
 
             client = _get_openai_client()
             if not client:
-                return {
-                    "response": "I'm sorry, but the AI service is currently unavailable. Please try again later.",
-                    "sources": [],
-                    "model": model if model else "unknown",
-                    "error": "OpenAI client not available"
-                }
+                raise AIRequestError("Add an OpenAI API key in Settings before using chat.")
 
             # Prepare context from relevant chunks
             context_parts = []
@@ -645,7 +603,7 @@ USER QUESTION: {final_query}
 
 RESPONSE:"""
 
-            response = await client.chat.completions.create(
+            response = await create_chat_completion(client,
                 model=model,
                 messages=[
                     {
@@ -654,7 +612,7 @@ RESPONSE:"""
                     },
                     {"role": "user", "content": prompt}
                 ],
-                max_completion_tokens=1000
+                max_completion_tokens=get_optimal_response_tokens("chat", model),
             )
 
             response_text = self._sanitize_chat_response_text(
@@ -667,26 +625,21 @@ RESPONSE:"""
                     "RAG generation returned empty model output (model=%s)",
                     model,
                 )
-                response_text = (
-                    "I could not generate a complete answer just now. "
-                    "Please try asking the question in a different way."
-                )
+                raise AIRequestError("The selected model returned an empty chat response. Please retry.")
 
             return {
                 "response": response_text,
                 "sources": source_chunks,
                 "model": model,
+                "generation": generation_metadata(model, "chat"),
                 "timestamp": datetime.utcnow().isoformat()
             }
 
+        except AIRequestError:
+            raise
         except Exception as e:
             logger.error("RAG response generation failed: %s", type(e).__name__)
-            return {
-                "response": "I'm sorry, but I encountered an error while processing your question.",
-                "sources": [],
-                "model": model if model else "unknown",
-                "error": "RAG response generation failed"
-            }
+            raise AIRequestError("Chat response generation failed. Please retry.") from None
 
     async def _get_or_create_vector_store(self, workspace_id: str) -> str:
         """

@@ -37,7 +37,9 @@ GET /api/v1/workspace returns:
 
 - has_api_key and api_key_needs_reentry (booleans, never credential material)
 - model_id and query_gate_model_id
-- available_models (id, name, description)
+- available_models: id, name, description, context_window, max_output_tokens,
+  reasoning_efforts, default_reasoning_effort, input_price_per_million,
+  output_price_per_million, pricing_verified_on, pricing_note and legacy
 - retention_days (0 means keep until manually deleted)
 - toast_notifications_enabled
 
@@ -45,6 +47,13 @@ PUT /api/v1/workspace/settings accepts any subset of model_id,
 query_gate_model_id, retention_days and toast_notifications_enabled. Models
 must be in the advertised catalog. Retention is 0..36500 days; enabling it can
 delete already-old documents on the next cleanup run.
+
+The fresh review default is gpt-5.6-luna; query preparation defaults to
+gpt-5-nano. Existing saved selections remain unchanged, including legacy gpt-5.
+Settings may return an unsupported historical ID so it can be replaced explicitly;
+new saves must use the catalog. Catalog membership does not guarantee access for
+a particular OpenAI account. Prices are dated standard USD base rates, not quotes
+for complete reviews. The pricing note explains additional considerations.
 
 PUT /api/v1/workspace/api-key accepts a JSON api_key field.
 DELETE /api/v1/workspace/api-key removes the active credential.
@@ -57,6 +66,16 @@ Analysis, new chat answers and new rewrites need the configured key.
 Reading saved documents, PDFs, clauses, chats and cached rewrites, managing
 notes/flags, generating reports and deletion do not require an AI call.
 File type/size and request-rate limits still apply; there is no library count cap.
+
+New document responses can include analysis_generation, with per-stage model ID,
+endpoint, reasoning_effort, max_completion_tokens and catalog_verified_on.
+Clauses can include rewrite_generation; chat messages can include generation.
+These fields are optional for historical results and do not imply a new AI call.
+
+Unsupported/inaccessible selections and invalid model requests return safe 400
+errors; provider quota/rate limits return 429, connectivity errors 503 and
+incomplete/invalid provider output 502. There is no automatic model substitution.
+Provider error bodies, credentials and submitted document content are not exposed.
 
 ## Responses
 

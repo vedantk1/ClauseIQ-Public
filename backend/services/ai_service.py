@@ -1,63 +1,13 @@
+"""Contract classification, extraction, summaries and clause rewrites.
+
+All generation uses the selected model through one validated request contract.
+Complete prompts must fit configured task budgets: oversized input, provider
+failures and invalid output raise explicit errors rather than saving truncated
+or placeholder analyses. Token utilities remain re-exported for compatibility.
 """
-AI processing and OpenAI integration service.
-
-ARCHITECTURE:
-This is the main orchestrator for AI capabilities in ClauseIQ. It provides high-level
-AI functions while delegating utilities to specialized modules in services/ai/.
-
-REFACTORING SUCCESS (v2.0):
-- Refactored from 948-line monolith to modular 676-line orchestrator (29% reduction)
-- Extracted utilities to services/ai/ package for better maintainability
-- Added lazy imports and graceful fallbacks for optional dependencies
-- Maintained 100% backward compatibility via smart module-level imports
-- Eliminated code duplication by removing redundant wrapper functions
-- Improved startup performance with modular loading
-
-TOKEN MANAGEMENT:
-- Replaced character-based truncation with accurate token-based truncation using tiktoken
-- Added dynamic token budget calculation based on model context windows
-- Implemented sentence-boundary preservation during truncation when possible
-- Supports multiple models with accurate token counting
-- Provides predictable API costs and better context window utilization
-
-The old approach (8,000 chars ≈ 2,000 tokens) had up to 60% estimation error.
-The new token-based approach provides exact token counts regardless of text complexity.
-
-BACKWARD COMPATIBILITY:
-All existing imports continue to work unchanged! The module imports utilities from
-specialized modules at the top level, so legacy code works seamlessly:
-
-    from services.ai_service import get_token_count  # ✅ Works perfectly
-
-This is the SAME function as:
-
-    from services.ai.token_utils import get_token_count  # ✅ Direct import
-
-MIGRATION:
-For new code, prefer direct imports from services/ai/ modules for clarity:
-- services.ai.client_manager for OpenAI client management
-- services.ai.token_utils for token counting and text processing
-- services.ai.contract_utils for contract type utilities
-
-But existing code doesn't need to change - it works perfectly as-is!
-"""
-import asyncio
 import json
-import re
 import logging
 from typing import Optional, List, Dict, Any
-
-# Import OpenAI error types
-try:
-    from openai import OpenAIError
-except ImportError:
-    # Fallback for older OpenAI versions
-    try:
-        from openai.error import OpenAIError
-    except ImportError:
-        # Create a dummy exception class if OpenAI is not available
-        class OpenAIError(Exception):
-            pass
 
 # Lazy imports for dependencies that might not be available
 def _get_models():
@@ -71,6 +21,7 @@ def _get_models():
 
 # Import utilities from the new modular structure
 from .ai.client_manager import get_openai_client, is_ai_available
+from .ai.generation import AIRequestError, create_chat_completion
 from .ai.token_utils import (
     get_token_count,
     truncate_text_by_tokens,
@@ -96,7 +47,7 @@ async def detect_contract_type(document_text: str, filename: str = "", model: st
 
     openai_client = get_openai_client()
     if not openai_client:
-        return ContractType.OTHER
+        raise AIRequestError("Add an OpenAI API key in Settings before analyzing documents.")
 
     try:
         # Use minimal token allocation for simple classification
@@ -126,14 +77,11 @@ async def detect_contract_type(document_text: str, filename: str = "", model: st
         Respond with ONLY the type name (e.g., "employment", "nda", "service_agreement", etc.).
         """
 
-        prompt_overhead = get_token_count(prompt_template.format(filename=filename, content=""), model)
-        available_tokens = max_input_tokens - prompt_overhead
+        # The request helper checks the complete prompt before provider work.
+        # Never represent a truncated document prefix as a full analysis.
+        prompt = prompt_template.format(filename=filename, content=document_text)
 
-        truncated_text = truncate_text_by_tokens(document_text, available_tokens, model)
-
-        prompt = prompt_template.format(filename=filename, content=truncated_text)
-
-        response = await openai_client.chat.completions.create(
+        response = await create_chat_completion(openai_client,
             model=model,
             messages=[
                 {"role": "system", "content": "You are a legal document classification expert. Analyze documents and identify their type with high accuracy."},
@@ -147,11 +95,15 @@ async def detect_contract_type(document_text: str, filename: str = "", model: st
         # Map response to enum value using the utility function
         type_mapping = get_contract_type_mapping()
 
-        return type_mapping.get(detected_type, ContractType.OTHER)
+        if detected_type not in type_mapping:
+            raise AIRequestError("The selected model returned an invalid document classification. Please retry.")
+        return type_mapping[detected_type]
 
+    except AIRequestError:
+        raise
     except Exception as e:
         logger.error("Contract type detection failed: %s", type(e).__name__)
-        return ContractType.OTHER
+        raise AIRequestError("Document classification failed. Please retry.") from None
 
 async def extract_clauses_with_llm(document_text: str, contract_type: ContractType, model: str = None) -> List[Clause]:
     """Extract and classify clauses using LLM analysis."""
@@ -163,7 +115,7 @@ async def extract_clauses_with_llm(document_text: str, contract_type: ContractTy
 
     openai_client = get_openai_client()
     if not openai_client:
-        return []
+        raise AIRequestError("Add an OpenAI API key in Settings before analyzing documents.")
 
     try:
         # Get contract-specific clause types
@@ -219,105 +171,53 @@ async def extract_clauses_with_llm(document_text: str, contract_type: ContractTy
         {content}
         """
 
-        prompt_overhead = get_token_count(
-            prompt_template.format(
-                contract_type=contract_type.value,
-                clause_types=clause_types_str,
-                content=""
-            ),
-            model
-        )
-        available_tokens = max_input_tokens - prompt_overhead
-
-        truncated_text = truncate_text_by_tokens(document_text, available_tokens, model)
-
         prompt = prompt_template.format(
             contract_type=contract_type.value,
             clause_types=clause_types_str,
-            content=truncated_text
+            content=document_text
         )
 
-        response = await openai_client.chat.completions.create(
+        response = await create_chat_completion(openai_client,
             model=model,
             messages=[
                 {"role": "system", "content": f"You are an elite legal expert specializing in {contract_type.value} analysis. With expanded token budget, extract and classify clauses with maximum precision, detail, and attention to legal nuance. Identify clause relationships and provide comprehensive risk analysis."},
                 {"role": "user", "content": prompt}
             ],
-            max_completion_tokens=optimal_response_tokens
+            max_completion_tokens=optimal_response_tokens,
+            response_format={"type": "json_object"},
         )
 
         # Parse JSON response
         content = response.choices[0].message.content.strip()
-        try:
-            parsed = json.loads(content)
-            clauses = []
-            for clause_data in parsed.get("clauses", []):
-                try:
-                    clause_type = ClauseType(clause_data.get("clause_type", "general"))
-                except ValueError:
-                    clause_type = ClauseType.GENERAL
+        parsed = json.loads(content)
+        if not isinstance(parsed, dict) or not isinstance(parsed.get("clauses"), list):
+            raise AIRequestError("The selected model returned invalid clause data. Please retry.")
+        clauses = []
+        for item in parsed["clauses"]:
+            if not isinstance(item, dict) or any(
+                not isinstance(item.get(field), str) or not item[field].strip()
+                for field in ("heading", "text", "clause_type", "risk_level", "risk_reasoning")
+            ):
+                raise AIRequestError("The selected model returned incomplete clause data. Please retry.")
+            for field in ("key_terms", "relationships"):
+                if field in item and (not isinstance(item[field], list) or
+                        any(not isinstance(value, str) for value in item[field])):
+                    raise AIRequestError("The selected model returned invalid clause data. Please retry.")
+            clauses.append(Clause(
+                heading=item["heading"], text=item["text"],
+                clause_type=ClauseType(item["clause_type"]),
+                risk_level=RiskLevel(item["risk_level"]),
+                risk_reasoning=item["risk_reasoning"],
+                key_terms=item.get("key_terms", []),
+                relationships=item.get("relationships", []),
+            ))
+        return clauses
 
-                try:
-                    risk_level = RiskLevel(clause_data.get("risk_level", "medium"))
-                except ValueError:
-                    risk_level = RiskLevel.MEDIUM
-
-                clause = Clause(
-                    heading=clause_data.get("heading", "Unnamed Clause"),
-                    text=clause_data.get("text", ""),
-                    clause_type=clause_type,
-                    risk_level=risk_level,
-                    risk_reasoning=clause_data.get("risk_reasoning", ""),
-                    key_terms=clause_data.get("key_terms", []) or [],
-                    relationships=clause_data.get("relationships", []) or [],
-                )
-
-                clauses.append(clause)
-
-            return clauses
-        except json.JSONDecodeError as e:
-            logger.warning("LLM clause response parsing failed: %s", type(e).__name__)
-
-            # Try to extract JSON from response if it's wrapped in other text
-            import re
-            json_match = re.search(r'\{.*\}', content, re.DOTALL)
-            if json_match:
-                json_part = json_match.group()
-                try:
-                    parsed = json.loads(json_part)
-                    clauses = []
-                    for clause_data in parsed.get("clauses", []):
-                        try:
-                            clause_type = ClauseType(clause_data.get("clause_type", "general"))
-                        except ValueError:
-                            clause_type = ClauseType.GENERAL
-
-                        try:
-                            risk_level = RiskLevel(clause_data.get("risk_level", "medium"))
-                        except ValueError:
-                            risk_level = RiskLevel.MEDIUM
-
-                        clause = Clause(
-                            heading=clause_data.get("heading", "Unnamed Clause"),
-                            text=clause_data.get("text", ""),
-                            clause_type=clause_type,
-                            risk_level=risk_level,
-                            risk_reasoning=clause_data.get("risk_reasoning", ""),
-                            key_terms=clause_data.get("key_terms", []) or [],
-                            relationships=clause_data.get("relationships", []) or [],
-                        )
-                        clauses.append(clause)
-                    print(f"✅ Successfully recovered from wrapped JSON response with {len(clauses)} clauses")
-                    return clauses
-                except json.JSONDecodeError:
-                    pass
-
-            print("Falling back to empty clause list")
-            return []
-
+    except AIRequestError:
+        raise
     except Exception as e:
         logger.error("LLM clause extraction failed: %s", type(e).__name__)
-        return []
+        raise AIRequestError("The selected model did not return valid clause data. Please retry.") from None
 
 
 async def generate_structured_document_summary(document_text: str, filename: str = "", model: str = None, contract_type: ContractType = None) -> Dict[str, Any]:
@@ -330,14 +230,7 @@ async def generate_structured_document_summary(document_text: str, filename: str
 
     openai_client = get_openai_client()
     if not openai_client:
-        return {
-            "overview": "AI summary not available - OpenAI client not configured.",
-            "key_parties": [],
-            "important_dates": [],
-            "major_obligations": [],
-            "risk_highlights": [],
-            "key_insights": []
-        }
+        raise AIRequestError("Add an OpenAI API key in Settings before analyzing documents.")
 
     # Detect contract type if not provided
     if contract_type is None:
@@ -345,7 +238,7 @@ async def generate_structured_document_summary(document_text: str, filename: str
 
     try:
         # Use optimal token allocation for comprehensive legal analysis
-        optimal_response_tokens = get_optimal_response_tokens("structured", model)
+        optimal_response_tokens = get_optimal_response_tokens("summary", model)
         max_input_tokens = calculate_token_budget(model, response_tokens=optimal_response_tokens)
 
         print(f"📊 Contract-specific structured analysis using {optimal_response_tokens} response tokens, {max_input_tokens} input tokens for {model}")
@@ -463,24 +356,6 @@ async def generate_structured_document_summary(document_text: str, filename: str
         }}
         """
 
-        prompt_overhead = get_token_count(
-            prompt_template.format(
-                contract_type=contract_type.value,
-                focus_areas=prompt_config["focus_areas"],
-                key_parties_focus=prompt_config["key_parties_focus"],
-                dates_focus=prompt_config["dates_focus"],
-                obligations_focus=prompt_config["obligations_focus"],
-                risks_focus=prompt_config["risks_focus"],
-                insights_focus=prompt_config["insights_focus"],
-                filename=filename,
-                content=""
-            ),
-            model
-        )
-        available_tokens = max_input_tokens - prompt_overhead
-
-        truncated_text = truncate_text_by_tokens(document_text, available_tokens, model)
-
         prompt = prompt_template.format(
             contract_type=contract_type.value,
             focus_areas=prompt_config["focus_areas"],
@@ -490,75 +365,37 @@ async def generate_structured_document_summary(document_text: str, filename: str
             risks_focus=prompt_config["risks_focus"],
             insights_focus=prompt_config["insights_focus"],
             filename=filename,
-            content=truncated_text
+            content=document_text
         )
 
-        response = await openai_client.chat.completions.create(
+        response = await create_chat_completion(openai_client,
             model=model,
             messages=[
                 {"role": "system", "content": f"You are an elite legal AI assistant specializing in {contract_type.value} analysis. Provide comprehensive, detailed structured analysis that helps legal professionals understand {contract_type.value} documents completely. Focus on {contract_type.value}-specific risks, obligations, and strategic implications."},
                 {"role": "user", "content": prompt}
             ],
-            max_completion_tokens=optimal_response_tokens
+            max_completion_tokens=optimal_response_tokens,
+            response_format={"type": "json_object"},
         )
 
         content = response.choices[0].message.content.strip()
 
-        # Parse JSON response
-        try:
-            structured_summary = json.loads(content)
+        structured_summary = json.loads(content)
+        list_fields = ("key_parties", "important_dates", "major_obligations", "risk_highlights", "key_insights")
+        if (not isinstance(structured_summary, dict) or
+                not isinstance(structured_summary.get("overview"), str) or
+                not structured_summary["overview"].strip() or
+                any(not isinstance(structured_summary.get(field), list) or
+                    any(not isinstance(value, str) for value in structured_summary[field])
+                    for field in list_fields)):
+            raise AIRequestError("The selected model returned an incomplete summary. Please retry.")
+        return structured_summary
 
-            # Validate required fields
-            required_fields = ["overview", "key_parties", "important_dates", "major_obligations", "risk_highlights", "key_insights"]
-            for field in required_fields:
-                if field not in structured_summary:
-                    structured_summary[field] = [] if field != "overview" else "Summary not available"
-
-            return structured_summary
-
-        except json.JSONDecodeError as e:
-            logger.warning("Structured summary parsing failed: %s", type(e).__name__)
-
-            # Try to extract JSON from response if it's wrapped
-            import re
-            json_match = re.search(r'\{.*\}', content, re.DOTALL)
-            if json_match:
-                try:
-                    structured_summary = json.loads(json_match.group())
-                    return structured_summary
-                except json.JSONDecodeError:
-                    pass
-
-            # Fallback to basic structure
-            return {
-                "overview": "Document analysis completed, but structured data could not be parsed.",
-                "key_parties": ["Analysis available in clauses section"],
-                "important_dates": ["Review document for specific dates"],
-                "major_obligations": ["Detailed obligations listed in clauses"],
-                "risk_highlights": ["Risk assessment available in risk analysis"],
-                "key_insights": ["Full insights available in document text"]
-            }
-
-    except OpenAIError as e:
-        logger.error("Structured summary provider call failed: %s", type(e).__name__)
-        return {
-            "overview": "Document summary generation failed.",
-            "key_parties": [],
-            "important_dates": [],
-            "major_obligations": [],
-            "risk_highlights": [],
-            "key_insights": []
-        }
+    except AIRequestError:
+        raise
     except Exception as e:
         logger.error("Structured summary generation failed: %s", type(e).__name__)
-        return {
-            "overview": "Document summary generation failed due to an unexpected error.",
-            "key_parties": [],
-            "important_dates": [],
-            "major_obligations": [],
-            "risk_highlights": [],
-            "key_insights": []
-        }
+        raise AIRequestError("The selected model did not return a valid summary. Please retry.") from None
 
 
 
@@ -580,7 +417,7 @@ async def generate_clause_rewrite(
 
     openai_client = get_openai_client()
     if not openai_client:
-        raise Exception("OpenAI client not available")
+        raise AIRequestError("Add an OpenAI API key in Settings before generating rewrites.")
 
     try:
         # Use optimal token allocation for rewrite generation
@@ -609,22 +446,7 @@ Please provide a clear, improved version of this clause that:
 
 Provide ONLY the rewritten clause text, no explanations or commentary."""
 
-        # Calculate token overhead for prompt
-        prompt_overhead = get_token_count(prompt.replace(document_text, ""), model)
-        available_tokens = max_input_tokens - prompt_overhead
-
-        # Truncate document text if needed, but preserve clause text
-        if get_token_count(document_text, model) > available_tokens:
-            # Keep clause text intact, truncate document context
-            clause_tokens = get_token_count(clause.text, model)
-            risk_tokens = get_token_count(clause.risk_reasoning, model)
-            available_for_context = available_tokens - clause_tokens - risk_tokens - 100  # buffer
-
-            truncated_document = truncate_text_by_tokens(document_text, available_for_context, model)
-            prompt = prompt.replace(document_text, truncated_document)
-            print(f"📄 Document context truncated to {available_for_context} tokens for rewrite generation")
-
-        response = await openai_client.chat.completions.create(
+        response = await create_chat_completion(openai_client,
             model=model,
             messages=[
                 {"role": "system", "content": f"You are an elite legal AI assistant specializing in {contract_type.value} contract optimization. Provide clear, improved clause rewrites that maintain legal precision while enhancing clarity and addressing identified risks."},
@@ -638,9 +460,11 @@ Provide ONLY the rewritten clause text, no explanations or commentary."""
 
         return rewrite_suggestion
 
+    except AIRequestError:
+        raise
     except Exception as e:
         logger.error("Clause rewrite generation failed: %s", type(e).__name__)
-        raise RuntimeError("Failed to generate clause rewrite") from None
+        raise AIRequestError("Failed to generate clause rewrite. Please retry.") from None
 
 
 # =============================================================================

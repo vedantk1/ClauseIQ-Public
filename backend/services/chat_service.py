@@ -18,6 +18,7 @@ from datetime import datetime
 
 from database.service import get_document_service
 from services.rag_service import get_rag_service, ChatMessage, ChatSession
+from services.ai.generation import AIRequestError, generation_metadata
 
 # 🤖 AI DEBUG INTEGRATION
 from utils.ai_debug_helper import ai_debug, DebugLevel
@@ -166,6 +167,8 @@ class ChatService:
             # Process the message
             return await self._process_message_foundational(document, session, message, workspace_id)
 
+        except AIRequestError:
+            raise
         except Exception as e:
             logger.error("Chat message send failed: %s", type(e).__name__)
             ai_debug.log_system_event(
@@ -216,6 +219,9 @@ class ChatService:
 
             # Get user's preferred model early for use throughout the process
             workspace_model = await self.doc_service.get_workspace_model(workspace_id)
+            # Fail before helper-model or embedding spend when the main model
+            # selection or its completion budget cannot be used.
+            generation_metadata(workspace_model, "chat")
             logger.info("Chat model selected: %s", workspace_model)
 
             # Create user message
@@ -304,7 +310,7 @@ class ChatService:
                     "content": "I couldn't find relevant information in the document to answer your question. Please try rephrasing your question or asking about a different topic covered in the document.",
                     "timestamp": datetime.utcnow().isoformat(),
                     "sources": [],
-                    "model_used": workspace_model  # Add model info to fallback response
+                    "model_used": None,
                 }
             else:
                 relevant_chunks = rag_result["chunks"]
@@ -347,7 +353,8 @@ class ChatService:
                         "content": response_result["content"],
                         "timestamp": datetime.utcnow().isoformat(),
                         "sources": response_result.get("sources", []),
-                        "model_used": model_used  # Add model info to the response
+                        "model_used": model_used,
+                        "generation": response_result.get("generation"),
                     }
                 else:
                     ai_debug.log_rag_pipeline_step(
@@ -357,14 +364,7 @@ class ChatService:
                         details={"status": "generation_failed"}
                     )
 
-                    assistant_message = {
-                        "id": str(uuid.uuid4()),
-                        "role": "assistant",
-                        "content": "I apologize, but I'm having trouble generating a response right now. Please try again later.",
-                        "timestamp": datetime.utcnow().isoformat(),
-                        "sources": [],
-                        "model_used": workspace_model  # Add model info to error response
-                    }
+                    raise AIRequestError("Chat response generation failed. Please retry.")
 
             # Add assistant message to session atomically
             update_result = await self.doc_service.add_chat_message_atomic(document_id, workspace_id, assistant_message)
@@ -391,6 +391,8 @@ class ChatService:
                 "session_id": session_id
             }
 
+        except AIRequestError:
+            raise
         except Exception as e:
             logger.error("Chat message processing failed: %s", type(e).__name__)
             ai_debug.log_system_event(
@@ -444,7 +446,7 @@ Please provide a clear, helpful answer based on the document content. If the con
                 model=workspace_model
             )
 
-            if ai_response and ai_response.get("response"):
+            if ai_response and ai_response.get("response") and not ai_response.get("error"):
                 # Format sources for transparency
                 sources = []
                 for i, chunk in enumerate(relevant_chunks[:3]):
@@ -458,7 +460,8 @@ Please provide a clear, helpful answer based on the document content. If the con
                     "success": True,
                     "content": ai_response["response"],
                     "sources": sources,
-                    "model": ai_response.get("model", workspace_model or "unknown")
+                    "model": ai_response.get("model", workspace_model or "unknown"),
+                    "generation": ai_response.get("generation"),
                 }
             else:
                 return {
@@ -467,6 +470,8 @@ Please provide a clear, helpful answer based on the document content. If the con
                     "error": ai_response.get("error", "Failed to generate response") if ai_response else "No response from AI service"
                 }
 
+        except AIRequestError:
+            raise
         except Exception as e:
             logger.error("Chat AI response generation failed: %s", type(e).__name__)
             return {

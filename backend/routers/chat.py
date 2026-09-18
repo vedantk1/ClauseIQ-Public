@@ -27,6 +27,7 @@ from services.qdrant_vector_service import get_qdrant_vector_service
 from config.logging import get_foundational_logger, log_exception
 from database.service import get_document_service
 from routers.serialization import without_legacy_owner_fields
+from services.ai.generation import AIRequestError
 
 # 🚀 FOUNDATIONAL LOGGING: Proper chat logger
 logger = get_foundational_logger("chat")
@@ -46,6 +47,7 @@ class ChatMessageResponse(BaseModel):
     id: str
     sources: list = []
     model_used: Optional[str] = None  # Add model_used field
+    generation: Optional[Dict[str, Any]] = None
 
 class SendMessageResponse(BaseModel):
     """Response for sending a message."""
@@ -208,7 +210,8 @@ async def send_message(
                     timestamp=message["timestamp"],
                     id=message["id"],
                     sources=message.get("sources", []),
-                    model_used=message.get("model_used")  # Include model_used field
+                    model_used=message.get("model_used"),
+                    generation=message.get("generation"),
                 ),
                 session_id=result["session_id"]
             )
@@ -220,6 +223,8 @@ async def send_message(
                 request=request
             )
 
+    except AIRequestError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.public_message) from None
     except HTTPException:
         raise
     except Exception as error:

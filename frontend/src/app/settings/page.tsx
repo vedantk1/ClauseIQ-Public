@@ -1,12 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { AvailableModel } from "@clauseiq/shared-types";
 import { useWorkspace, type WorkspaceSettingsUpdate } from "@/context/WorkspaceContext";
+import { formatModelRate, getModelSelectionError, getSelectableModels } from "@/lib/modelSelection";
 import Button from "@/components/Button";
 import Card from "@/components/Card";
 import ConfirmModal from "@/components/ui/ConfirmModal";
 
 const inputClass = "w-full bg-bg-elevated border border-border-muted rounded-md px-3 py-2 text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-purple disabled:opacity-50";
+
+function ModelDetails({ model }: { model: AvailableModel }) {
+  return <div className="space-y-2 text-sm text-text-secondary">
+    <p>{model.description}</p>
+    <p>Model ID: <code className="break-all text-text-primary">{model.id}</code></p>
+    <p>Base price per 1 million tokens (USD): {formatModelRate(model.input_price_per_million)} input · {formatModelRate(model.output_price_per_million)} output.</p>
+    <p className="text-xs">Reference prices checked {model.pricing_verified_on}, not a quote for a document. {model.pricing_note} <a className="text-accent-purple underline" href="https://developers.openai.com/api/docs/pricing" target="_blank" rel="noopener noreferrer">Check OpenAI pricing</a>.</p>
+    {model.legacy && <p className="text-xs text-accent-amber">Your saved legacy model is preserved. Choose another model explicitly when you are ready to change it.</p>}
+  </div>;
+}
 
 export default function Settings() {
   const { settings, isLoading, error: connectionError, refresh, updateSettings, saveApiKey, removeApiKey } = useWorkspace();
@@ -21,6 +33,10 @@ export default function Settings() {
   const [error, setError] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [pendingSettings, setPendingSettings] = useState<WorkspaceSettingsUpdate | null>(null);
+  const models = settings?.available_models ?? [];
+  const reviewModel = models.find((model) => model.id === modelId);
+  const queryModel = models.find((model) => model.id === queryModelId);
+  const selectionError = getModelSelectionError(models, modelId, queryModelId);
 
   useEffect(() => { setModelId(settings?.model_id || ""); }, [settings?.model_id]);
   useEffect(() => { setQueryModelId(settings?.query_gate_model_id || ""); }, [settings?.query_gate_model_id]);
@@ -66,6 +82,7 @@ export default function Settings() {
   };
 
   const requestSettingsSave = () => {
+    if (selectionError) { setError(selectionError); return; }
     const days = retentionEnabled ? Number(retentionDays) : 0;
     if (!Number.isInteger(days) || days > 36500 || (retentionEnabled && days < 1)) {
       setError("Enter a whole number of days from 1 to 36500, or turn automatic deletion off.");
@@ -106,20 +123,25 @@ export default function Settings() {
       <form onSubmit={(event) => { event.preventDefault(); requestSettingsSave(); }} className="space-y-6">
         <Card className="p-6 space-y-4">
           <h2 className="text-xl font-semibold">AI models</h2>
-          <label htmlFor="analysis-model" className="block text-sm font-medium">Analysis and chat model</label>
-          <select id="analysis-model" value={modelId} className={inputClass} disabled={!!saving} onChange={(event) => setModelId(event.target.value)}>
-            {settings.available_models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}
+          <label htmlFor="analysis-model" className="block text-sm font-medium">Review model</label>
+          <p id="review-model-help" className="text-sm text-text-secondary">Used for document analysis, summaries, clause rewrites, and chat answers.</p>
+          <select id="analysis-model" value={modelId} className={inputClass} aria-describedby="review-model-help" aria-invalid={!reviewModel} disabled={!!saving} onChange={(event) => setModelId(event.target.value)}>
+            {!reviewModel && <option value={modelId} disabled>{modelId ? `Unavailable model: ${modelId}` : "Choose a review model"}</option>}
+            {getSelectableModels(models, modelId).map((model) => <option key={model.id} value={model.id}>{model.name}{model.legacy ? " (saved legacy model)" : ""}</option>)}
           </select>
-          <p className="text-sm text-text-secondary">{settings.available_models.find((model) => model.id === modelId)?.description}</p>
-          <p className="text-xs text-text-secondary">Changes apply to new AI requests. Saved analyses are not automatically rerun.</p>
+          {reviewModel && <ModelDetails model={reviewModel} />}
+          <p className="text-xs text-text-secondary">Changes apply to new AI requests after saving. Saved analyses are not automatically rerun. ClauseIQ will not silently switch models or fall back to a more expensive option. Your API account must have access to the selected model.</p>
+          {selectionError && <p role="alert" className="text-sm text-accent-amber">{selectionError}</p>}
           <details className="pt-2">
-            <summary className="cursor-pointer text-sm text-text-secondary">Advanced model setting</summary>
+            <summary className="cursor-pointer text-sm text-text-secondary">Advanced: chat query classification</summary>
             <div className="space-y-3 pt-4">
               <label htmlFor="query-model" className="block text-sm font-medium">Chat query classification model</label>
-              <select id="query-model" value={queryModelId} className={inputClass} disabled={!!saving} onChange={(event) => setQueryModelId(event.target.value)}>
-                {settings.available_models.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}
+              <select id="query-model" value={queryModelId} className={inputClass} aria-invalid={!queryModel} disabled={!!saving} onChange={(event) => setQueryModelId(event.target.value)}>
+                {!queryModel && <option value={queryModelId} disabled>{queryModelId ? `Unavailable model: ${queryModelId}` : "Choose a classification model"}</option>}
+                {getSelectableModels(models, queryModelId).map((model) => <option key={model.id} value={model.id}>{model.name}{model.legacy ? " (saved legacy model)" : ""}</option>)}
               </select>
-              <p className="text-xs text-text-secondary">A smaller model can classify chat questions before the main model answers.</p>
+              <p className="text-xs text-text-secondary">This separate, normally inexpensive model checks chat questions before the review model answers. Changing the review model does not change this selection.</p>
+              {queryModel && <ModelDetails model={queryModel} />}
             </div>
           </details>
         </Card>

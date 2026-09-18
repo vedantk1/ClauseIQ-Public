@@ -30,7 +30,7 @@ must be reported rather than claiming complete deletion.
 ## Settings and credentials
 
 The workspace service separates key handling from document operations.
-Settings expose key presence only, the existing main/gate model catalog,
+Settings expose key presence only, the review/query-preparation model catalog,
 optional retention and presentation preferences. No account, SMTP, role,
 database-browser or raw-log administration routes remain.
 
@@ -47,6 +47,40 @@ Host names, exact configured browser Origins and the X-ClauseIQ-Local header.
 The header is a browser preflight marker, not a password. See SECURITY.md for
 the trusted-OS-user boundary and limitations.
 
+## Model selection and request contracts
+
+backend/ai_models/models.py is the canonical model catalog. The workspace API
+serves its names, limits, reasoning options and dated base prices to the frontend;
+the UI does not maintain a second catalog. New installations use GPT-5.6 Luna
+for review and GPT-5 Nano for optional chat query preparation. Terra, Sol and
+Mini are selectable; an existing GPT-5 selection remains usable as legacy.
+Stored choices take precedence over the initial default. Unsupported saved IDs
+remain visible and fail explicitly instead of silently selecting another model.
+
+Classification, clause extraction, structured summaries, clause rewrites and
+chat answers honor the review model. Chat context detection and query rewriting
+honor the separate advanced model. Both choices use request-scoped personal
+credentials. Database errors must not be mistaken for an unset model preference.
+
+services/ai/generation.py validates every generation call against that catalog,
+uses Chat Completions with explicit reasoning effort and completion limits, and
+disables provider-side response storage with store=false. This is not a promise
+of Zero Data Retention; OpenAI's account/data policies still apply. It reports
+safe errors for unavailable models, provider failures, refusals, empty output and
+incomplete completions. Structured analysis validates its output before saving.
+Oversized requests fail before generation rather than silently reviewing a prefix.
+
+services/ai/token_utils.py separates model capacities from task spending budgets.
+Larger model capacity never automatically increases output allowances. Token
+counts are local estimates using o200k_base, not provider billing measurements.
+See DEVELOPMENT.md for budget overrides and evaluation limits.
+
+New analysis results record model ID, endpoint, reasoning effort, completion
+budget and catalog verification date per stage in analysis_generation. New
+rewrites and chat answers record rewrite_generation and generation respectively.
+Old saved results remain valid without this metadata. Cached rewrites keep their
+original attribution and are not regenerated merely by changing Settings.
+
 ## Migration
 
 Startup preflights MongoDB, GridFS and Qdrant before applying an additive,
@@ -62,5 +96,7 @@ library remains usable and Settings requests key re-entry.
 
 ## Scope
 
-Next.js, FastAPI, MongoDB and Qdrant are retained. This version does not introduce
-a job queue, new AI models, offline inference, team support or agent orchestration.
+Next.js, FastAPI, MongoDB and Qdrant are retained. Embeddings remain
+text-embedding-3-large with 3,072-dimensional vectors; no reindex is required.
+This version does not introduce a job queue, a Responses API migration, offline
+inference, team support or agent orchestration.

@@ -1,0 +1,2 @@
+# Keep reviewed PDF fixture bytes unchanged; readable sources live beside them.
+/tests/fixtures/pdfs/*.pdf binary

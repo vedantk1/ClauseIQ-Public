@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field, validator
 from pydantic_settings import BaseSettings
+from ai_models.models import DEFAULT_MODEL, DEFAULT_QUERY_GATE_MODEL
 
 
 class Environment(str, Enum):
@@ -54,14 +55,14 @@ class ServerConfig(BaseModel):
 
 class AIConfig(BaseModel):
     """AI model and generation configuration with validation."""
-    default_model: str = Field(default="gpt-5", description="Default AI model")
+    default_model: str = Field(default=DEFAULT_MODEL, description="Default AI model when no workspace choice is saved")
     max_tokens: int = Field(default=4000, ge=1, description="Maximum tokens per request")
     temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="AI temperature")
 
     # Conversation context settings
     conversation_history_window: int = Field(default=10, ge=1, le=50, description="Max conversation turns to consider for context")
-    gate_model: str = Field(default="gpt-5-nano", description="Model for conversation context gate")
-    rewrite_model: str = Field(default="gpt-5", description="Model for query rewriting")
+    gate_model: str = Field(default=DEFAULT_QUERY_GATE_MODEL, description="Model for conversation context gate")
+    rewrite_model: str = Field(default=DEFAULT_QUERY_GATE_MODEL, description="Model for query rewriting")
 
 
 
@@ -118,7 +119,7 @@ class EnvironmentConfig(BaseSettings):
     workspace_state_dir: str = Field(default=".local-only/workspace", description="Private local credential state directory")
 
     # AI
-    openai_default_model: str = Field(default="gpt-5", description="Default AI model")
+    openai_default_model: str = Field(default=DEFAULT_MODEL, description="Default model when no workspace choice is saved")
     openai_max_tokens: int = Field(default=4000, description="Maximum tokens per request")
     openai_temperature: float = Field(default=0.7, description="AI temperature")
 

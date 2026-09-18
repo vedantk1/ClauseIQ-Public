@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from clauseiq_types.common import Clause, ClauseType, ContractType, RiskLevel
 from routers import analysis, chat, documents, reports
 from services.ai import client_manager
+from services.ai.generation import generation_metadata
 from services.document_service import build_document_data
 
 
@@ -290,6 +291,8 @@ def test_account_free_analysis_review_chat_rewrite_report_and_delete(monkeypatch
         clause_type=ClauseType.TERMINATION, risk_level=RiskLevel.MEDIUM,
         risk_reasoning="Notice is undefined.", key_terms=["termination"], relationships=[],
     )
+    chat_generation = generation_metadata("gpt-5.6-luna", "chat")
+    chat_messages = []
 
     async def get_document(document_id, workspace_id):
         document = stored.get(document_id)
@@ -309,10 +312,10 @@ def test_account_free_analysis_review_chat_rewrite_report_and_delete(monkeypatch
             yield pdf_bytes
         return {"filename": "contract.pdf", "file_size": len(pdf_bytes)}, stream()
 
-    async def save_rewrite(document_id, clause_id, workspace_id, rewrite_suggestion):
+    async def save_rewrite(document_id, clause_id, workspace_id, rewrite_suggestion, generation=None):
         document = await get_document(document_id, workspace_id)
         target = next(item for item in document["clauses"] if item["id"] == clause_id)
-        target.update(rewrite_suggestion=rewrite_suggestion, rewrite_generated_at="2026-01-01T00:00:00")
+        target.update(rewrite_suggestion=rewrite_suggestion, rewrite_generated_at="2026-01-01T00:00:00", rewrite_generation=generation)
         return target
 
     async def delete_document(document_id, workspace_id):
@@ -324,7 +327,7 @@ def test_account_free_analysis_review_chat_rewrite_report_and_delete(monkeypatch
     service = document_service(
         monkeypatch,
         get_workspace_api_key=AsyncMock(side_effect=lambda _workspace_id: credential),
-        get_workspace_model=AsyncMock(return_value="test-model"),
+        get_workspace_model=AsyncMock(return_value="gpt-5.6-luna"),
         get_document_for_workspace=AsyncMock(side_effect=get_document),
         get_pdf_file_stream=AsyncMock(side_effect=pdf_stream),
         update_clause_rewrite=AsyncMock(side_effect=save_rewrite),
@@ -347,10 +350,13 @@ def test_account_free_analysis_review_chat_rewrite_report_and_delete(monkeypatch
     async def answer(document_id, workspace_id, message):
         assert await get_document(document_id, workspace_id)
         assert active_keys == [credential]
-        return {"success": True, "session_id": "session-1", "message": {
+        assistant = {
             "id": "message-1", "role": "assistant", "content": "Notice is not defined.",
-            "timestamp": "2026-01-01T00:00:00", "sources": [], "model_used": "test-model",
-        }}
+            "timestamp": "2026-01-01T00:00:00", "sources": [], "model_used": "gpt-5.6-luna",
+            "generation": chat_generation,
+        }
+        chat_messages.append(assistant)
+        return {"success": True, "session_id": "session-1", "message": assistant}
 
     monkeypatch.setattr(client_manager, "workspace_openai_client", request_client)
     monkeypatch.setattr(analysis, "get_text_extractor", lambda: SimpleNamespace(extract_text=AsyncMock(return_value=clause.text)))
@@ -358,7 +364,13 @@ def test_account_free_analysis_review_chat_rewrite_report_and_delete(monkeypatch
     monkeypatch.setattr(analysis, "generate_structured_document_summary", AsyncMock(return_value={"overview": "Test summary"}))
     monkeypatch.setattr(analysis, "process_and_save_analyzed_document", save_document)
     monkeypatch.setattr(analysis, "generate_clause_rewrite", AsyncMock(return_value="Either party may terminate with notice."))
-    monkeypatch.setattr(chat, "get_chat_service", lambda: SimpleNamespace(send_message=AsyncMock(side_effect=answer)))
+    monkeypatch.setattr(chat, "get_chat_service", lambda: SimpleNamespace(
+        send_message=AsyncMock(side_effect=answer),
+        get_session_history=AsyncMock(return_value={
+            "success": True, "session_id": "session-1", "messages": chat_messages,
+            "created_at": "2026-01-01T00:00:00", "updated_at": "2026-01-01T00:00:00",
+        }),
+    ))
     monkeypatch.setattr(reports, "generate_pdf_report", AsyncMock(return_value=b"%PDF-test-report"))
 
     uploaded = route_client.post("/api/v1/analysis/analyze/", files={"file": ("contract.pdf", pdf_bytes, "application/pdf")})
@@ -370,10 +382,20 @@ def test_account_free_analysis_review_chat_rewrite_report_and_delete(monkeypatch
     detail = route_client.get(f"/api/v1/documents/{document_id}").json()["data"]
     assert detail["workspace_id"] == "local"
     assert "user_id" not in detail
+    expected_analysis = {
+        name: generation_metadata("gpt-5.6-luna", name)
+        for name in ("classification", "extraction", "summary")
+    }
+    assert detail["analysis_generation"] == expected_analysis
+    assert uploaded.json()["data"]["analysis_generation"] == expected_analysis
     assert route_client.get(f"/api/v1/documents/{document_id}/pdf").content == pdf_bytes
-    assert route_client.post(f"/api/v1/chat/{document_id}/message", json={"message": "What notice is required?"}).json()["success"]
+    sent = route_client.post(f"/api/v1/chat/{document_id}/message", json={"message": "What notice is required?"}).json()
+    assert sent["success"]
+    assert sent["data"]["message"]["generation"] == chat_generation
     rewritten = route_client.post("/api/v1/analysis/clauses/clause-1/rewrite", json={"document_id": document_id})
     assert rewritten.json()["data"]["cached"] is False
+    rewrite_generation = generation_metadata("gpt-5.6-luna", "rewrite")
+    assert rewritten.json()["data"]["rewrite_generation"] == rewrite_generation
     assert len(opened_keys) == 3
     assert active_keys == []
 
@@ -381,8 +403,14 @@ def test_account_free_analysis_review_chat_rewrite_report_and_delete(monkeypatch
     clauses = route_client.get(f"/api/v1/analysis/documents/{document_id}/clauses").json()["data"]
     assert clauses["total_clauses"] == 1
     assert clauses["risk_summary"] == {"high": 0, "medium": 1, "low": 0}
+    assert clauses["clauses"][0]["rewrite_generation"] == rewrite_generation
+    detail = route_client.get(f"/api/v1/documents/{document_id}").json()["data"]
+    assert detail["clauses"][0]["rewrite_generation"] == rewrite_generation
+    history = route_client.get(f"/api/v1/chat/{document_id}/history").json()["data"]
+    assert history["messages"][0]["generation"] == chat_generation
     cached = route_client.post("/api/v1/analysis/clauses/clause-1/rewrite", json={"document_id": document_id})
     assert cached.json()["data"]["cached"] is True
+    assert cached.json()["data"]["rewrite_generation"] == rewrite_generation
     assert len(opened_keys) == 3
     assert route_client.get(f"/api/v1/reports/documents/{document_id}/pdf").content == b"%PDF-test-report"
     assert route_client.delete(f"/api/v1/documents/{document_id}").json()["success"]
@@ -402,7 +430,7 @@ def test_real_chat_service_preserves_workspace_contract(monkeypatch, route_clien
         "id": "doc-1", "workspace_id": "local", "rag_processed": True, "text": "Test contract",
     }
     storage.get_workspace_api_key.return_value = "sk-test-placeholder"
-    storage.get_workspace_model.return_value = "test-model"
+    storage.get_workspace_model.return_value = "gpt-5.6-luna"
     storage.add_chat_message_atomic.return_value = True
     sessions = {}
 

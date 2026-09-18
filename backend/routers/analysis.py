@@ -18,6 +18,7 @@ from services.document_service import (
 from services.ai.text_extractor import get_text_extractor
 # PHASE 3 MIGRATION: Main AI functions still from ai_service for stability
 from services.ai_service import generate_structured_document_summary, generate_clause_rewrite
+from services.ai.generation import AIRequestError, generation_metadata
 from models.document import AnalyzeDocumentResponse
 from models.interaction import UserInteractionRequest, NoteRequest
 from routers.serialization import without_legacy_owner_fields
@@ -88,6 +89,10 @@ async def analyze_document(
 
         # Get workspace model
         workspace_model = await service.get_workspace_model(workspace_id)
+        analysis_generation = {
+            operation: generation_metadata(workspace_model, operation)
+            for operation in ("classification", "extraction", "summary")
+        }
 
         # Use the workspace API key for all AI operations in this request
         from services.ai.client_manager import workspace_openai_client
@@ -116,7 +121,8 @@ async def analyze_document(
                 workspace_id=workspace_id,
                 ai_structured_summary=ai_structured_summary,
                 file_content=content,
-                content_type=file.content_type or "application/pdf"
+                content_type=file.content_type or "application/pdf",
+                analysis_generation=analysis_generation,
             )
 
         if not success:
@@ -136,6 +142,7 @@ async def analyze_document(
             "filename": file.filename,
             "summary": ai_structured_summary.get("overview", "Document processed successfully") if ai_structured_summary else "Document processed successfully",
             "ai_structured_summary": ai_structured_summary,
+            "analysis_generation": analysis_generation,
             "clauses": clauses,
             "total_clauses": len(clauses),
             "risk_summary": risk_summary,
@@ -149,6 +156,8 @@ async def analyze_document(
             correlation_id=correlation_id
         )
 
+    except AIRequestError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.public_message) from None
     except HTTPException:
         raise
     except Exception as e:
@@ -517,6 +526,7 @@ async def generate_clause_rewrite_endpoint(
                 data={
                     "rewrite_suggestion": clause["rewrite_suggestion"],
                     "rewrite_generated_at": clause["rewrite_generated_at"],
+                    "rewrite_generation": clause.get("rewrite_generation"),
                     "cached": True
                 },
                 correlation_id=correlation_id
@@ -531,6 +541,7 @@ async def generate_clause_rewrite_endpoint(
                 correlation_id=correlation_id
             )
         workspace_model = await service.get_workspace_model(workspace_id)
+        rewrite_generation = generation_metadata(workspace_model, "rewrite")
 
         from clauseiq_types.common import Clause, ContractType
         from services.ai.client_manager import workspace_openai_client
@@ -552,18 +563,22 @@ async def generate_clause_rewrite_endpoint(
             document_id=rewrite_request.document_id,
             clause_id=clause_id,
             workspace_id=workspace_id,
-            rewrite_suggestion=rewrite_suggestion
+            rewrite_suggestion=rewrite_suggestion,
+            generation=rewrite_generation,
         )
 
         return create_success_response(
             data={
                 "rewrite_suggestion": rewrite_suggestion,
                 "rewrite_generated_at": updated_clause["rewrite_generated_at"],
+                "rewrite_generation": updated_clause.get("rewrite_generation", rewrite_generation),
                 "cached": False
             },
             correlation_id=correlation_id
         )
 
+    except AIRequestError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.public_message) from None
     except HTTPException:
         raise
     except Exception as e:

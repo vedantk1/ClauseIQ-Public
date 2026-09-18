@@ -51,7 +51,92 @@ npm --prefix shared run build
 Optional isolated live storage checks (no OpenAI calls) are documented in
 ../backend/tests/README.md. They create and clean up only their own fixture stores.
 
+## Verification cadence
+
+- Routine changes: add or update focused deterministic tests and run the affected
+  tests, type checks and lint. Use the existing hot-reloading development servers.
+  Documentation-only edits normally need link/content review and git diff --check.
+- Broader checkpoints: batch manual UI testing and the full npm run check sequence
+  after several related implementations or a substantial milestone. A production
+  build and end-to-end manual walkthrough are not required after every small edit.
+- Build earlier if the change affects bundling, dependency compatibility, Next.js
+  configuration, generated shared output, or a defect only reproducible in a build.
+  Rebuild only the affected package where sufficient; do not restart working
+  services or rebuild Docker images without a relevant reason.
+- Run targeted migration, data-integrity, local-access and credential checks when
+  those boundaries change. Batch testing is not a reason to defer safety checks.
+- Record what was checked, what is deferred to the next checkpoint, and any known
+  failures. Mocked AI tests do not establish real model quality or actual cost.
+
+### Synthetic PDF fixtures
+
+tests/fixtures/pdfs contains small, explicitly synthetic PDFs, their readable
+source/manifest, and a deterministic generator. They cover ordinary extraction,
+multi-page cross-references and conflicting terms, untrusted embedded instructions,
+and image-only input. They are not real agreements or legally validated examples,
+and their presence does not select a target contract family for the product.
+
+From the repository root:
+
+~~~bash
+backend/venv/bin/python tests/fixtures/pdfs/generate.py --check
+cd backend && venv/bin/python -m pytest tests/test_pdf_fixtures.py -q
+~~~
+
+See tests/fixtures/pdfs/README.md for regeneration and expectations. The default
+tests perform local extraction checks only; no fixture is uploaded to the app or
+sent to an AI provider automatically. Live model evaluation remains separately
+approved and cost-capped.
+
 ## Existing local installations
+
+### Model defaults and bounded requests
+
+Workspace Settings selects the review model and an optional separate chat query
+preparation model. Without a saved review choice, OPENAI_DEFAULT_MODEL can
+override the catalog default (gpt-5.6-luna). A saved choice always wins; changing
+an environment default never migrates existing selections. Query preparation
+defaults to gpt-5-nano. Unknown IDs produce an explicit error, not a fallback.
+
+Provider limits/prices are maintained in backend/ai_models/models.py and checked
+against the [official model catalog](https://developers.openai.com/api/docs/models).
+GPT-5.6 reasoning supports none/low/medium/high/xhigh/max; retained GPT-5 models
+support minimal/low/medium/high. Review calls explicitly use medium; query
+preparation uses low. No new reasoning controls are required during onboarding.
+
+Task completion budgets include reasoning and visible answer tokens. Override
+these in the backend environment or backend/.env as needed:
+
+| Setting | Default |
+| --- | --- |
+| AI_MAX_INPUT_TOKENS | 100000 |
+| AI_CLASSIFICATION_MAX_COMPLETION_TOKENS | 1024 |
+| AI_EXTRACTION_MAX_COMPLETION_TOKENS | 16000 |
+| AI_SUMMARY_MAX_COMPLETION_TOKENS | 4000 |
+| AI_REWRITE_MAX_COMPLETION_TOKENS | 6000 |
+| AI_QUERY_GATE_MAX_COMPLETION_TOKENS | 1024 |
+| AI_QUERY_REWRITE_MAX_COMPLETION_TOKENS | 2048 |
+| AI_CHAT_MAX_COMPLETION_TOKENS | 4000 |
+
+The input cap applies to the complete estimated message input, not just document
+text; a 2,048-token capacity margin is also reserved. Completion settings clamp
+to the model's output maximum. Invalid budgets fail visibly. These are per-call
+limits, not an account-level monetary cap; one review makes multiple calls.
+Oversized prompts are rejected, not silently truncated. Partial-output failures
+do not trigger an automatic larger or more expensive retry.
+
+The existing OpenAI Python SDK remains pinned: deterministic tests exercise its
+actual Chat Completions serialization through a local mock transport for every
+supported ID. This is request compatibility coverage, not a live provider-access
+or output-quality guarantee. tiktoken may download its public tokenizer vocabulary
+on first use; it is cached locally and contains no document or credential data.
+
+Paid evaluation is separate: agree on models, synthetic/public fixtures, a small
+spending ceiling and stop conditions before making calls. Record correctness,
+grounding, latency and actual usage—not just a successful HTTP response. Do not
+paste keys into test files or use confidential agreements as evaluation fixtures.
+
+### Workspace migration
 
 Back up MongoDB, GridFS and Qdrant before the first workspace-mode startup.
 Do not clear volumes or replace an existing .env file to fix a startup issue.

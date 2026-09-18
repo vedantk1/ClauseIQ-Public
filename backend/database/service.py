@@ -557,7 +557,7 @@ class DocumentService:
         db = await self._get_db()
         return await db.clear_chat_messages(document_id, workspace_id)
 
-    async def update_clause_rewrite(self, document_id: str, clause_id: str, workspace_id: str, rewrite_suggestion: str) -> Optional[Dict[str, Any]]:
+    async def update_clause_rewrite(self, document_id: str, clause_id: str, workspace_id: str, rewrite_suggestion: str, generation: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         """Update a clause with a rewrite suggestion."""
         try:
             db = await self._get_db()
@@ -575,6 +575,8 @@ class DocumentService:
                 if clause.get("id") == clause_id:
                     clause["rewrite_suggestion"] = rewrite_suggestion
                     clause["rewrite_generated_at"] = datetime.utcnow().isoformat()
+                    if generation is not None:
+                        clause["rewrite_generation"] = generation
                     updated_clause = clause
                     break
 
@@ -596,7 +598,7 @@ class DocumentService:
     # ================== SYSTEM CONFIG OPERATIONS ==================
     # For storing system-wide application configuration
 
-    async def get_system_config(self, key: str) -> Optional[Dict[str, Any]]:
+    async def get_system_config(self, key: str, *, raise_on_error: bool = False) -> Optional[Dict[str, Any]]:
         """Get a system configuration by key."""
         try:
             db = await self._get_db()
@@ -607,6 +609,9 @@ class DocumentService:
             return config
         except Exception as e:
             logger.error("System configuration lookup failed: %s", type(e).__name__)
+            if raise_on_error:
+                from services.ai.generation import AIRequestError
+                raise AIRequestError("Could not read model settings. Restore the local database connection before making AI requests.", 503) from None
             return None
 
     async def set_system_config(self, key: str, data: Dict[str, Any], workspace_id: str = WORKSPACE_ID) -> bool:
@@ -680,18 +685,13 @@ class DocumentService:
         Returns:
             The configured model ID, or the default model if not configured.
         """
-        try:
-            config = await self.get_system_config("system_ai_model")
-            if config and config.get("model_id"):
-                return config["model_id"]
-
-            # Return default model if not configured
-            from ai_models.models import AIModelConfig
-            return AIModelConfig.get_default_model()
-        except Exception as e:
-            logger.error("System AI model lookup failed: %s", type(e).__name__)
-            from ai_models.models import AIModelConfig
-            return AIModelConfig.get_default_model()
+        config = await self.get_system_config("system_ai_model", raise_on_error=True)
+        if config and "model_id" in config:
+            # Preserve even unsupported historical IDs so Settings can show them;
+            # request validation rejects them instead of choosing another model.
+            return config["model_id"]
+        from config.environments import get_environment_config
+        return get_environment_config().ai.default_model
 
     async def get_system_ai_model_config(self) -> Optional[Dict[str, Any]]:
         """
@@ -737,16 +737,11 @@ class DocumentService:
         Returns:
             The configured model ID, or gpt-5-nano as default (fast & cheap for gate calls).
         """
-        try:
-            config = await self.get_system_config("query_gate_model")
-            if config and config.get("model_id"):
-                return config["model_id"]
-
-            # Return default lightweight model for gate calls
-            return "gpt-5-nano"
-        except Exception as e:
-            logger.error("Query gate model lookup failed: %s", type(e).__name__)
-            return "gpt-5-nano"
+        config = await self.get_system_config("query_gate_model", raise_on_error=True)
+        if config and "model_id" in config:
+            return config["model_id"]
+        from ai_models.models import DEFAULT_QUERY_GATE_MODEL
+        return DEFAULT_QUERY_GATE_MODEL
 
     async def get_query_gate_model_config(self) -> Optional[Dict[str, Any]]:
         """

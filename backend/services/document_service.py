@@ -9,6 +9,7 @@ from typing import List, Tuple, Dict, Any, Optional
 from fastapi import UploadFile, HTTPException
 from config.environments import get_environment_config
 from models.common import Clause, ClauseType, RiskLevel, ContractType
+from services.ai.generation import AIRequestError
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,8 @@ async def process_document_with_llm(document_text: str, filename: str = "", mode
 
         return contract_type, clauses
 
+    except AIRequestError:
+        raise
     except Exception as e:
         logger.error("LLM document processing failed: %s", type(e).__name__)
         # Re-raise the exception instead of falling back to heuristics
@@ -120,7 +123,8 @@ def build_document_data(
     clauses: List[Clause],
     contract_type: ContractType,
     workspace_id: str,
-    ai_structured_summary: Optional[Dict[str, Any]] = None
+    ai_structured_summary: Optional[Dict[str, Any]] = None,
+    analysis_generation: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Build document data dictionary for storage.
@@ -145,6 +149,7 @@ def build_document_data(
         "upload_date": datetime.now().isoformat(),
         "text": extracted_text,
         "ai_structured_summary": ai_structured_summary,
+        "analysis_generation": analysis_generation,
         "clauses": [clause.dict() for clause in clauses],
         "risk_summary": risk_summary,
         "contract_type": contract_type.value if contract_type else None,
@@ -161,7 +166,8 @@ async def process_and_save_analyzed_document(
     workspace_id: str,
     ai_structured_summary: Optional[Dict[str, Any]],
     file_content: bytes,
-    content_type: str = "application/pdf"
+    content_type: str = "application/pdf",
+    analysis_generation: Optional[Dict[str, Any]] = None,
 ) -> Tuple[bool, Optional[str]]:
     """
     Process RAG, save document metadata and PDF file.
@@ -190,7 +196,7 @@ async def process_and_save_analyzed_document(
     # Build document data
     document_data = build_document_data(
         doc_id, filename, extracted_text, clauses,
-        contract_type, workspace_id, ai_structured_summary
+        contract_type, workspace_id, ai_structured_summary, analysis_generation
     )
 
     # Process RAG before saving document
