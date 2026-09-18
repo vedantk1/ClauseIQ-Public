@@ -26,7 +26,7 @@ export function EvidenceList({ evidence, source, onOpen }: {
         const matched = evidenceMatches(evidence, source);
         return <article className="rounded-lg border border-border-muted p-4" key={`${evidence.span_id}-${index}`}>
           <h3 className="font-medium">{evidence.label}</h3>
-          <p className="mt-1 text-xs text-text-secondary">Page {evidence.page_number} · {matched ? "Quote matched to source" : "Quote could not be matched to this source"}</p>
+          <p className="mt-1 text-xs text-text-secondary">Page {evidence.page_number} · {matched ? (evidence.end_span_id ? "Passage matched to source" : "Quote matched to source") : "Quote could not be matched to this source"}</p>
           <blockquote className="my-3 whitespace-pre-wrap break-words border-l-2 border-accent-purple pl-3 text-sm leading-relaxed">{evidence.quote}</blockquote>
           <Action disabled={!matched} onClick={() => onOpen(evidence)}>Read page {evidence.page_number} in the original</Action>
         </article>;
@@ -55,7 +55,7 @@ export function DocumentSourceView({ documentId, filename, source, finding, evid
     {evidence && evidenceMatches(evidence, source) && <Panel>
       <h3 className="font-semibold">{evidence.label} · page {evidence.page_number}</h3>
       <blockquote className="mt-2 whitespace-pre-wrap text-sm">{evidence.quote}</blockquote>
-      <p className="mt-2 text-xs text-text-secondary">Quote matched to extracted source. The PDF opens at the physical page; no guessed highlight is applied.</p>
+      <p className="mt-2 text-xs text-text-secondary">{evidence.end_span_id ? "Passage" : "Quote"} matched to extracted source. The PDF opens at the physical page; no guessed highlight is applied.</p>
     </Panel>}
     {navigationError && <p role="alert" className="text-sm">{navigationError}</p>}
     <div className="min-h-[600px]">

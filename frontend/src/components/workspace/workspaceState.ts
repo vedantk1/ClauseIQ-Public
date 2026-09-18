@@ -35,9 +35,35 @@ const idleReviewAction = (): ReviewActionState => ({ status: "idle", error: null
 export function evidenceMatches(evidence: ReviewEvidence, source: DocumentSourceResponse | null): boolean {
   if (!source || evidence.source_revision_id !== source.source_revision_id) return false;
   const page = source.source_extraction?.pages.find(item => item.page_number === evidence.page_number);
-  const span = page?.spans.find(item => item.id === evidence.span_id);
-  return !!page && !!span && span.text === evidence.quote &&
-    Array.from(page.text).slice(span.start, span.end).join("") === evidence.quote;
+  if (!page) return false;
+  const characters = Array.from(page.text); // Source offsets count Unicode code points, not UTF-16 units.
+  const firstIndex = page.spans.findIndex(item => item.id === evidence.span_id);
+  const first = page.spans[firstIndex];
+  const exactSpan = (span: typeof first) => !!span && Number.isInteger(span.start) && Number.isInteger(span.end) &&
+    span.start >= 0 && span.end > span.start && span.end <= characters.length &&
+    characters.slice(span.start, span.end).join("") === span.text;
+  if (!exactSpan(first)) return false;
+  if (evidence.end_span_id == null) return first.text === evidence.quote;
+
+  const lastIndex = page.spans.findIndex(item => item.id === evidence.end_span_id);
+  if (lastIndex < firstIndex) return false; // A missing, reversed or cross-page end cannot be guessed.
+  const last = page.spans[lastIndex];
+  if (!last) return false;
+  const allSpans = source.source_extraction!.pages.flatMap(item => item.spans);
+  if (allSpans.filter(item => item.id === first.id).length !== 1 ||
+      allSpans.filter(item => item.id === last.id).length !== 1) return false;
+  const passageSpans = page.spans.slice(firstIndex, lastIndex + 1);
+  for (let index = 0; index < passageSpans.length; index += 1) {
+    const span = passageSpans[index];
+    if (!exactSpan(span) || allSpans.filter(item => item.id === span.id).length !== 1) return false;
+    const previous = passageSpans[index - 1];
+    if (previous && (span.start < previous.end ||
+        characters.slice(previous.end, span.start).join("").trim() !== "")) return false;
+  }
+  // An outside span overlapping the selected passage makes its anchor range ambiguous.
+  if (page.spans.some((span, index) => (index < firstIndex || index > lastIndex) &&
+      span.start < last.end && span.end > first.start)) return false;
+  return characters.slice(first.start, last.end).join("") === evidence.quote;
 }
 
 type QueueEntry = { key: string; operation: ReviewWorkspaceOperation | null };

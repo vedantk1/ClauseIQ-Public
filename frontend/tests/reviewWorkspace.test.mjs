@@ -230,6 +230,103 @@ test("source matching requires exact revision, span, page and Unicode code-point
   for (const change of [{ source_revision_id: "other" }, { page_number: 1 }, { span_id: "missing" }, { quote: "Obligation" }]) {
     assert.equal(evidenceMatches({ ...evidence, ...change }, source), false);
   }
+  assert.equal(evidenceMatches({ ...evidence, end_span_id: null }, source), true);
+});
+
+function passageFixture() {
+  const text = "🙂 Rule applies.\n  Only if requested.\nCharges continue.";
+  const phrases = ["🙂 Rule applies.", "Only if requested.", "Charges continue."];
+  const spans = phrases.map((phrase, index) => {
+    const start = Array.from(text.slice(0, text.indexOf(phrase))).length;
+    return { id: `passage-${index + 1}`, start, end: start + Array.from(phrase).length, text: phrase };
+  });
+  return {
+    source: { id: "doc-1", source_revision_id: "source-1", source_extraction: { pages: [
+      { page_number: 2, text, spans },
+      { page_number: 3, text: "Other page", spans: [{ id: "other-page", start: 0, end: 10, text: "Other page" }] },
+    ] } },
+    evidence: { source_revision_id: "source-1", page_number: 2, span_id: spans[0].id,
+      end_span_id: spans[2].id, quote: text, label: "Rule, qualification and cost" },
+  };
+}
+
+test("passage matching preserves complete exact Unicode text and whitespace between inclusive anchors", () => {
+  const { evidenceMatches } = harness().state;
+  const { evidence, source } = passageFixture();
+  assert.equal(evidenceMatches(evidence, source), true);
+  const span = source.source_extraction.pages[0].spans[1];
+  assert.equal(evidenceMatches({ ...evidence, span_id: span.id, end_span_id: span.id, quote: span.text }, source), true);
+  for (const change of [
+    { source_revision_id: "wrong-source" }, { page_number: 3 }, { span_id: "missing" },
+    { end_span_id: "missing" }, { end_span_id: "other-page" }, { end_span_id: "passage-2" },
+    { span_id: "passage-3", end_span_id: "passage-1" }, { quote: evidence.quote.replace("\n  ", " ") },
+    { quote: evidence.quote.replace("Only", "only") }, { end_span_id: null },
+  ]) assert.equal(evidenceMatches({ ...evidence, ...change }, source), false, JSON.stringify(change));
+});
+
+test("passage matching rejects missing, reordered, duplicated, overlapping or tampered anchors", () => {
+  const { evidenceMatches } = harness().state;
+  const mutations = [
+    page => page.spans.splice(1, 1), // Exact quote alone cannot hide unanchored nonblank content.
+    page => page.spans.reverse(),
+    page => page.spans.push({ ...page.spans[1] }),
+    page => { page.spans[1].start -= 1; },
+    page => { page.spans[1].text = "Different qualification"; },
+    page => { page.spans[1].start = -1; },
+    page => { page.spans[1].end = 999; },
+    page => { page.spans[1].start += 0.5; },
+    page => {
+      page.spans.splice(1, 0, { id: "overlap", start: 2, end: 6, text: "Rule" });
+    },
+    page => {
+      page.spans.push({ id: "outside-overlap", start: 2, end: 6, text: "Rule" });
+    },
+  ];
+  for (const mutate of mutations) {
+    const { source, evidence } = passageFixture();
+    mutate(source.source_extraction.pages[0]);
+    assert.equal(evidenceMatches(evidence, source), false, mutate.toString());
+  }
+  const { source, evidence } = passageFixture();
+  source.source_extraction.pages[1].spans[0].id = evidence.end_span_id;
+  assert.equal(evidenceMatches(evidence, source), false);
+});
+
+test("a complete passage stays one evidence card and navigates to its physical page with the first resume anchor", () => {
+  const helpers = harness().state;
+  const controlsForEvidence = loadModule("../src/components/workspace/WorkspaceControls.tsx", {
+    react: React, "./workspaceState": helpers,
+  });
+  let navigation;
+  const { EvidenceList, DocumentSourceView } = loadModule("../src/components/workspace/EvidenceSourcePane.tsx", {
+    react: React, "@/components/PDFViewer": props => { navigation = props.navigationRequest; return null; },
+    "./workspaceState": helpers, "./WorkspaceControls": controlsForEvidence,
+  });
+  const { source, evidence } = passageFixture();
+  let opened;
+  const card = EvidenceList({ evidence: [evidence], source, onOpen(item) { opened = item; } });
+  const html = renderToStaticMarkup(card);
+  assert.equal((html.match(/<article/g) || []).length, 1);
+  assert.match(html, /Passage matched to source/);
+  assert.match(html, /Only if requested/);
+  assert.match(html, /Charges continue/);
+  assert.doesNotMatch(html, /disabled=""/);
+  function clickAction(node) {
+    if (!React.isValidElement(node)) return;
+    if (node.props.onClick) node.props.onClick();
+    React.Children.forEach(node.props.children, clickAction);
+  }
+  clickAction(card);
+  assert.equal(opened, evidence);
+  const run = initial().runs[0]; run.findings[0].evidence = [opened];
+  const position = helpers.safeReviewPosition(run, "document", "finding-1", opened.span_id);
+  assert.equal(position.evidence_span_id, "passage-1");
+  assert.equal(position.finding_id, "finding-1");
+  renderToStaticMarkup(React.createElement(DocumentSourceView, {
+    documentId: "doc-1", filename: "synthetic.pdf", source, finding: run.findings[0], evidence: opened,
+    navigationRequest: { requestId: 1, pageNumber: opened.page_number }, onReturn() {},
+  }));
+  assert.equal(navigation.pageNumber, 2);
 });
 
 test("unmatched evidence renders an explicit limitation and cannot jump to a guessed location", () => {

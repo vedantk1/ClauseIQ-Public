@@ -1,15 +1,14 @@
-"""One bounded, source-validated review call. No storage, credentials or retries.
+"""One bounded review call with server-resolved, exact source passages.
 
-Evidence accepts a full span or one unique, exact, word-boundary excerpt within
-the explicitly cited span. Matching never normalizes whitespace or case, repairs
-text, searches another span or uses fuzzy matching. Published evidence always
-contains the full stored span, not the provider's shorter quotation.
+The provider selects passage IDs, never writes authoritative source quotations.
+Each ID resolves only inside the prepared source snapshot to a complete page-local
+range of stored line anchors. This establishes location, not semantic support.
+No storage, credentials, retries or model fallback live in this module.
 """
 
 import asyncio
 import json
 import time
-import unicodedata
 from dataclasses import dataclass
 from typing import Annotated, Literal
 
@@ -22,26 +21,41 @@ from clauseiq_types.review import (
 from clauseiq_types.source import SourceExtraction
 from .generation import AIRequestError, create_chat_completion, generation_metadata
 from .review_prompt import PROMPT_VERSION, REVIEW_SYSTEM_PROMPT, SCHEMA_VERSION
+from .review_passages import PASSAGE_VERSION, build_review_passages
 from .token_utils import _positive_env_integer, calculate_token_budget, get_token_count
 
 DEFAULT_REVIEW_TIMEOUT_SECONDS = 120
 MAX_REVIEW_TIMEOUT_SECONDS = 180
 MAX_RESPONSE_CHARACTERS = 1_000_000
+# Compact provider IDs can expand into repeated full passages. Bound the UTF-8
+# JSON envelope for resolved overview/findings, not only the provider response.
+# This is a per-result safety limit, not a migration or total-document-size limit.
+MAX_RESOLVED_REVIEW_BYTES = 1_000_000
 SOURCE_LIMITATION = (
     "All successfully extracted text was supplied. Extraction and exact quote matches "
     "do not establish complete review, legal validity or correct interpretation."
 )
 
 
+class GeneratedEvidence(ReviewModel):
+    passage_id: str = Field(min_length=1, max_length=128)
+    label: str = Field(min_length=1, max_length=200)
+
+
+class GeneratedOverviewItem(ReviewModel):
+    evidence: list[GeneratedEvidence] = Field(min_length=1, max_length=30)
+    text: str = Field(min_length=1, max_length=2000)
+
+
 class GeneratedFinding(ReviewModel):
     """Provider shape: IDs are assigned locally only after complete validation."""
     title: str = Field(min_length=1, max_length=300)
+    evidence: list[GeneratedEvidence] = Field(min_length=1, max_length=30)
     facts: str = Field(min_length=1, max_length=10000)
     interpretation: str = Field(min_length=1, max_length=10000)
     uncertainty: str = Field(max_length=10000)
     next_step: str = Field(min_length=1, max_length=5000)
     suggested_question: str = Field(min_length=1, max_length=5000)
-    evidence: list[ReviewEvidence] = Field(min_length=1, max_length=30)
     basis: Literal["source_text", "not_found"]
     coverage_basis: str = Field(max_length=2000)
 
@@ -59,7 +73,7 @@ class GeneratedFinding(ReviewModel):
 
 class GeneratedReview(ReviewModel):
     outcome: Literal["review", "unsupported"]
-    overview_items: list[ReviewOverviewItem] = Field(max_length=30)
+    overview_items: list[GeneratedOverviewItem] = Field(max_length=30)
     findings: list[GeneratedFinding] = Field(max_length=100)
     limitations: list[Annotated[str, Field(min_length=1, max_length=2000)]] = Field(max_length=50)
 
@@ -83,7 +97,7 @@ class PreparedReview:
     coverage: ReviewCoverage
     messages: list[dict[str, str]]
     response_format: dict
-    evidence_by_id: dict[str, ReviewEvidence]
+    evidence_by_id: dict[str, ReviewEvidence]  # scoped passage ID -> canonical source range
     timeout_seconds: int
 
 
@@ -107,7 +121,7 @@ def _source(document):
             raise ValueError("Source identity or state mismatch")
         if extraction.text != "\n".join(page.text for page in extraction.pages if page.text).strip():
             raise ValueError("Flattened text does not match pages")
-        evidence_by_id = {}
+        span_ids = set()
         extracted_pages = []
         for page in extraction.pages:
             if page.status != "extracted":
@@ -119,12 +133,9 @@ def _source(document):
             extracted_pages.append(page.page_number)
             end = 0
             for span in page.spans:
-                if span.id in evidence_by_id or span.start < end or page.text[end:span.start].strip():
+                if span.id in span_ids or span.start < end or page.text[end:span.start].strip():
                     raise ValueError("Duplicate, overlapping or missing spans")
-                evidence_by_id[span.id] = ReviewEvidence(
-                    source_revision_id=document["source_revision_id"], span_id=span.id,
-                    page_number=page.page_number, quote=span.text, label="Source passage",
-                )
+                span_ids.add(span.id)
                 end = span.end
             if page.text[end:].strip():
                 raise ValueError("Unanchored trailing text")
@@ -133,7 +144,7 @@ def _source(document):
         expected_status = "complete" if len(extracted_pages) == extraction.page_count else "partial"
         if extraction.status != expected_status:
             raise ValueError("Extraction status does not describe page coverage")
-        return extraction, evidence_by_id, extracted_pages
+        return extraction, extracted_pages
     except (KeyError, TypeError, ValueError, ValidationError):
         raise AIRequestError(
             "This source has no consistent, usable page extraction. Re-extract or import the PDF before starting a review.", 409,
@@ -142,7 +153,20 @@ def _source(document):
 
 def prepare_review(document: dict, brief: ReviewBrief, model_id: str) -> PreparedReview:
     """Validate the entire source and budget before allowing a paid request."""
-    extraction, evidence_by_id, extracted_pages = _source(document)
+    extraction, extracted_pages = _source(document)
+    try:
+        passages = build_review_passages(extraction, document["source_revision_id"])
+        # The existing saved evidence contract retains exact first/last line IDs.
+        # The provider sees only scoped passage IDs and cannot replace this text.
+        evidence_by_id = {
+            passage.id: ReviewEvidence(
+                source_revision_id=document["source_revision_id"],
+                span_id=passage.span_ids[0], end_span_id=passage.span_ids[-1],
+                page_number=passage.page_number, quote=passage.text, label="Source passage",
+            ) for passage in passages
+        }
+    except (ValueError, TypeError, ValidationError):
+        raise AIRequestError("The source could not be represented as bounded exact passages. Nothing was sent.", 400) from None
     metadata = generation_metadata(model_id, "review")
     omitted = [page.page_number for page in extraction.pages if page.status != "extracted"]
     limitations = [SOURCE_LIMITATION]
@@ -158,9 +182,13 @@ def prepare_review(document: dict, brief: ReviewBrief, model_id: str) -> Prepare
         "review_brief": brief.model_dump(),
         "source_revision_id": document["source_revision_id"],
         "coverage": coverage.model_dump(),
+        "passage_version": PASSAGE_VERSION,
         "pages": [
-            {"page_number": page.page_number, "text": page.text,
-             "spans": [{"span_id": span.id, "quote": span.text} for span in page.spans]}
+            {"page_number": page.page_number,
+             "passages": [{"passage_id": passage.id, "text": passage.text,
+                           "continuation_before": passage.continuation_before,
+                           "continuation_after": passage.continuation_after}
+                          for passage in passages if passage.page_number == page.page_number]}
             for page in extraction.pages if page.status == "extracted"
         ],
     }
@@ -215,38 +243,19 @@ class _EvidenceMismatch(ValueError):
     """An exact-reference failure, without source or provider text in the error."""
 
 
-def _word_character(character):
-    # Combining marks are part of a word too: never split an accented character.
-    return character == "_" or character.isalnum() or unicodedata.category(character).startswith("M")
-
-
-def _exact_quote_matches(quote, span_text):
-    """A uniquely located literal quotation, with no mid-word cut at either end."""
-    if not quote.strip():
-        return False
-    if quote == span_text:
-        return True
-    start = span_text.find(quote)
-    if start < 0 or span_text.find(quote, start + 1) >= 0:
-        return False
-    end = start + len(quote)
-    if start and _word_character(span_text[start - 1]) and _word_character(quote[0]):
-        return False
-    if end < len(span_text) and _word_character(quote[-1]) and _word_character(span_text[end]):
-        return False
-    return True
+class _ResolvedOutputLimit(ValueError):
+    """Expanded source evidence exceeded the bounded publishable result size."""
 
 
 def _resolve_evidence(evidence, prepared):
     resolved = []
+    seen = set()
     for candidate in evidence:
-        original = prepared.evidence_by_id.get(candidate.span_id)
-        if (original is None or not candidate.label.strip()
-                or candidate.source_revision_id != original.source_revision_id
-                or candidate.page_number != original.page_number
-                or not _exact_quote_matches(candidate.quote, original.quote)):
-            raise _EvidenceMismatch("Evidence did not exactly match source")
-        # Never persist provider page/quote values as the authority.
+        original = prepared.evidence_by_id.get(candidate.passage_id)
+        if original is None or not candidate.label.strip() or candidate.passage_id in seen:
+            raise _EvidenceMismatch("Evidence did not identify a unique source passage")
+        seen.add(candidate.passage_id)
+        # Never persist provider page/quote values as the authority: none are accepted.
         resolved.append(original.model_copy(update={"label": candidate.label}))
     return resolved
 
@@ -296,17 +305,35 @@ async def generate_review(prepared: PreparedReview, client) -> ReviewGenerationR
     except (ValueError, TypeError, ValidationError, RecursionError):
         return failed("INVALID_REVIEW_SHAPE", "The generated review did not satisfy the required output structure. No generated findings were published.")
     try:
-        overview = [ReviewOverviewItem(text=item.text, evidence=_resolve_evidence(item.evidence, prepared))
-                    for item in parsed.overview_items]
-        findings = [ReviewFinding(
-            **item.model_dump(exclude={"evidence"}), id=f"finding_{index + 1}",
-            evidence=_resolve_evidence(item.evidence, prepared),
-        ) for index, item in enumerate(parsed.findings)]
+        resolved_bytes = len(b'{"overview_items":[],"findings":[]}')
+
+        def append_bounded(items, item):
+            nonlocal resolved_bytes
+            # Check each resolved item immediately. Do not expand the remaining
+            # references or serialize an enormous whole result before rejecting.
+            resolved_bytes += len(item.model_dump_json().encode("utf-8")) + bool(items)
+            if resolved_bytes > MAX_RESOLVED_REVIEW_BYTES:
+                raise _ResolvedOutputLimit()
+            items.append(item)
+
+        overview = []
+        findings = []
+        for item in parsed.overview_items:
+            append_bounded(overview, ReviewOverviewItem(
+                text=item.text, evidence=_resolve_evidence(item.evidence, prepared),
+            ))
+        for index, item in enumerate(parsed.findings):
+            append_bounded(findings, ReviewFinding(
+                **item.model_dump(exclude={"evidence"}), id=f"finding_{index + 1}",
+                evidence=_resolve_evidence(item.evidence, prepared),
+            ))
+    except _ResolvedOutputLimit:
+        return failed("REVIEW_RESOLVED_OUTPUT_LIMIT", "The review and its complete source passages exceeded the safe result-size limit. No generated findings were published; no automatic retry was made.")
     except _EvidenceMismatch:
-        return failed("INVALID_REVIEW_EVIDENCE", "A generated source reference or quotation did not exactly match the stored extraction. No generated findings were published.")
+        return failed("INVALID_REVIEW_EVIDENCE", "A generated reference did not identify a unique supplied source passage. No generated findings were published.")
     except (ValueError, TypeError, ValidationError):
         return failed("INVALID_REVIEW_SHAPE", "The generated review did not satisfy the required output structure. No generated findings were published.")
-    coverage.limitations.extend(parsed.limitations)
+    coverage.limitations = list(dict.fromkeys([*coverage.limitations, *parsed.limitations]))
     if parsed.outcome == "unsupported":
         return failed("UNSUPPORTED_REVIEW_INPUT", "The model could not review this source as an agreement. See the reported limitations.")
     generation.duration_ms = max(0, int((time.monotonic() - started) * 1000))

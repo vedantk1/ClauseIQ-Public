@@ -21,6 +21,9 @@ class ReviewBrief(ReviewModel):
 class ReviewEvidence(ReviewModel):
     source_revision_id: ReviewId
     span_id: ReviewId
+    # Omitted/null retains the original exact single-span quotation contract.
+    # A range includes both anchors and all original text between them on one page.
+    end_span_id: ReviewId | None = None
     page_number: int = Field(ge=1)
     quote: str = Field(min_length=1, max_length=20000)
     label: str = Field(min_length=1, max_length=200)

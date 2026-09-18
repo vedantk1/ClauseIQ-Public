@@ -8,6 +8,8 @@ export interface ReviewBrief {
 export interface ReviewEvidence {
   source_revision_id: string;
   span_id: string;
+  /** Inclusive same-page end anchor; absent/null means the original single span. */
+  end_span_id?: string | null;
   page_number: number;
   quote: string;
   label: string;

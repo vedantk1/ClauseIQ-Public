@@ -138,11 +138,34 @@ that the agreement has no issues. A not_found finding must state coverage_basis.
 
 Coverage identifies extracted and omitted physical pages and the all_extracted_text
 input scope. Supplied text is not proof that the model considered every provision.
-Quote validation failure withholds output and cannot become ready. Partial source
+Reference validation failure withholds output and cannot become ready. Partial source
 input stays incomplete. Reading saved runs and editing personal work need no key.
-Model quotations must match the cited span or a unique, word-bounded exact excerpt
-within it. Published evidence always uses the full canonical stored span; no fuzzy
-matching or whitespace/case correction is performed.
+
+Evidence in saved responses contains source_revision_id, span_id, optional
+end_span_id, page_number, quote and label. A non-null end_span_id identifies the
+inclusive final anchor on the same physical page. The quote is the exact original
+page slice from the first span's start through the final span's end, including
+intervening whitespace and line breaks. The anchors must be ordered and consistent;
+missing, reversed or cross-page endpoints are invalid. An omitted/null end_span_id
+retains the original exact single-span contract, so existing runs and fixtures
+remain readable without a migration. Position.evidence_span_id continues to select
+the evidence's first span_id.
+
+New generation uses a separate provider-only shape: evidence contains a supplied
+passage_id and relevance label. The server resolves that ID to the canonical
+range above; provider-authored quotations, pages and line IDs are not accepted.
+Passage IDs are scoped to the prepared source, not new persisted extraction anchors.
+No fuzzy matching or whitespace/case correction is performed. Page-local grouping
+is a bounded navigation heuristic, not a promise of complete clauses or support for
+every generated assertion. Exact evidence establishes wording/location, not semantic
+correctness, legal applicability or review completeness.
+
+After canonical passage expansion, the combined serialized overview_items/findings
+envelope is limited to 1,000,000 UTF-8 bytes. Exceeding this per-result limit returns
+an incomplete run with REVIEW_RESOLVED_OUTPUT_LIMIT, empty overview_items/findings
+and retained available usage; it does not retry. This does not guarantee the total
+size of a stored document containing multiple runs.
+
 Model changes, source/input limits and missing credentials fail before paid work;
 no model fallback or automatic paid retry is performed. If an HTTP/save outcome is
 uncertain, reload first. The persisted processing record does not prove that a

@@ -15,7 +15,7 @@ from openai import AsyncOpenAI
 from clauseiq_types.review import ReviewBrief
 from services.ai import review_generation as engine
 from services.ai.generation import AIRequestError
-from services.ai.text_extractor import TextExtractor
+from services.ai.text_extractor import TextExtractor, _line_spans
 from services.ai.token_utils import get_token_count
 
 
@@ -51,7 +51,7 @@ def prepared(document):
 
 @pytest.fixture
 def output(prepared):
-    evidence = prepared.evidence_by_id["span_2"].model_dump() | {"label": "Retention rule"}
+    evidence = {"passage_id": next(iter(prepared.evidence_by_id)), "label": "Retention rule"}
     return {
         "outcome": "review", "overview_items": [{"text": "The provider retains records for 60 days.", "evidence": [evidence]}],
         "findings": [{
@@ -84,15 +84,16 @@ def mock_client(reply):
     return SimpleNamespace(with_options=with_options), create, options
 
 
-def test_prepare_includes_full_text_spans_brief_and_schema_budget(prepared, document):
+def test_prepare_includes_full_passages_brief_and_schema_budget(prepared, document):
     supplied = json.loads(prepared.messages[1]["content"])
-    assert supplied["pages"][0]["text"] == document["source_extraction"]["text"]
-    assert supplied["pages"][0]["spans"][1]["quote"] == document["source_extraction"]["pages"][0]["spans"][1]["text"]
+    assert supplied["pages"][0]["passages"][0]["text"] == document["source_extraction"]["text"]
+    assert supplied["passage_version"] == "source-passages-v1"
+    assert "spans" not in supplied["pages"][0]  # source text is not duplicated per line
     assert supplied["review_brief"]["perspective"] == "customer"
     message_estimate = sum(get_token_count(item["content"], "gpt-5.6-terra") + 8 for item in prepared.messages) + 16
     assert prepared.generation.estimated_input_tokens > message_estimate
-    assert prepared.generation.prompt_version == "source-review-v2"
-    assert prepared.generation.schema_version == "source-review-output-v1"
+    assert prepared.generation.prompt_version == "source-review-v3"
+    assert prepared.generation.schema_version == "source-review-output-v2"
     assert prepared.generation.extraction_version == "test-lines-v1"
     assert prepared.coverage.extracted_pages == [1]
     assert prepared.coverage.omitted_pages == []
@@ -170,7 +171,10 @@ async def test_valid_review_single_bounded_call_usage_and_source_resolved(prepar
     result = await engine.generate_review(prepared, client)
     assert result.status == "ready" and result.failure is None
     assert result.findings[0].id == "finding_1"
-    assert result.findings[0].evidence[0].quote == prepared.evidence_by_id["span_2"].quote
+    canonical = next(iter(prepared.evidence_by_id.values()))
+    assert result.findings[0].evidence[0].quote == canonical.quote
+    assert result.findings[0].evidence[0].span_id == "span_1"
+    assert result.findings[0].evidence[0].end_span_id == "span_2"
     assert result.generation.usage.total_tokens == 300 and result.generation.duration_ms >= 0
     assert prepared.generation.usage is None  # immutable prepared snapshot
     assert options == [{"max_retries": 0, "timeout": 120}]
@@ -187,58 +191,101 @@ async def test_zero_findings_with_referenced_overview_is_valid(prepared, output)
     assert (await engine.generate_review(prepared, client)).status == "ready"
 
 
-@pytest.mark.parametrize("span,quote,matches", [
-    ("Provider keeps records for 60 days.", "Provider keeps records for 60 days.", True),
-    ("Provider keeps records for 60 days.", "keeps records", True),
-    ("Provider keeps records for 60 days.", "Provider keeps", True),
-    ("Provider keeps records for 60 days.", "60 days.", True),
-    ("Provider keeps records for 60 days.", "keeps Records", False),
-    ("Provider keeps  records for 60 days.", "keeps records", False),
-    ("Provider keeps records for 60 days.", "vider keeps", False),
-    ("Provider keeps records for 60 days.", "keeps recor", False),
-    ("Records cost 1000 units.", "100", False),
-    ("Service fee. Service fee.", "Service fee.", False),
-    ("aaaa", "aa", False),
-    ("Provider keeps records.", "unrelated", False),
-    ("Provider keeps records.", " ", False),
-    ("Provider keeps records.", "", False),
-    ("Cafe\u0301 charges apply.", "Cafe", False),
-    ("Cafe\u0301 charges apply.", "Cafe\u0301", True),
-    ("café charges apply.", "fé", False),
-    ("fee_total is payable.", "total", False),
-])
-def test_exact_excerpt_matching_does_not_normalize_or_accept_ambiguous_midword_text(span, quote, matches):
-    assert engine._exact_quote_matches(quote, span) is matches
-
-
 @pytest.mark.asyncio
-async def test_unique_exact_excerpt_publishes_full_stored_passage(prepared, output):
-    output["findings"][0]["evidence"][0]["quote"] = "keeps records"
+async def test_passage_resolution_publishes_complete_original_text_without_provider_quote(prepared, output, document):
     client, _, _ = mock_client(response(output))
     result = await engine.generate_review(prepared, client)
     assert result.status == "ready"
-    assert result.findings[0].evidence[0].quote == prepared.evidence_by_id["span_2"].quote
-    assert result.overview_items[0].evidence[0].quote == prepared.evidence_by_id["span_2"].quote
+    assert result.findings[0].evidence[0].quote == document["source_extraction"]["text"]
+    assert result.overview_items[0].evidence[0].quote == document["source_extraction"]["text"]
     assert result.generation.usage.total_tokens == 300
 
 
-def test_synthetic_invoice_clause_excerpt_resolves_to_full_span(prepared):
-    span = "applicable adjustments. Example Supplier may not invoice an estimated change merely because an estimate"
-    excerpt = "Supplier may not invoice an estimated change merely because an estimate"
-    original = prepared.evidence_by_id["span_2"].model_copy(update={"quote": span})
-    candidate = original.model_copy(update={"quote": excerpt})
-    scoped = replace(prepared, evidence_by_id={"span_2": original})
-    resolved = engine._resolve_evidence([candidate], scoped)
-    assert resolved[0].quote == span and resolved[0].span_id == original.span_id
+@pytest.mark.asyncio
+async def test_duplicate_passage_is_rejected_not_silently_dropped(prepared, output):
+    output["findings"][0]["evidence"] *= 2
+    client, _, _ = mock_client(response(output))
+    result = await engine.generate_review(prepared, client)
+    assert result.failure.code == "INVALID_REVIEW_EVIDENCE" and not result.findings
+
+
+def prepared_with_text(document, text):
+    document = deepcopy(document)
+    source = document["source_extraction"]
+    source["text"] = text
+    source["pages"][0].update(text=text, spans=[span.model_dump() for span in _line_spans(text, "a" * 64, 1)])
+    return engine.prepare_review(document, ReviewBrief(), "gpt-5.6-terra")
+
+
+def resolved_json(result):
+    return json.dumps({"overview_items": [item.model_dump() for item in result.overview_items],
+                       "findings": [item.model_dump() for item in result.findings]},
+                      ensure_ascii=False, separators=(",", ":"))
+
+
+@pytest.mark.asyncio
+async def test_repeated_passages_across_findings_are_bounded_before_full_expansion(document, output, monkeypatch):
+    prepared = prepared_with_text(document, "x" * 20_000)
+    reference = {"passage_id": next(iter(prepared.evidence_by_id)), "label": "Source"}
+    output["overview_items"][0]["evidence"] = [reference]
+    output["findings"][0]["evidence"] = [reference]
+    output["findings"] = [deepcopy(output["findings"][0]) for _ in range(100)]
+    assert len(json.dumps(output)) < engine.MAX_RESPONSE_CHARACTERS
+    assert get_token_count(json.dumps(output), "gpt-5.6-terra") < 16_000
+    resolved_count = 0
+    resolve_evidence = engine._resolve_evidence
+
+    def count_resolution(*args):
+        nonlocal resolved_count
+        resolved_count += 1
+        return resolve_evidence(*args)
+
+    monkeypatch.setattr(engine, "_resolve_evidence", count_resolution)
+    client, call, _ = mock_client(response(output))
+    result = await engine.generate_review(prepared, client)
+    assert result.status == "incomplete" and result.failure.code == "REVIEW_RESOLVED_OUTPUT_LIMIT"
+    assert result.findings == [] and result.overview_items == []
+    assert 1 < resolved_count < 101  # Stop while expanding; do not construct all 100 findings.
+    assert result.generation.usage.total_tokens == 300 and result.generation.duration_ms >= 0
+    assert "no automatic retry" in result.failure.message
+    call.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_resolved_result_limit_counts_unicode_utf8_bytes_and_exact_envelope_boundaries(document, output, monkeypatch):
+    prepared = prepared_with_text(document, "🙂 Qualification applies.\nCharges remain payable: €50.")
+    reference = {"passage_id": next(iter(prepared.evidence_by_id)), "label": "Rule and qualification"}
+    output["overview_items"][0]["evidence"] = [reference]
+    output["findings"][0]["evidence"] = [reference]
+    output["overview_items"] *= 2
+    output["findings"] *= 2
+    baseline, _, _ = mock_client(response(output))
+    ready = await engine.generate_review(prepared, baseline)
+    assert ready.status == "ready"
+    serialized = resolved_json(ready)
+    byte_size = len(serialized.encode("utf-8"))
+    assert len(serialized) < byte_size - 1
+
+    monkeypatch.setattr(engine, "MAX_RESOLVED_REVIEW_BYTES", byte_size)
+    at_limit, call, _ = mock_client(response(output))
+    assert (await engine.generate_review(prepared, at_limit)).status == "ready"
+    call.assert_awaited_once()
+    monkeypatch.setattr(engine, "MAX_RESOLVED_REVIEW_BYTES", byte_size - 1)
+    too_large, call, _ = mock_client(response(output))
+    result = await engine.generate_review(prepared, too_large)
+    assert result.status == "incomplete" and result.failure.code == "REVIEW_RESOLVED_OUTPUT_LIMIT"
+    assert result.findings == [] and result.overview_items == []
+    assert result.generation.usage.total_tokens == 300
+    call.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mutation,code", [
-    (lambda o: o["findings"][0]["evidence"][0].update(quote="PRIVATE_UNMATCHED_QUOTE"), "INVALID_REVIEW_EVIDENCE"),
-    (lambda o: o["findings"][0]["evidence"][0].update(span_id="not_in_source"), "INVALID_REVIEW_EVIDENCE"),
-    (lambda o: o["findings"][0]["evidence"][0].update(source_revision_id="other_revision"), "INVALID_REVIEW_EVIDENCE"),
-    (lambda o: o["findings"][0]["evidence"][0].update(page_number=2), "INVALID_REVIEW_EVIDENCE"),
-    (lambda o: o["findings"][0]["evidence"][0].update(quote="vider keeps records"), "INVALID_REVIEW_EVIDENCE"),
+    (lambda o: o["findings"][0]["evidence"][0].update(quote="PRIVATE_UNMATCHED_QUOTE"), "INVALID_REVIEW_SHAPE"),
+    (lambda o: o["findings"][0]["evidence"][0].update(passage_id="not_in_source"), "INVALID_REVIEW_EVIDENCE"),
+    (lambda o: o["findings"][0]["evidence"][0].update(source_revision_id="other_revision"), "INVALID_REVIEW_SHAPE"),
+    (lambda o: o["findings"][0]["evidence"][0].update(page_number=2), "INVALID_REVIEW_SHAPE"),
+    (lambda o: o["findings"][0]["evidence"][0].update(span_id="span_2"), "INVALID_REVIEW_SHAPE"),
     (lambda o: o["findings"][0]["evidence"][0].update(label=" "), "INVALID_REVIEW_EVIDENCE"),
     (lambda o: o["findings"][0].update(basis="not_found", coverage_basis=" "), "INVALID_REVIEW_SHAPE"),
     (lambda o: o["findings"][0].update(facts=" "), "INVALID_REVIEW_SHAPE"),
@@ -265,7 +312,7 @@ async def test_invalid_item_withholds_entire_output_preserving_usage(prepared, o
 @pytest.mark.asyncio
 async def test_one_invalid_finding_does_not_silently_drop_only_that_finding(prepared, output):
     bad = deepcopy(output["findings"][0])
-    bad["evidence"][0]["quote"] = "fabricated"
+    bad["evidence"][0]["passage_id"] = "fabricated"
     output["findings"].append(bad)
     client, _, _ = mock_client(response(output))
     assert (await engine.generate_review(prepared, client)).findings == []
@@ -374,8 +421,8 @@ def test_untrusted_source_instruction_stays_source_not_system(document):
     source["pages"][0].update(text=text, spans=[{"id": "span_1", "start": 0, "end": len(text), "text": text}])
     prepared = engine.prepare_review(document, ReviewBrief(), "gpt-5.6-terra")
     assert text not in prepared.messages[0]["content"]
-    assert json.loads(prepared.messages[1]["content"])["pages"][0]["text"] == text
-    assert prepared.evidence_by_id["span_1"].quote == text
+    assert json.loads(prepared.messages[1]["content"])["pages"][0]["passages"][0]["text"] == text
+    assert next(iter(prepared.evidence_by_id.values())).quote == text
 
 
 @pytest.mark.asyncio
@@ -426,6 +473,7 @@ async def test_reviewed_25_page_fixture_fits_without_omitting_any_text():
     prepared = engine.prepare_review(document, ReviewBrief(), "gpt-5.6-terra")
     pages = json.loads(prepared.messages[1]["content"])["pages"]
     assert prepared.coverage.extracted_pages == list(range(1, 26))
-    assert [page["text"] for page in pages] == [page.text for page in extraction.pages]
-    assert len(prepared.evidence_by_id) == sum(len(page.spans) for page in extraction.pages)
+    for supplied, page in zip(pages, extraction.pages):
+        assert [line for passage in supplied["passages"] for line in passage["text"].splitlines() if line.strip()] == [span.text for span in page.spans]
+    assert len(prepared.evidence_by_id) < sum(len(page.spans) for page in extraction.pages)
     assert prepared.generation.estimated_input_tokens < 100000

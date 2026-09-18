@@ -4,7 +4,7 @@ from copy import deepcopy
 import pytest
 from pydantic import ValidationError
 
-from clauseiq_types.review import ReviewCoverage, ReviewRun, StartReviewRequest
+from clauseiq_types.review import ReviewCoverage, ReviewEvidence, ReviewRun, StartReviewRequest
 
 
 def attempt():
@@ -63,6 +63,32 @@ def test_old_fixture_remains_readable_without_invented_ai_metadata():
     fixture = ReviewRun(id="fixture-1", kind="fixture", source_revision_id="source-1",
                         created_at="synthetic-time", context={}, fixture_version="v1", overview="Authored example")
     assert fixture.generation is None and fixture.status == "ready"
+
+
+@pytest.mark.parametrize("end_anchor", [None, "span-1", "span-3"])
+def test_evidence_range_contract_round_trips_without_altering_unicode_or_whitespace(end_anchor):
+    evidence = overview()[0]["evidence"][0]
+    evidence.update(end_span_id=end_anchor, quote="🙂 Rule applies.\n  Only if requested.\nCharges continue.")
+    parsed = ReviewEvidence.model_validate(evidence)
+    restored = ReviewEvidence.model_validate_json(parsed.model_dump_json())
+    assert restored.end_span_id == end_anchor
+    assert restored.quote == evidence["quote"]
+    assert restored.span_id == "span-1"
+    run = ReviewRun.model_validate({**attempt(), "status": "ready", "completed_at": "synthetic-time",
+                                   "overview_items": [{"text": "Qualified rule", "evidence": [evidence]}]})
+    assert ReviewRun.model_validate_json(run.model_dump_json()).overview_items[0].evidence[0] == restored
+
+
+def test_legacy_evidence_omits_range_anchor_without_inventing_one():
+    evidence = ReviewEvidence.model_validate(overview()[0]["evidence"][0])
+    assert evidence.end_span_id is None
+    assert "end_span_id" not in evidence.model_dump(exclude_none=True)
+
+
+@pytest.mark.parametrize("end_anchor", ["", "not an id", "span.1", "x" * 129, 1, True])
+def test_evidence_range_anchor_has_the_same_strict_identity_contract_as_start(end_anchor):
+    with pytest.raises(ValidationError):
+        ReviewEvidence.model_validate({**overview()[0]["evidence"][0], "end_span_id": end_anchor})
 
 
 @pytest.mark.parametrize("model_id", ["gpt-5-mini", "gpt-5-nano"])

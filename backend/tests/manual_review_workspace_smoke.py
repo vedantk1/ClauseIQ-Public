@@ -19,7 +19,7 @@ from uuid import uuid4
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from clauseiq_types.review import (
-    ReviewCoverage, ReviewGeneration, ReviewOverviewItem, ReviewWorkspaceUpdate, StartReviewRequest,
+    ReviewCoverage, ReviewEvidence, ReviewGeneration, ReviewOverviewItem, ReviewWorkspaceUpdate, StartReviewRequest,
 )
 from services.ai.text_extractor import TextExtractor
 from services.file_storage_service import GridFSFileStorage
@@ -145,10 +145,19 @@ async def run_smoke():
                 estimated_input_tokens=100,
             )
             prepared = SimpleNamespace(coverage=coverage, generation=generation)
+            passage_page = next(page for page in imported["source_extraction"]["pages"] if len(page["spans"]) >= 3)
+            first, last = passage_page["spans"][0], passage_page["spans"][2]
+            passage = ReviewEvidence(
+                source_revision_id=imported["source_revision_id"], span_id=first["id"], end_span_id=last["id"],
+                page_number=passage_page["page_number"],
+                quote=passage_page["text"][first["start"]:last["end"]], label="Synthetic exact multi-line passage",
+            )
+            assert "\n" in passage.quote and passage.span_id != passage.end_span_id
+            range_finding = finding.model_copy(update={"evidence": [passage]}, deep=True)
             result = SimpleNamespace(
                 status="ready", coverage=coverage, generation=generation,
-                overview_items=[ReviewOverviewItem(text="Synthetic review overview", evidence=[finding.evidence[0]])],
-                findings=[finding.model_copy(deep=True)], failure=None,
+                overview_items=[ReviewOverviewItem(text="Synthetic review overview", evidence=[passage])],
+                findings=[range_finding], failure=None,
             )
             fresh_documents.get_workspace_api_key = AsyncMock(return_value="synthetic-mocked-credential")
             fresh_documents.get_workspace_model = AsyncMock(return_value="gpt-5.6-terra")
@@ -181,9 +190,21 @@ async def run_smoke():
             assert current.personal[run.id].saved_questions[finding.id].id == saved_id
             assert current.runs[0] == run
             assert await service.read(imported["id"], WORKSPACE) == current
+            restored = await ReviewWorkspaceService(document_service(fresh_adapter)).read(imported["id"], WORKSPACE)
+            assert restored.runs[-1].findings[0].evidence[0] == passage
+            assert restored.runs[-1].overview_items[0].evidence[0] == passage
+            assert all(item.end_span_id is None for old in restored.runs[0].findings for item in old.evidence)
+            current = await fresh_service.update(imported["id"], WORKSPACE, ReviewWorkspaceUpdate(
+                expected_revision=restored.revision, operation={"type": "set_position", "run_id": restored.runs[-1].id,
+                    "position": {"view": "document", "finding_id": range_finding.id, "evidence_span_id": passage.span_id}},
+            ))
+            restored = await ReviewWorkspaceService(documents).read(imported["id"], WORKSPACE)
+            assert restored == current
+            assert restored.personal[restored.runs[-1].id].position.evidence_span_id == passage.span_id
             assert await ReviewGenerationService(fresh_documents).start(imported["id"], WORKSPACE, initial_request) == current
             provider.assert_awaited_once()
             report["checks"].append("mocked generation claims durably, preserves concurrent brief/personal work and immutable earlier run; replay makes no provider call")
+            report["checks"].append("exact multi-line passage endpoints and original quote restore beside legacy single-line evidence; first-anchor resume survives save and reload")
 
             stage = "processing attempt survives lost request and explicit recovery"
             provider.side_effect = asyncio.CancelledError()

@@ -1,4 +1,4 @@
-"""One opt-in, cost-bounded Terra call against the reviewed synthetic 25-page PDF.
+"""One opt-in, cost-bounded Terra call against an allowlisted synthetic PDF.
 
 Not part of Pytest. Requires separate paid-call approval. Reads the saved key via
 the normal credential service; never prints it or changes app data/Settings.
@@ -7,6 +7,7 @@ Reusing its name refuses another call, including after an interrupted process.
 """
 import argparse
 import asyncio
+import hashlib
 import json
 import logging
 import math
@@ -28,6 +29,7 @@ from services.ai import review_generation
 from services.ai.review_generation import generate_review, prepare_review
 from services.ai.text_extractor import TextExtractor
 from services.workspace_service import get_workspace_service
+from tests.review_evaluation_cases import CASE_IDS, DEFAULT_CASE, load_case, validate_case_source
 
 
 EVALUATION_MODEL = "gpt-5.6-terra"
@@ -86,21 +88,26 @@ def request_cost_ceiling(prepared, spec):
     }, json.loads(serialized)
 
 
-async def run_check(cap_usd: float, report_name: str, previous_reserved_usd: float = 0):
-    if (not math.isfinite(cap_usd) or not 0 < cap_usd <= 1
+async def run_check(cap_usd: float, report_name: str, previous_reserved_usd: float = 0,
+                    case_id: str = DEFAULT_CASE):
+    if (not math.isfinite(cap_usd) or cap_usd <= 0
             or not math.isfinite(previous_reserved_usd) or not 0 <= previous_reserved_usd <= cap_usd):
-        raise ValueError("Use a positive approved cap up to USD 1 and a finite nonnegative prior reservation within it")
+        raise ValueError("Use a finite positive approved cap and a finite nonnegative prior reservation within it")
+    if case_id not in CASE_IDS:
+        raise ValueError("Choose an allowlisted synthetic evaluation case")
+    if (not report_name or len(report_name) > 80
+            or any(character not in "abcdefghijklmnopqrstuvwxyz0123456789-_" for character in report_name)):
+        raise ValueError("Use a short lowercase report name with letters, digits, hyphens or underscores")
     logging.disable(logging.CRITICAL)
     report_dir = ROOT / ".local-only" / "review-evaluations"
     report_path = report_dir / f"{report_name}.json"
     if report_path.exists():
         print("This evaluation report already exists; no call was made. Inspect it before authorizing another evaluation.")
         return False
-    fixture_path = ROOT / "tests" / "fixtures" / "pdfs" / "managed-services-25p.pdf"
-    fixture = json.loads((BACKEND / "fixtures" / "reviews" / "managed-services-25p.json").read_text())
+    fixture = load_case(BACKEND, case_id)
+    fixture_path = ROOT / "tests" / "fixtures" / "pdfs" / fixture["fixture"]
     extraction = await TextExtractor().extract_source(fixture_path.read_bytes(), fixture_path.name)
-    if extraction.content_sha256 != fixture["source_sha256"]:
-        raise ValueError("The reviewed synthetic fixture changed")
+    validate_case_source(fixture, extraction)
     document = {
         "source_revision_id": "synthetic-evaluation-source", "source_sha256": extraction.content_sha256,
         "source_extraction": extraction.model_dump(), "source_status": "stored",
@@ -120,6 +127,15 @@ async def run_check(cap_usd: float, report_name: str, previous_reserved_usd: flo
         "started_at": datetime.now(timezone.utc).isoformat(),
         "model_id": model_id, "fixture": fixture_path.name,
         "source_sha256": extraction.content_sha256,
+        "evaluation_case": {
+            "case_id": case_id, "case_version": fixture["case_version"],
+            "criteria_reference": f"backend/fixtures/review_evaluations/{case_id}.json",
+            "case_definition_sha256": hashlib.sha256(json.dumps(
+                fixture, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+            ).encode("utf-8")).hexdigest(),
+            "criteria_ids": [criterion["id"] for criterion in fixture["criteria"]],
+            "semantic_assessment": "not_assessed_requires_source_review",
+        },
         "approved_cap_usd": cap_usd, **cost_bound,
         "previous_reserved_usd": previous_reserved_usd,
         "total_reserved_ceiling_usd": previous_reserved_usd + ceiling,
@@ -141,7 +157,7 @@ async def run_check(cap_usd: float, report_name: str, previous_reserved_usd: flo
             if str(client.base_url) != "https://api.openai.com/v1/":
                 report["status"] = "nonstandard_provider_endpoint_no_call"
                 return False
-            # Diagnostic evidence is restricted to this fixed synthetic fixture
+            # Diagnostic evidence is restricted to this allowlisted synthetic fixture
             # and ignored report. Never capture headers, credentials, raw error
             # bodies or request objects, and never enable this in app generation.
             original_completion = review_generation.create_chat_completion
@@ -192,7 +208,7 @@ async def run_check(cap_usd: float, report_name: str, previous_reserved_usd: flo
         await DatabaseFactory.close()
         report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
         print(json.dumps({key: report[key] for key in (
-            "model_id", "status", "reserved_ceiling_usd", "estimated_input_tokens", "max_completion_tokens",
+            "model_id", "status", "evaluation_case", "reserved_ceiling_usd", "estimated_input_tokens", "max_completion_tokens",
             "previous_reserved_usd", "total_reserved_ceiling_usd", "input_token_ceiling", "input_bound_basis",
         )} | {"usage_based_cost_estimate_usd": report.get("usage_based_cost_estimate_usd"),
               "report": str(report_path.relative_to(ROOT))}, indent=2))
@@ -203,13 +219,15 @@ if __name__ == "__main__":
     parser.add_argument("--run-paid", action="store_true")
     parser.add_argument("--cap-usd", type=float, required=True)
     parser.add_argument("--report-name", required=True)
+    parser.add_argument("--case", choices=CASE_IDS, default=DEFAULT_CASE,
+                        help="Reviewed synthetic source and scenario; criteria never enter the model prompt")
     parser.add_argument("--previous-reserved-usd", type=float, default=0,
                         help="Prior confirmed costs or retained ceilings within this same approved total budget")
     args = parser.parse_args()
-    if not args.run_paid or not 0 < args.cap_usd <= 1:
-        parser.error("Separate approval, --run-paid and a positive cap no greater than USD 1 are required.")
+    if not args.run_paid or not math.isfinite(args.cap_usd) or args.cap_usd <= 0:
+        parser.error("Separate approval, --run-paid and a finite positive approved cap are required.")
     if not math.isfinite(args.previous_reserved_usd) or not 0 <= args.previous_reserved_usd <= args.cap_usd:
         parser.error("Prior reserved spending must be finite, nonnegative and within the approved cap.")
     if not args.report_name or len(args.report_name) > 80 or any(c not in "abcdefghijklmnopqrstuvwxyz0123456789-_" for c in args.report_name):
         parser.error("Use a short lowercase report name with only letters, digits, hyphens or underscores.")
-    raise SystemExit(0 if asyncio.run(run_check(args.cap_usd, args.report_name, args.previous_reserved_usd)) else 1)
+    raise SystemExit(0 if asyncio.run(run_check(args.cap_usd, args.report_name, args.previous_reserved_usd, args.case)) else 1)

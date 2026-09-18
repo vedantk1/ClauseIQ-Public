@@ -103,22 +103,47 @@ part of the fixture path. Contextual Ask remains a later increment.
 
 services/ai/review_generation.py owns the versioned prompt, strict structured
 output and source-reference validation. It supplies all successfully extracted
-page text and exact span identities plus the saved brief. Initial review does not
-use top-k vector retrieval, make embedding requests, truncate the source, or migrate
+nonblank text as ordered page-local passages plus the saved brief. Initial review
+does not use top-k vector retrieval, make embedding requests, truncate the source, or migrate
 the retained Chat Completions endpoint. Input budgeting includes messages and the
 output schema; the completion allowance is a separate configurable spending guard.
 
+services/ai/review_passages.py derives these passages without changing stored
+extraction. Generic numbering and blank separators guide grouping; bounded fallback
+groups prefer sentence boundaries. Each original line anchor remains in exactly one
+passage, including headings, tables and page noise. Ordinary groups are limited to
+4,000 characters and 32 spans; a longer single line remains intact up to 20,000
+characters or fails before dispatch. Physical page boundaries and forced splits
+carry conservative continuation flags. These are navigation heuristics, not proof
+that a passage is a complete clause or that adjacent pages are semantically joined.
+
 The new output separates source facts, interpretation, uncertainty and possible
-actions. Overview statements have evidence too. Exact source/span/page/quote
-matching happens before publishing output. A quote may be the full stored span or
-a unique, word-bounded literal excerpt within that span; the published reference
-always contains the full stored passage, never corrected or fuzzy-matched text.
-A reference-validation failure withholds
-the generated output and records an incomplete result rather than dropping a
+actions. Overview statements have evidence too. The provider returns supplied
+passage IDs and relevance labels, not authoritative quotations, page numbers or
+line IDs. The server resolves each ID within the prepared snapshot and publishes
+its exact original text with the source revision, physical page, first span_id and
+inclusive end_span_id. Unknown or repeated IDs in one evidence list are rejected;
+there is no excerpt repair, fuzzy matching or search for a different passage.
+A reference-validation failure withholds the generated output and records an
+incomplete result rather than dropping a
 finding silently. Missing-term findings require a stated reviewed scope. This
 validation establishes wording and location, not truth, applicability or legal
 completeness. Partly extracted input remains incomplete even if every returned
-quote matches. Unsupported input and zero findings are not a clean bill of health.
+reference resolves. Unsupported input and zero findings are not a clean bill of health.
+
+Canonical passage expansion also has a per-result safety bound:
+MAX_RESOLVED_REVIEW_BYTES limits the combined serialized overview_items/findings
+envelope to 1,000,000 UTF-8 bytes, checked incrementally as items are resolved.
+Exceeding it records incomplete/REVIEW_RESOLVED_OUTPUT_LIMIT, withholds all generated
+overview/findings, retains available usage and makes no retry. This is not a total
+stored-document-size guarantee or a migration policy.
+
+The prompt requires each finding and overview item to carry its own support for
+material assertions, including relevant conditions, exceptions and costs. Evidence
+elsewhere in the review does not make a finding self-contained. These instructions
+are quality targets, not a semantic validator. The source-reviewed synthetic cases
+in backend/fixtures/review_evaluations provide separate manual assessment criteria;
+they never enter the production prompt or prescribe a fixed finding count.
 
 services/review_generation_service.py owns the persisted attempt lifecycle. The
 explicit generation request checks the saved workspace revision and displayed
@@ -140,9 +165,13 @@ background worker or automatic restart recovery in this increment.
 
 ### Evidence display and PDF adapter
 
-The preview checks source revision, span identity, quote and Unicode code-point
-slice before presenting a quote as matched. It shows surrounding extracted text
-and requests the corresponding physical PDF page through a small renderer adapter.
+The preview checks source revision, page-local anchor order and the exact Unicode
+code-point slice before presenting evidence as matched. For end_span_id ranges,
+it verifies the inclusive anchor sequence and all original text between the first
+and last anchor. Missing, reversed, cross-page or inconsistent ranges are not
+repaired. An omitted/null end_span_id retains the legacy exact single-span contract;
+older saved runs and authored fixtures need no migration. It shows surrounding
+extracted text and requests the corresponding physical PDF page through a small renderer adapter.
 It never passes evidence to the legacy fuzzy highlighter or invents rectangles.
 Quote matching does not verify interpretation, layout fidelity or completeness.
 

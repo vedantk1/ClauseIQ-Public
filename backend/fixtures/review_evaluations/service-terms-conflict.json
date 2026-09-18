@@ -1,0 +1,33 @@
+{
+  "case_id": "service-terms-conflict",
+  "case_version": "source-reviewed-v1",
+  "fixture": "service-terms-conflict.pdf",
+  "source_sha256": "1c78e881d719328ab5807b306c94595482d86c0c05b349b0777629e5c640b759",
+  "page_count": 2,
+  "authored_source": "tests/fixtures/pdfs/manifest.json",
+  "context": {
+    "perspective": "customer",
+    "role": "Example Customer",
+    "priorities": "Understand what to pay and when, how to challenge incomplete deliverables, and what happens if the work ends early. These are synthetic scenario assumptions."
+  },
+  "source_anchors": {
+    "payment_master": {"page": 1, "section": "2. Fees and payment", "quote": "Invoices are payable within 30 days of receipt. Charges are stated in GBP. See Schedule A for the invoice schedule. This clause contains no priority rule resolving a difference between this clause and Schedule A."},
+    "payment_schedule": {"page": 2, "section": "A2. Invoice timing", "quote": "Example Supplier may invoice when each deliverable is submitted. Each invoice is payable within 7 days of receipt. Clause 2 on page 1 also states a payment deadline; the difference is intentional in this synthetic fixture."},
+    "draft_charge": {"page": 2, "section": "A1. Delivery schedule table", "quote": "Draft inventory 15 February 2026 GBP 400"},
+    "reviewed_charge": {"page": 2, "section": "A1. Delivery schedule table", "quote": "Reviewed inventory 1 March 2026 GBP 600"},
+    "handover_charge": {"page": 2, "section": "A1. Delivery schedule table", "quote": "Final handover 15 March 2026 GBP 200"},
+    "acceptance": {"page": 1, "section": "3. Acceptance", "quote": "Example Customer has ten business days after delivery to identify a material failure against the written scope. Example Supplier will correct an identified failure and resubmit the deliverable."},
+    "exit": {"page": 1, "section": "4. Term and ending the work", "quote": "The engagement lasts three months. Either party may end it with 14 days of written notice. Example Customer must pay for work completed before the end date. Confidentiality duties continue for one year after the engagement ends."},
+    "changes": {"page": 2, "section": "A3. Change requests", "quote": "A change to the scope, delivery dates or charges requires written agreement by both parties before the additional work starts."},
+    "liability": {"page": 1, "section": "5. Responsibility", "quote": "Example Supplier's total liability is limited to fees paid under this agreement. Example Customer's payment obligations are not subject to that limit."}
+  },
+  "criteria": [
+    {"id": "payment_conflict", "importance": "priority", "expectation": "Identify both 30 days and 7 days after invoice receipt, preserve that no stated priority rule resolves them, and recommend written clarification rather than selecting the favorable or more specific term as controlling. The same finding must cite both sides of the conflict.", "anchors": ["payment_master", "payment_schedule"], "must_not_claim": ["Schedule A automatically overrides clause 2.", "The operative payment deadline is definitively 7 days or 30 days.", "The inconsistency alone makes the agreement invalid."]},
+    {"id": "charges_and_invoice_trigger", "importance": "priority", "expectation": "Explain the three scheduled charges (GBP 400, 600 and 200, totaling GBP 1200 if calculated) and invoice-on-submission trigger. Distinguish listed delivery due dates from invoice receipt and payment deadlines. No actual submission or invoice receipt event is supplied.", "anchors": ["draft_charge", "reviewed_charge", "handover_charge", "payment_schedule"], "must_not_claim": ["Payment is due on the listed delivery dates.", "Invoices may only be issued after acceptance.", "The source proves actual delivery, invoice receipt or payment dates."]},
+    {"id": "acceptance_protection", "importance": "priority", "expectation": "Retain ten business days after actual delivery to identify a material failure against written scope, followed by correction and resubmission. Do not turn this into ten calendar days, an arbitrary rejection right, or an express deemed-acceptance rule; no actual delivery date or defined business-day calendar is supplied.", "anchors": ["acceptance"], "must_not_claim": ["Silence expressly constitutes acceptance.", "The agreement gives an automatic refund or a fixed correction deadline."]},
+    {"id": "exit_payment", "importance": "priority", "expectation": "Either party can end work on 14 days of written notice; the customer still owes for completed work before the end date. Preserve the three-month term separately and avoid inventing an actual early-exit date or assuming the entire remaining fee is due. Identify completed work and notice timing as facts to establish.", "anchors": ["exit"], "must_not_claim": ["Early exit is free.", "All remaining scheduled fees are automatically due on termination.", "Only the customer may terminate."]},
+    {"id": "scope_and_charge_control", "importance": "priority", "expectation": "Changes to scope, delivery dates or charges require both parties' written agreement before additional work starts; preserve the approval timing and bilateral condition when explaining cost control.", "anchors": ["changes"], "must_not_claim": ["The supplier may impose changes unilaterally."]},
+    {"id": "liability_asymmetry", "importance": "supporting", "expectation": "If discussing exposure, distinguish supplier total liability capped at fees paid from customer payment obligations outside that limit. Do not convert fees paid into fees payable or automatically use the scheduled GBP 1200 total as the actual cap.", "anchors": ["liability", "draft_charge", "reviewed_charge", "handover_charge"], "must_not_claim": ["Both parties' obligations are capped at GBP 1200.", "The cap's legal enforceability is established by this fictional agreement."]},
+    {"id": "survival", "importance": "supporting", "expectation": "If discussing continuing duties, retain confidentiality for one year after the engagement ends, without inventing the actual early-end date.", "anchors": ["exit"], "must_not_claim": ["Confidentiality ends immediately when the work ends."]}
+  ]
+}

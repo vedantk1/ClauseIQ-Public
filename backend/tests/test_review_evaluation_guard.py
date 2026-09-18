@@ -18,16 +18,29 @@ def evaluation(tmp_path, monkeypatch):
     fixture_path = root / "tests" / "fixtures" / "pdfs" / "managed-services-25p.pdf"
     fixture_path.parent.mkdir(parents=True)
     fixture_path.write_bytes(b"synthetic bytes; the extractor is mocked")
-    fixture_json = backend / "fixtures" / "reviews" / "managed-services-25p.json"
+    fixture_json = backend / "fixtures" / "review_evaluations" / "managed-services-25p.json"
     fixture_json.parent.mkdir(parents=True)
-    fixture_json.write_text(json.dumps({"source_sha256": "a" * 64, "context": {
+    case_definition = {"case_id": "managed-services-25p", "fixture": fixture_path.name,
+        "case_version": "test-v1", "page_count": 1,
+        "source_anchors": {"term": {"page": 1, "quote": "A synthetic term."}},
+        "criteria": [{"id": "example", "importance": "priority", "expectation": "PRIVATE EVALUATION EXPECTATION",
+                      "anchors": ["term"], "must_not_claim": ["PRIVATE FORBIDDEN CLAIM"]}],
+        "source_sha256": "a" * 64, "context": {
         "perspective": "customer", "role": "Synthetic customer", "priorities": "Exit",
-    }}))
+    }}
+    fixture_json.write_text(json.dumps(case_definition))
+    contrast_json = fixture_json.with_name("service-terms-conflict.json")
+    contrast_json.write_text(json.dumps(case_definition | {
+        "case_id": "service-terms-conflict", "fixture": "service-terms-conflict.pdf",
+        "context": {"perspective": "customer", "role": "Synthetic contrast customer", "priorities": "Payment timing"},
+    }))
+    fixture_path.with_name("service-terms-conflict.pdf").write_bytes(b"synthetic contrast bytes")
     monkeypatch.setattr(check, "ROOT", root)
     monkeypatch.setattr(check, "BACKEND", backend)
     # Do not change the test runner's logging state.
     monkeypatch.setattr(check.logging, "disable", Mock())
-    extraction = SimpleNamespace(content_sha256="a" * 64, status="complete",
+    extraction = SimpleNamespace(content_sha256="a" * 64, status="complete", page_count=1,
+        pages=[SimpleNamespace(page_number=1, text="A synthetic term.")],
         model_dump=Mock(return_value={"synthetic": "source"}))
     extractor = SimpleNamespace(extract_source=AsyncMock(return_value=extraction))
     monkeypatch.setattr(check, "TextExtractor", Mock(return_value=extractor))
@@ -71,8 +84,8 @@ def evaluation(tmp_path, monkeypatch):
         close=close, client=client, opened=opened, generate=generate, result=result, catalog=catalog, spec=spec)
 
 
-async def run(evaluation, cap=0.60, previous=0):
-    return await check.run_check(cap, "synthetic-check", previous)
+async def run(evaluation, cap=0.60, previous=0, case_id=check.DEFAULT_CASE):
+    return await check.run_check(cap, "synthetic-check", previous, case_id)
 
 
 @pytest.mark.asyncio
@@ -151,6 +164,12 @@ async def test_reservation_precedes_one_dispatch_and_usage_report_has_no_credent
     assert report["model_id"] == "gpt-5.6-terra"
     assert report["fixture"] == "managed-services-25p.pdf"
     assert report["source_sha256"] == "a" * 64
+    assert report["evaluation_case"]["case_id"] == "managed-services-25p"
+    assert report["evaluation_case"]["case_version"] == "test-v1"
+    assert report["evaluation_case"]["criteria_reference"] == "backend/fixtures/review_evaluations/managed-services-25p.json"
+    assert len(report["evaluation_case"]["case_definition_sha256"]) == 64
+    assert report["evaluation_case"]["criteria_ids"] == ["example"]
+    assert report["evaluation_case"]["semantic_assessment"] == "not_assessed_requires_source_review"
     assert report["status"] == "ready"
     assert report["usage_based_cost_estimate_usd"] == pytest.approx(0.0008)
     assert report["result"]["generation"]["usage"]["total_tokens"] == 150
@@ -165,6 +184,64 @@ async def test_reservation_precedes_one_dispatch_and_usage_report_has_no_credent
     assert evaluation.report.read_text() == before
     evaluation.generate.assert_awaited_once()
     evaluation.key.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_second_allowlisted_case_uses_its_own_pdf_brief_and_reference_only(evaluation):
+    assert await run(evaluation, case_id="service-terms-conflict") is True
+    evaluation.extractor.extract_source.assert_awaited_once_with(b"synthetic contrast bytes", "service-terms-conflict.pdf")
+    _, brief, model = evaluation.prepare.call_args.args
+    assert brief.role == "Synthetic contrast customer" and brief.priorities == "Payment timing"
+    assert model == "gpt-5.6-terra"
+    assert "PRIVATE EVALUATION EXPECTATION" not in str(evaluation.prepare.call_args)
+    assert "PRIVATE FORBIDDEN CLAIM" not in str(evaluation.prepare.call_args)
+    report = json.loads(evaluation.report.read_text())
+    assert report["evaluation_case"]["case_id"] == "service-terms-conflict"
+    assert report["evaluation_case"]["criteria_reference"].endswith("/service-terms-conflict.json")
+    assert report["fixture"] == "service-terms-conflict.pdf"
+
+
+@pytest.mark.asyncio
+async def test_finite_approved_cap_can_exceed_previous_one_dollar_limit(evaluation):
+    assert await run(evaluation, cap=3, previous=1.5) is True
+    report = json.loads(evaluation.report.read_text())
+    assert report["approved_cap_usd"] == 3 and report["previous_reserved_usd"] == 1.5
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cap", [0, -1, float("nan"), float("inf")])
+async def test_nonpositive_or_nonfinite_cap_fails_before_any_read(evaluation, cap):
+    with pytest.raises(ValueError):
+        await run(evaluation, cap=cap)
+    evaluation.extractor.extract_source.assert_not_awaited()
+    evaluation.key.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case_id", ["unknown", "../managed-services-25p", "service-terms-conflict.pdf"])
+async def test_unreviewed_case_fails_before_any_read_or_key(evaluation, case_id):
+    with pytest.raises(ValueError, match="allowlisted"):
+        await run(evaluation, case_id=case_id)
+    evaluation.extractor.extract_source.assert_not_awaited()
+    evaluation.key.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", ["", "../synthetic-check", "not/allowed", "x" * 81])
+async def test_report_name_is_bounded_for_programmatic_callers_too(evaluation, name):
+    with pytest.raises(ValueError, match="report name"):
+        await check.run_check(1, name)
+    evaluation.extractor.extract_source.assert_not_awaited()
+    evaluation.key.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reference_anchor_drift_refuses_dispatch_before_key(evaluation):
+    evaluation.extraction.pages[0].text = "An unrelated synthetic term."
+    with pytest.raises(ValueError, match="source anchor"):
+        await run(evaluation)
+    evaluation.prepare.assert_not_called()
+    evaluation.key.assert_not_awaited()
 
 
 @pytest.mark.asyncio

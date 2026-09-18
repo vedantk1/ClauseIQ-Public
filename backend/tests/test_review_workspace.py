@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from clauseiq_types.review import ReviewWorkspaceUpdate
+from clauseiq_types.review import ReviewEvidence, ReviewRun, ReviewWorkspaceUpdate
 from middleware.api_standardization import add_api_standardization
 from routers import review_workspace
 from services.ai.text_extractor import TextExtractor
@@ -144,6 +144,53 @@ async def test_drafts_saved_questions_markers_and_position_persist_independently
     assert storage.document["user_interactions"] == {"old-clause": {"notes": ["Preserve legacy note"]}}
     state = await change(service, state.revision, "set_marker", **scope, marker="not_marked")
     assert state.personal[run.id].markers[finding.id] == "not_marked"
+
+
+@pytest.mark.asyncio
+async def test_saved_passage_ranges_restore_alongside_legacy_evidence_without_read_time_rewrite(service, storage):
+    state = await service.create_fixture("doc-1", WORKSPACE, 0)
+    fixture = state.runs[0]
+    page = next(page for page in storage.document["source_extraction"]["pages"] if len(page["spans"]) >= 3)
+    first, last = page["spans"][0], page["spans"][2]
+    evidence = ReviewEvidence(
+        source_revision_id=state.source_revision_id, span_id=first["id"], end_span_id=last["id"],
+        page_number=page["page_number"], quote=page["text"][first["start"]:last["end"]],
+        label="Synthetic complete passage",
+    )
+    assert "\n" in evidence.quote and evidence.span_id != evidence.end_span_id
+    finding = fixture.findings[0].model_copy(update={"evidence": [evidence]}, deep=True)
+    run = ReviewRun(
+        id="range-run", kind="ai", status="ready", source_revision_id=state.source_revision_id,
+        created_at="synthetic-time", completed_at="synthetic-time", context=state.brief,
+        overview_items=[{"text": "Synthetic sourced overview", "evidence": [evidence]}], findings=[finding],
+        coverage={"page_count": 25, "extracted_pages": list(range(1, 26)), "omitted_pages": []},
+        generation={"model_id": "gpt-5.6-terra", "reasoning_effort": "medium", "max_completion_tokens": 16000,
+                    "catalog_verified_on": "synthetic-date", "prompt_version": "synthetic-v1",
+                    "schema_version": "synthetic-v1", "extraction_version": "synthetic-v1", "estimated_input_tokens": 100},
+    )
+    state.runs.append(run)
+    # Older persisted evidence has no end key at all. Reading must not migrate it.
+    storage.document["review_workspace"] = state.model_dump(exclude_none=True)
+    before = deepcopy(storage.document)
+    writes_before = len(storage.writes)
+    restored = await ReviewWorkspaceService(storage).read("doc-1", WORKSPACE)
+    assert storage.document == before and len(storage.writes) == writes_before
+    assert restored.runs[0] == fixture
+    assert all(item.end_span_id is None for old in restored.runs[0].findings for item in old.evidence)
+    assert restored.runs[1] == run
+    assert restored.runs[1].overview_items[0].evidence[0] == evidence
+
+    saved = await change(service, restored.revision, "set_position", run_id=run.id, position={
+        "view": "document", "finding_id": finding.id, "evidence_span_id": evidence.span_id,
+    })
+    saved = await change(service, saved.revision, "set_draft", run_id=run.id,
+                         finding_id=finding.id, text="Synthetic range-specific draft")
+    reloaded = await ReviewWorkspaceService(storage).read("doc-1", WORKSPACE)
+    assert reloaded == saved
+    assert reloaded.runs[0] == fixture and reloaded.runs[1] == run
+    assert reloaded.personal[run.id].position.evidence_span_id == evidence.span_id
+    assert reloaded.personal[run.id].drafts[finding.id] == "Synthetic range-specific draft"
+    assert storage.document["review_workspace"]["runs"][1]["findings"][0]["evidence"][0]["end_span_id"] == last["id"]
 
 
 @pytest.mark.asyncio

@@ -82,6 +82,19 @@ It also checks real generation claims/finalization with a mocked provider,
 same-ID replay, restart-visible interruption and fencing of late results after
 deletion. It makes no provider or vector requests or saved credential reads.
 
+For review evidence and quality-contract changes, run the focused offline checks:
+
+~~~bash
+cd backend
+venv/bin/python -m pytest tests/test_review_passages.py tests/test_review_generation.py tests/test_review_run_contract.py tests/test_review_evaluation_cases.py tests/test_review_evaluation_guard.py -q
+~~~
+
+These check exact passage preservation, provider-reference resolution, historical
+single-span compatibility and evaluation-case safety. They do not grade real model
+interpretation. Passage grouping is derived from immutable extraction; it requires
+no source migration, re-extraction or vector rebuild. Include frontend workspace
+tests and type checking when changing the range-evidence display contract.
+
 The /import and /workspace routes support source-backed AI reviews and a key-free
 fixture preview. Import tests/fixtures/pdfs/managed-services-25p.pdf, then load its
 labelled synthetic example to exercise findings and saved work. Other PDFs may be
@@ -184,27 +197,45 @@ supported ID. This is request compatibility coverage, not a live provider-access
 or output-quality guarantee. tiktoken may download its public tokenizer vocabulary
 on first use; it is cached locally and contains no document or credential data.
 
-Paid evaluation is separate: agree on models, synthetic/public fixtures, a small
+Paid evaluation is separate: agree on models, synthetic/public fixtures, a finite
 spending ceiling and stop conditions before making calls. Record correctness,
 grounding, latency and actual usage—not just a successful HTTP response. Do not
 paste keys into test files or use confidential agreements as evaluation fixtures.
 
 A separately authorized, single-call check is available in
 backend/tests/manual_review_generation_check.py (run from backend). It is fixed
-to GPT-5.6 Terra and the reviewed 25-page synthetic PDF, reads the key through the
-normal credential service and leaves the application library/Settings unchanged.
-Recheck official pricing and remaining approved spend before supplying
---run-paid, --cap-usd, --previous-reserved-usd and a unique --report-name. The local
+to GPT-5.6 Terra and accepts only the source-reviewed cases in
+backend/fixtures/review_evaluations. Use --case managed-services-25p (the default)
+for cross-page commercial/exit provisions or --case service-terms-conflict for
+the contrasting two-page payment-deadline conflict and delivery table. The harness
+verifies each PDF hash, page count and authored source anchors. It sends only the
+case's brief and normal extracted source to the model, never expected answers or
+assessment criteria. It reads the key through the normal credential service and
+leaves the application library/Settings unchanged.
+
+No paid call is part of ordinary tests. Obtain approval and recheck official
+pricing and remaining approved spend before supplying --run-paid, --cap-usd,
+--previous-reserved-usd and a unique --report-name. Caps and prior reservations must
+be finite; each invocation permits at most one provider dispatch. There is no
+automatic retry, model fallback or second grading call. The local
 report reserves a conservative text-request byte/framing bound plus the completion
 budget, including applicable long-context and cache-write uplifts, before dispatch.
 Only the fixed text-only request shape can use this guard; changed payloads fail
 closed. An existing report name refuses another call. Prior spend/reservations must
 be supplied explicitly; this is not an automatically reconciled account budget.
 Retain the full reservation for uncertain outcomes. Reports remain ignored under
-.local-only. Only this fixed synthetic diagnostic retains raw response message
-content; application generation does not. Successful
-schema/quote validation is not enough; inspect the generated interpretation against
-the fixture's source and expectations before claiming quality.
+.local-only. Only this allowlisted synthetic diagnostic retains raw response message
+content; application generation does not. Reports record case/version/criteria
+provenance and leave semantic assessment explicitly unassessed.
+
+Use backend/fixtures/review_evaluations/README.md for the manual assessment method.
+Record met/partial/missing/incorrect against source-reviewed criteria, assess each
+finding's own supporting passages, and record incorrect claims outside the checklist
+too. Check material triggers, scope, deadlines, exceptions and costs together;
+evidence elsewhere in the output does not repair unsupported claims in a finding.
+Do not require fixed titles, wording or finding counts, and do not substitute
+keyword matches for semantic assessment. Source-anchor tests and a ready result
+establish provenance/structural acceptance, not a passed quality evaluation.
 
 ### Workspace migration
 
