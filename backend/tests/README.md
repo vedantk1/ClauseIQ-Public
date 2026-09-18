@@ -72,3 +72,22 @@ same-record retries, concurrent/stale claims and unrelated fixture preservation.
 It creates only its own verified-absent fixture database and removes that database
 in finally. Application library/settings/credentials are not read; no provider or
 vector client may be requested. Inspect the cleanup report for leftovers.
+
+## Review workspace persistence
+
+test_review_workspace.py covers key-free GET/PUT/fixture routes, revision conflicts,
+immutable source/context runs, independent draft and explicitly saved wording,
+markers, resume, exact fixture evidence and privacy/scoping failures.
+
+~~~bash
+cd backend
+venv/bin/python -m pytest tests/test_review_workspace.py -q
+venv/bin/python tests/manual_review_workspace_smoke.py --run-isolated-live
+~~~
+
+The opt-in smoke imports only the reviewed synthetic PDF into a verified-absent
+temporary MongoDB/GridFS database. A fresh connection must restore personal work;
+real competing writes must have one winner. Scoped deletion removes nested review
+state without affecting unrelated synthetic records. Only its exact owned database
+is removed in cleanup. The application's library/settings/keys are never read or
+changed; provider and vector clients are forbidden. Inspect the cleanup report.

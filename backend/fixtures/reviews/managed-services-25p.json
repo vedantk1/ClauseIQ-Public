@@ -1,0 +1,119 @@
+{
+  "version": "managed-services-workspace-v1",
+  "source_sha256": "8ceb74201548b29a7f5c35d7443db7c58a10d2486b9b23cb3716affd5cfa23bd",
+  "context": {
+    "perspective": "customer",
+    "role": "Example Customer",
+    "priorities": "Understand charges, preserve access to documents and plan an orderly exit. These are synthetic scenario assumptions."
+  },
+  "overview": "Synthetic workspace demonstration: seven selected findings for the Example Customer scenario. This is authored test data, not an AI-generated review or a complete assessment. Evidence matches locate extracted wording; they do not verify interpretation or legal effect. Operational plans, actual notices, charge records and later changes were not supplied.",
+  "findings": [
+    {
+      "id": "credit-bands",
+      "title": "Clarify how service credits are earned",
+      "facts": "The availability table uses 2% per band. The ordinary ceiling is 10% of the affected service charge. During the defined Archive pilot only, the ceiling becomes 20% and calculations use the reduced pilot charge.",
+      "interpretation": "A ceiling is not an automatic refund. Credit band boundaries are needed to calculate the credit for an actual availability result; the pilot exception must not be applied to unrelated services.",
+      "uncertainty": "The supplied band table does not define the boundaries. Actual handover dates, service results and partial-month allocations are not supplied.",
+      "next_step": "Request the band boundaries and a worked invoice example crossing the Archive pilot boundary.",
+      "suggested_question": "Please provide the availability-to-credit band boundaries, rounding rules and a worked invoice example for a month crossing the end of the Archive pilot.",
+      "evidence": [
+        {"page_number": 15, "label": "Credit table", "match": "Archive Service 98.5% monthly 2% per band"},
+        {"page_number": 15, "label": "Ordinary ceiling", "match": "ordinary ceiling of ten percent"},
+        {"page_number": 24, "label": "Archive pilot exception", "match": "Archive Service is twenty percent"},
+        {"page_number": 24, "label": "Pilot charge basis", "match": "month charge of GBP 300 instead of GBP 400"}
+      ]
+    },
+    {
+      "id": "archive-exit",
+      "title": "Plan for the conditional Archive exit extension",
+      "facts": "Standard transition assistance is up to 60 days after the effective end date, subject to the transition plan and approved charges. Archive alone can receive 120 days total if requested in the exit notice or within ten business days afterward. This does not extend the operating term or keep Portal and Indexing active automatically.",
+      "interpretation": "The longer period requires an action and is 120 days total, not 60 plus 120. Technical dependencies and continuing charges still need a plan.",
+      "uncertainty": "No exit notice, dependency assessment or replacement-provider plan is supplied. No actual request deadline or exit cost can be calculated from this example.",
+      "next_step": "Identify the dependencies and approved costs, and include the extension request in the exit notice if needed.",
+      "suggested_question": "Can Archive be transferred independently? Please identify the minimum overlap, dependencies and approved assistance charges, and include the Archive extension request in the exit plan if needed.",
+      "evidence": [
+        {"page_number": 22, "label": "Standard period and charges", "match": "sixty days after the effective end date"},
+        {"page_number": 25, "label": "Archive-only exception", "match": "For the Archive Service only, the maximum"},
+        {"page_number": 25, "label": "120-day total and request condition", "match": "twenty days instead of sixty days"},
+        {"page_number": 25, "label": "Request window", "match": "ten business days afterward"},
+        {"page_number": 25, "label": "Other services are not extended", "match": "term, renew unrelated services"},
+        {"page_number": 22, "label": "No duplicate charge for included work", "match": "deliverables already included in recurring charges"}
+      ]
+    },
+    {
+      "id": "financial-limits",
+      "title": "Assess the charge-linked financial limits",
+      "facts": "The general cap uses recurring and approved project charges paid or payable for the applicable contract year. A separate cap of twice that amount applies to unauthorized disclosure of confidential information or customer content. The Archive extension does not create another cap; approved transition charges enter the stated calculation.",
+      "interpretation": "A fixed annual fee multiple is not a complete calculation without the actual charge records and applicable year. The limit's usefulness depends on the loss scenarios that matter to the customer.",
+      "uncertainty": "Actual charges and exposure are not supplied. This example makes no conclusion about enforceability or whether a particular loss is recoverable.",
+      "next_step": "Compare relevant restoration, replacement-provider and interruption scenarios with the applicable limits.",
+      "suggested_question": "Which restoration, replacement-provider and interruption costs matter most, and are the applicable financial limits acceptable for those scenarios?",
+      "evidence": [
+        {"page_number": 19, "label": "General annual basis", "match": "recurring and approved project charges paid or payable"},
+        {"page_number": 19, "label": "Specific cap", "match": "aggregate cap of twice the general annual amount"},
+        {"page_number": 25, "label": "No new transition cap", "match": "does not create a separate liability cap"},
+        {"page_number": 25, "label": "Transition charge allocation", "match": "expiry are allocated to the final contract year"}
+      ]
+    },
+    {
+      "id": "export-protection",
+      "title": "Preserve complete-export verification protections",
+      "facts": "The extended Archive plan gives fifteen business days to verify each complete export package once content and structural metadata are available. A missing relationship index prevents completeness. Supplier-caused defects against the agreed format are not separately chargeable to correct; deletion follows verified handover and written instructions.",
+      "interpretation": "These protections help avoid accepting files that cannot be reconstructed into a usable archive. The extended Archive rule should not be assumed to apply automatically to every service.",
+      "uncertainty": "The agreed export format and acceptance examples are not supplied. Active-record deletion does not establish that every backup copy is immediately erased.",
+      "next_step": "Agree the metadata fields, export format and verification checks before handover.",
+      "suggested_question": "Which export format, metadata fields and verification checks will form the agreed handover criteria?",
+      "evidence": [
+        {"page_number": 25, "label": "Verification period", "match": "fifteen business days to verify each complete"},
+        {"page_number": 25, "label": "Completeness includes relationships", "match": "package missing the relationship index"},
+        {"page_number": 25, "label": "Correction and deletion protection", "match": "failure to meet the agreed format is not separately chargeable"},
+        {"page_number": 22, "label": "Written deletion sequence", "match": "deletion instructions are received"}
+      ]
+    },
+    {
+      "id": "recovery-objectives",
+      "title": "Ask for measurable recovery objectives",
+      "facts": "The backup clauses require daily outcome monitoring and at least quarterly restoration exercises recording achieved recovery point and elapsed recovery time. The continuity clause references recovery objectives without numerical targets in that clause.",
+      "interpretation": "Testing obligations do not by themselves establish acceptable downtime or data loss. A separate continuity plan may supply the needed targets.",
+      "uncertainty": "The continuity plan and agreed numerical recovery targets were not supplied for this demonstration. Their absence here is not proof that no plan exists.",
+      "next_step": "Request the plan and explain how measured test results compare with the agreed targets.",
+      "suggested_question": "Please supply the continuity plan and agreed recovery targets, including how restoration test results are compared against them.",
+      "evidence": [
+        {"page_number": 17, "label": "Daily monitoring", "match": "monitor backup outcomes daily"},
+        {"page_number": 17, "label": "Quarterly exercise", "match": "At least once each quarter"},
+        {"page_number": 17, "label": "Measured recovery", "match": "record the recovery point achieved"},
+        {"page_number": 17, "label": "Targets are not guarantees", "match": "Recovery objectives are operational targets"}
+      ]
+    },
+    {
+      "id": "incident-confirmation",
+      "title": "Clarify suspected-incident handling",
+      "facts": "Initial notice is required without undue delay and within twenty four hours after confirming an incident within the specified scope. The supplier must not wait for the full root cause or final affected-record estimate, and initial reporting distinguishes facts from hypotheses and unknowns.",
+      "interpretation": "The stated clock begins at confirmation, so the suspected-incident escalation process needs explanation. The wording is not permission to always wait twenty four hours.",
+      "uncertainty": "No actual incident, confirmation criteria or operational timeline is evaluated. No external legal deadline is assessed.",
+      "next_step": "Agree what triggers confirmation, how suspected incidents escalate and how updates are delivered.",
+      "suggested_question": "What triggers incident confirmation, what escalation occurs while an incident is suspected, and how will updates be delivered?",
+      "evidence": [
+        {"page_number": 14, "label": "Notification timing", "match": "without undue delay and within twenty four hours"},
+        {"page_number": 14, "label": "Confirmation and scope", "match": "confirming a security incident that has affected"},
+        {"page_number": 14, "label": "Do not wait for a complete investigation", "match": "has established the full root cause"}
+      ]
+    },
+    {
+      "id": "exit-commitments",
+      "title": "Keep exit flexibility and identify remaining commitments",
+      "facts": "Renewal requires a recorded agreement. Customer convenience termination requires sixty days' written notice after the first three months. Properly incurred charges and approved noncancelable commitments remain payable, but there is no automatic charge for all remaining recurring fees.",
+      "interpretation": "These provisions provide flexibility without making departure free. The notice and effective-date interpretation should be made explicit for an actual exit scenario.",
+      "uncertainty": "Approved commitments and the intended exit date are not supplied. The Archive pilot period is separate from the first-three-month termination restriction.",
+      "next_step": "Identify approved commitments and confirm the permitted notice and effective termination dates.",
+      "suggested_question": "Which noncancelable commitments have been approved, and what are the earliest permitted notice and effective termination dates for the intended exit scenario?",
+      "evidence": [
+        {"page_number": 21, "label": "Recorded renewal", "match": "Renewal requires a recorded agreement"},
+        {"page_number": 21, "label": "Convenience notice", "match": "for convenience on sixty days of written notice"},
+        {"page_number": 21, "label": "Continuing commitments", "match": "noncancelable commitments identified before"},
+        {"page_number": 21, "label": "No automatic remaining recurring fees", "match": "remaining future recurring fees"},
+        {"page_number": 24, "label": "Pilot and termination are distinct", "match": "separate from the first three months"}
+      ]
+    }
+  ]
+}

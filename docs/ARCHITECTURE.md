@@ -59,14 +59,60 @@ Generation failure retains the original/source snapshot and records failed
 analysis. New imports have explicit status, while legacy records without source
 metadata stay readable without inventing provenance or migrating their findings.
 The library and review screen distinguish non-ready imports from completed legacy
-analysis. The key-free import API is available now; a separate import/brief UI and
-the new finding workflow are not implemented by this source-foundation increment.
+analysis. The key-free import UI opens a separate review workspace preview;
+the existing analysis screen remains available without converting old clauses.
 
 Source metadata and page snapshots live in the existing scoped document record;
 no migration, new database or vector reindex is needed. GridFS pointer writes are
 confirmed before reporting success. On an uncertain outcome, potentially attached
 files are retained rather than deleted. Only a confirmed-unattached new file is
 eligible for rollback; previous originals are preserved.
+
+## Review workspace preview
+
+The /import and /workspace frontend routes are independent of the legacy /review
+screen. services/review_workspace_service.py stores a review_workspace object in
+the existing document, using the same workspace/document boundary. Deleting that
+document also deletes its review state; there is no new collection, migration or
+legacy-note conversion. GET returns an empty default without writing anything.
+
+The workspace keeps the current brief, immutable review runs and personal work
+separate. Runs snapshot their source revision and context; editing the brief
+does not reinterpret existing findings. Personal data is scoped by run/finding:
+recoverable drafts, explicitly saved questions, explicit reversible markers and
+navigation/opened history are distinct. Reading a finding never marks it reviewed.
+Saving wording does not send it, accept a term or resolve a finding.
+
+Updates carry an expected workspace revision and a typed operation. An atomic
+conditional document update rejects stale writes; it never upserts or changes
+identity. The frontend serializes its own writes and debounces draft recovery.
+It keeps newer local wording while a response is pending and preserves the last
+confirmed saved question after failure. Cross-tab conflicts stop the queue; the
+person must reload saved state and explicitly choose whether to apply pending
+edits. Unconfirmed browser-only edits are not promised to survive a hard close.
+
+Only an explicitly requested synthetic fixture run is currently available.
+The fixture definition ships in backend/fixtures/reviews, is bound to the unchanged
+25-page synthetic PDF SHA-256 and resolves each evidence match uniquely against
+persisted page spans. Arbitrary files never receive these example findings.
+The fixed Example Customer scenario is labelled and does not overwrite the
+person's brief. No generation, embeddings, credential reads or paid retries are
+part of this path. Real review generation and contextual Ask are later increments.
+
+### Evidence display and PDF adapter
+
+The preview checks source revision, span identity, quote and Unicode code-point
+slice before presenting a quote as matched. It shows surrounding extracted text
+and requests the corresponding physical PDF page through a small renderer adapter.
+It never passes evidence to the legacy fuzzy highlighter or invents rectangles.
+Quote matching does not verify interpretation, layout fidelity or completeness.
+
+The current React PDF Viewer renderer remains isolated behind PDFViewer for this
+increment, with isEvalSupported:false preserved. Its upstream is archived and its
+declared PDF.js peer range does not support a blind modern PDF.js override.
+Replacement is a separate bounded dependency milestone, not completed by this
+adapter; see SECURITY.md. New geometry-based highlighting must be validated
+against the original before it can be described as exact.
 
 ## Settings and credentials
 

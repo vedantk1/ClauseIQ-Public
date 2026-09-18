@@ -22,11 +22,22 @@ import {
 } from "@/utils/pdfHighlightUtils";
 import { usePDFHighlighting } from "@/hooks/usePDFHighlighting";
 import type { Clause } from "@clauseiq/shared-types";
+import {
+  PdfPageNavigationSession,
+  pdfSourceKey,
+  securePdfDocumentOptions,
+  type PdfNavigationRequest,
+  type PdfNavigationResult,
+} from "@/lib/pdfPageNavigation";
 
 interface PDFViewerProps {
   documentId: string;
   fileName?: string;
   className?: string;
+  sourceRevisionId?: string;
+  navigationRequest?: PdfNavigationRequest;
+  onPageChange?: (pageNumber: number) => void;
+  onNavigationError?: (message: string) => void;
   // Text to highlight in the PDF (legacy prop for backward compatibility)
   highlightText?: string;
   // Enhanced clause highlighting
@@ -46,6 +57,10 @@ export default function PDFViewer({
   documentId,
   fileName = "Document",
   className = "",
+  sourceRevisionId,
+  navigationRequest,
+  onPageChange,
+  onNavigationError,
   highlightText,
   highlightClause,
   onHighlightComplete,
@@ -58,12 +73,28 @@ export default function PDFViewer({
   const [viewMode, setViewMode] = useState<"single" | "continuous">(
     "continuous",
   );
+  const sourceKey = pdfSourceKey(documentId, sourceRevisionId);
+  const navigationSessionRef = useRef<PdfPageNavigationSession | null>(null);
+  if (navigationSessionRef.current?.sourceKey !== sourceKey || navigationSessionRef.current?.viewMode !== viewMode) {
+    navigationSessionRef.current = new PdfPageNavigationSession(sourceKey, viewMode, navigationSessionRef.current);
+  }
+  const navigationSession = navigationSessionRef.current;
+  const loadedDocumentRef = useRef<object | null>(null);
+  const onPageChangeRef = useRef(onPageChange);
+  onPageChangeRef.current = onPageChange;
+  const onNavigationErrorRef = useRef(onNavigationError);
+  onNavigationErrorRef.current = onNavigationError;
+  const navigationRequestRef = useRef(navigationRequest);
+  navigationRequestRef.current = navigationRequest;
+  // Source evidence uses validated page navigation, never heuristic text search.
+  const sourceNavigation = sourceRevisionId != null || navigationRequest != null;
+  const activeHighlightClause = sourceNavigation ? null : highlightClause;
 
   // Keep highlight styling responsive without recreating the search plugin each render.
   const riskLevelRef = useRef<Clause["risk_level"] | undefined>(undefined);
   useEffect(() => {
-    riskLevelRef.current = highlightClause?.risk_level;
-  }, [highlightClause?.risk_level]);
+    riskLevelRef.current = activeHighlightClause?.risk_level;
+  }, [activeHighlightClause?.risk_level]);
 
   const onHighlightKeyword = React.useCallback(
     (props: { highlightEle: HTMLElement }) => {
@@ -82,8 +113,27 @@ export default function PDFViewer({
   const { zoomTo } = zoomPluginInstance;
 
   const pageNavigationPluginInstance = pageNavigationPlugin();
-  const { GoToPreviousPage, GoToNextPage, CurrentPageLabel } =
+  const { GoToPreviousPage, GoToNextPage, CurrentPageLabel, jumpToPage } =
     pageNavigationPluginInstance;
+
+  const applyNavigation = React.useCallback((result: PdfNavigationResult) => {
+    if (navigationSessionRef.current !== navigationSession || !result) return;
+    if ("error" in result) {
+      onNavigationErrorRef.current?.(result.error);
+      return;
+    }
+    try {
+      jumpToPage(result.pageIndex);
+    } catch {
+      navigationSession.navigationFailed();
+      onNavigationErrorRef.current?.("The requested PDF page could not be opened. The extracted excerpt is still available.");
+    }
+  }, [jumpToPage, navigationSession]);
+
+  useEffect(() => {
+    if (navigationRequest) applyNavigation(navigationSession.request(navigationRequest));
+    else navigationSession.clearRequest();
+  }, [navigationRequest, navigationSession, applyNavigation]);
 
   const searchPluginInstance = searchPlugin({ onHighlightKeyword });
   const {
@@ -95,8 +145,10 @@ export default function PDFViewer({
   } = searchPluginInstance;
 
   const viewerPlugins = useMemo(
-    () => [zoomPluginInstance, pageNavigationPluginInstance, searchPluginInstance],
-    [zoomPluginInstance, pageNavigationPluginInstance, searchPluginInstance],
+    () => sourceNavigation
+      ? [zoomPluginInstance, pageNavigationPluginInstance]
+      : [zoomPluginInstance, pageNavigationPluginInstance, searchPluginInstance],
+    [zoomPluginInstance, pageNavigationPluginInstance, searchPluginInstance, sourceNavigation],
   );
 
   // Enhanced highlighting using custom hook
@@ -136,6 +188,7 @@ export default function PDFViewer({
 
   // Fetch through the local API boundary; serve the viewer a revocable blob URL.
   const [pdfUrl, setPdfUrl] = useState<string>("");
+  const [loadedSourceKey, setLoadedSourceKey] = useState<string | null>(null);
 
   useEffect(() => {
     let revoke: string | null = null;
@@ -145,6 +198,8 @@ export default function PDFViewer({
     setError(null);
     setIsLoading(true);
     setPdfUrl("");
+    setLoadedSourceKey(null);
+    loadedDocumentRef.current = null;
 
     if (!documentId) {
       setIsLoading(false);
@@ -165,6 +220,7 @@ export default function PDFViewer({
         if (controller.signal.aborted) return;
         const url = URL.createObjectURL(blob);
         revoke = url;
+        setLoadedSourceKey(sourceKey);
         setPdfUrl(url);
       })
       .catch(() => {
@@ -179,7 +235,7 @@ export default function PDFViewer({
       controller.abort();
       if (revoke) URL.revokeObjectURL(revoke);
     };
-  }, [documentId]);
+  }, [documentId, sourceKey]);
 
   // Toggle view mode function
   const toggleViewMode = () => {
@@ -188,29 +244,40 @@ export default function PDFViewer({
 
   // Handle document load
   const handleDocumentLoad = (e: { doc: { numPages: number } }) => {
+    if (navigationSessionRef.current !== navigationSession || loadedSourceKey !== sourceKey) return;
+    loadedDocumentRef.current = e.doc;
     setNumPages(e.doc.numPages);
     setIsLoading(false);
     setError(null);
 
     // Set initial zoom level
     zoomTo(scale);
+    // A load callback may precede the latest request's passive effect.
+    if (navigationRequestRef.current) applyNavigation(navigationSession.request(navigationRequestRef.current));
+    else navigationSession.clearRequest();
+    applyNavigation(navigationSession.loaded(e.doc.numPages));
+  };
 
+  const handlePageChange = (e: { currentPage: number; doc: object }) => {
+    if (navigationSessionRef.current !== navigationSession || loadedDocumentRef.current !== e.doc) return;
+    const pageNumber = navigationSession.pageChanged(e.currentPage);
+    if (pageNumber != null) onPageChangeRef.current?.(pageNumber);
   };
 
   const { executeHighlighting } = highlighting;
 
   // Enhanced clause highlighting effect
   const executeHighlightingRef = useRef(executeHighlighting);
-  const highlightClauseRef = useRef<Clause | null>(highlightClause ?? null);
-  const highlightClauseKey = highlightClause?.id ?? null;
+  const highlightClauseRef = useRef<Clause | null>(activeHighlightClause ?? null);
+  const highlightClauseKey = activeHighlightClause?.id ?? null;
 
   useEffect(() => {
     executeHighlightingRef.current = executeHighlighting;
   }, [executeHighlighting]);
 
   useEffect(() => {
-    highlightClauseRef.current = highlightClause ?? null;
-  }, [highlightClause]);
+    highlightClauseRef.current = activeHighlightClause ?? null;
+  }, [activeHighlightClause]);
 
   useEffect(() => {
     void executeHighlightingRef
@@ -223,17 +290,17 @@ export default function PDFViewer({
   // Notify parent component when highlighting completes
   React.useEffect(() => {
     try {
-      if (highlighting.highlightResult) {
+      if (!sourceNavigation && highlighting.highlightResult) {
         onHighlightComplete?.(highlighting.highlightResult);
       }
     } catch {
       console.error("Error in highlight completion callback:");
     }
-  }, [highlighting.highlightResult, onHighlightComplete]);
+  }, [highlighting.highlightResult, onHighlightComplete, sourceNavigation]);
 
   // Legacy highlighting support (backward compatibility)
   React.useEffect(() => {
-    if (highlightText && !isLoading && !highlightClause) {
+    if (!sourceNavigation && highlightText && !isLoading && !highlightClause) {
       // Small delay to ensure PDF is fully loaded
       const timer = setTimeout(() => {
         try {
@@ -254,7 +321,7 @@ export default function PDFViewer({
 
       return () => clearTimeout(timer);
     }
-  }, [highlightText, isLoading, highlight, highlightClause]);
+  }, [highlightText, isLoading, highlight, highlightClause, sourceNavigation]);
 
   // This effect is now handled by the custom hook
 
@@ -382,7 +449,7 @@ export default function PDFViewer({
           )}
 
           {/* Highlighting Status & Navigation */}
-          {(highlighting.isHighlighting || highlighting.highlightResult) && (
+          {!sourceNavigation && (highlighting.isHighlighting || highlighting.highlightResult) && (
             <div className="flex items-center gap-2 border-l border-border-muted pl-4">
               {highlighting.isHighlighting && (
                 <div className="flex items-center gap-2">
@@ -526,21 +593,19 @@ export default function PDFViewer({
         )}
         <Worker workerUrl="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js">
           <div style={{ height: "100%" }} className="pdf-viewer-container">
-            {pdfUrl ? (
+            {pdfUrl && loadedSourceKey === sourceKey ? (
               <Viewer
                 fileUrl={pdfUrl}
                 // PDF.js mitigation for GHSA-wgrm-67xf-hhpq while the viewer remains on PDF.js 3.
-                transformGetDocumentParams={(options) => ({
-                  ...options,
-                  isEvalSupported: false,
-                })}
+                transformGetDocumentParams={securePdfDocumentOptions}
                 onDocumentLoad={handleDocumentLoad}
+                onPageChange={handlePageChange}
                 plugins={viewerPlugins}
                 scrollMode={
                   viewMode === "single" ? ScrollMode.Page : ScrollMode.Vertical
                 }
-                initialPage={0}
-                key={`pdf-viewer-${viewMode}`}
+                initialPage={navigationSession.pageNumber - 1}
+                key={`pdf-viewer-${sourceKey}-${viewMode}`}
               />
             ) : null}
           </div>

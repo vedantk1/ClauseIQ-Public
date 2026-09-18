@@ -72,7 +72,46 @@ Non-ready new records return REVIEW_NOT_READY from the stored-clauses endpoint;
 they are not represented as successfully reviewed documents with zero concerns.
 There is no new paid retry endpoint in this increment. Reading sources, retrying
 local extraction, downloading originals and reading old reviews never spend AI
-tokens. The existing upload UI remains combined until the new brief flow lands.
+tokens. The existing upload-and-analysis UI remains available; /import uses the
+key-free source endpoint and opens the separate workspace preview.
+
+## Review workspace preview
+
+All routes below retain the local boundary and server-selected workspace. They
+do not read an AI key or call a provider. A stored source revision is required;
+legacy analyses are left unchanged and require a separate PDF import.
+
+- GET /api/v1/documents/{document_id}/review-workspace returns document_id,
+  source_revision_id, revision, brief, runs, personal and fixture_available. It is
+  read-only; an untouched workspace has revision 0 and no runs/personal work.
+- PUT the same path accepts expected_revision and one operation. Supported types
+  are set_brief (brief), set_draft/save_question (run_id, finding_id, text),
+  set_marker (run_id, finding_id, marker), and set_position (run_id, position).
+- POST /api/v1/documents/{document_id}/review-workspace/fixture accepts
+  expected_revision and explicitly installs the synthetic customer-perspective
+  example only for its exact source hash and complete extraction. Repeating the
+  request returns the existing immutable fixture run without resetting work.
+
+Brief fields are perspective (neutral/customer/provider/other), role (up to 200
+characters) and priorities (up to 2000). Drafts/questions are limited to 5000
+characters. Markers are not_marked/revisit/reviewed_by_me. Position contains view
+(overview/findings/document/my_review), finding_id and evidence_span_id; IDs are
+validated against that run/finding. Opening history is navigation, not review
+completion. Resume stores the view, finding and evidence selection, not arbitrary
+PDF scroll pixels. A saved question has one stable ID per finding and changes only on
+an explicit save_question operation; draft updates do not add it to My review.
+
+Successful mutations return the updated workspace and confirmed revision.
+REVISION_CONFLICT returns 409 plus current_revision. A write with an uncertain
+database outcome returns a safe 503; reload before deciding how to retry.
+Conflicts never silently merge or overwrite newer data. Unknown request fields,
+invalid operations and unsupported IDs are rejected. No run or personal work is
+copied automatically across sources, runs or documents.
+
+Fixture findings and evidence are labelled kind=fixture, not AI-generated output.
+The server resolves exact stored spans; ambiguous/missing references refuse the
+fixture rather than silently dropping findings. Editing a brief preserves the
+run's original context. Real generation and finding-scoped Ask are not yet exposed.
 
 ## Workspace settings
 

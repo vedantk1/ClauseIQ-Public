@@ -147,6 +147,11 @@ export const DocumentCard = ({
             </div>
 
             {/* Action Button */}
+            {!isSelectMode && doc.source_revision_id && (
+              <a href={`/workspace?documentId=${encodeURIComponent(doc.id)}`}
+                onClick={(event) => event.stopPropagation()}
+                className="block text-sm text-accent-purple underline py-2">Open review workspace</a>
+            )}
             {!isSelectMode && (
               <Button
                 variant="secondary"
@@ -218,6 +223,11 @@ export const DocumentCard = ({
             </div>
           </div>
           <div className="flex items-center gap-2 ml-4">
+            {!isSelectMode && doc.source_revision_id && (
+              <a href={`/workspace?documentId=${encodeURIComponent(doc.id)}`}
+                onClick={(event) => event.stopPropagation()}
+                className="text-sm text-accent-purple underline p-2">Open workspace</a>
+            )}
             {!isSelectMode && (
               <>
                 <button

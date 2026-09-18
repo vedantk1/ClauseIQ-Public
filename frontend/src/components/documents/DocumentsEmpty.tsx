@@ -7,6 +7,7 @@ import Button from "@/components/Button";
 import Card from "@/components/Card";
 import config from "@/config/config";
 import { FileText, Upload } from "lucide-react";
+import Link from "next/link";
 
 interface DocumentsEmptyProps {
   onUpload: () => void;
@@ -30,6 +31,7 @@ export const DocumentsEmpty = ({ onUpload }: DocumentsEmptyProps) => {
             you understand your agreements better.
           </p>
           <div className="space-y-3">
+            <Link href="/import" className="block text-accent-purple underline py-2">Import without AI into the new workspace</Link>
             <Button onClick={onUpload} className="w-full">
               <Upload className="w-4 h-4 mr-2" />
               Upload Your First Document

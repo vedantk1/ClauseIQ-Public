@@ -31,7 +31,7 @@ export const DocumentsHeader = ({
           Documents
         </h1>
         <p className="text-text-secondary mt-1">
-          View and manage your analyzed legal documents
+          Manage original agreements, saved analysis and review work
         </p>
       </div>
       <div className="flex gap-2">
@@ -64,9 +64,10 @@ export const DocumentsHeader = ({
             </Button>
           </>
         )}
+        <Button variant="secondary" onClick={() => router.push("/import")}>Import without AI</Button>
         <Button onClick={() => router.push("/")}>
           <Upload className="w-4 h-4 mr-2" />
-          Upload New
+          Existing AI analysis
         </Button>
       </div>
     </div>

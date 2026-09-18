@@ -34,7 +34,7 @@ image may need a separately reviewed upgrade before updating stored vectors.
 | npm run dev | Hot-reloading frontend and backend |
 | npm test | Deterministic backend and frontend tests, no paid AI calls |
 | npm run test:backend | Backend tests only |
-| npm run test:frontend | Local API client contract tests |
+| npm run test:frontend | Local API, persistence state, viewer adapter and render-contract tests |
 | npm run typecheck | Frontend types |
 | npm run lint | Frontend lint |
 | npm run build | Shared types and frontend production build |
@@ -65,6 +65,29 @@ real GridFS bytes/page anchors, retry/fencing and unrelated-data preservation,
 then reports cleanup. Never point it at the application database.
 This source increment is additive; no source backfill/migration or vector rebuild
 is required. Existing analyses are not silently re-extracted or overwritten.
+
+For review workspace persistence changes:
+
+~~~bash
+cd backend
+venv/bin/python -m pytest tests/test_review_workspace.py -q
+venv/bin/python tests/manual_review_workspace_smoke.py --run-isolated-live
+~~~
+
+The review smoke uses an isolated synthetic database on the existing local MongoDB
+service. It verifies fresh-connection restoration, competing revision writes,
+scoping, immutable fixture runs and deletion of nested personal work without
+touching the application database. Its final report must show no leftovers.
+It makes no provider or vector requests and does not inspect saved credentials.
+
+The /import and /workspace routes are a persistence preview, not the new AI review
+engine. Import tests/fixtures/pdfs/managed-services-25p.pdf, then explicitly load its
+labelled synthetic example to exercise findings and saved work. Other PDFs may be
+imported and given a brief, but never receive those example findings. Fixture
+definitions ship under backend/fixtures/reviews; missing definitions disable the
+example rather than inventing output. Existing /review analysis remains separate.
+Focused frontend tests include delayed replies, conflicts, explicit saves,
+debounced draft recovery, page navigation and exact source excerpt checks.
 
 ## Verification cadence
 

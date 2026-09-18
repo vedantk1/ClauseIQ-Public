@@ -67,7 +67,16 @@ credential if exposed; removing a file or Git commit is not enough.
 - The repository has no CI security gates or supported production environment.
 - The current React PDF Viewer dependency still has the PDF.js advisory
   GHSA-wgrm-67xf-hhpq. The application keeps isEvalSupported: false; replacing
-  or upgrading the viewer is still needed to remove the advisory.
+  or upgrading the viewer is still needed to remove the advisory. Upstream React
+  PDF Viewer is archived; its 3.12 peer range does not support forcing a current
+  PDF.js version under it. The new page-navigation adapter does not remediate the
+  dependency audit. See the [Mozilla advisory](https://github.com/mozilla/pdf.js/security/advisories/GHSA-wgrm-67xf-hhpq)
+  and [viewer package](https://github.com/react-pdf-viewer/react-pdf-viewer/blob/v3.12.0/packages/core/package.json).
+- Review workspace fixtures are authored synthetic examples, restricted to the
+  exact reviewed PDF hash. They are not generated results or evidence of model
+  quality. Source content and editable personal work are rendered as text, never
+  trusted HTML. All new persistence routes retain the local boundary and scoped
+  conditional writes; stale requests cannot silently overwrite newer work.
 - Multi-store migration/deletion is restartable but not a distributed transaction.
   Back up legacy data before migration and investigate reported cleanup errors.
 - Future agent tools require their own threat model, allowlists, resource limits
