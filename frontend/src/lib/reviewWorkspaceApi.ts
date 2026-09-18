@@ -38,6 +38,16 @@ export const reviewWorkspaceApi = {
       expected_revision: revision,
     }));
   },
+  async generate(documentId: string, revision: number, requestId: string, modelId: string): Promise<ReviewWorkspaceResponse> {
+    return unwrap(await apiClient.post<ReviewWorkspaceResponse>(`/documents/${encodeURIComponent(documentId)}/review-workspace/generate`, {
+      expected_revision: revision, request_id: requestId, model_id: modelId,
+    }, { timeout: 210000 }));
+  },
+  async interrupt(documentId: string, revision: number, runId: string): Promise<ReviewWorkspaceResponse> {
+    return unwrap(await apiClient.post<ReviewWorkspaceResponse>(`/documents/${encodeURIComponent(documentId)}/review-workspace/runs/${encodeURIComponent(runId)}/interrupt`, {
+      expected_revision: revision,
+    }));
+  },
 };
 
-export type ReviewWorkspaceTransport = Pick<typeof reviewWorkspaceApi, "load" | "update" | "fixture">;
+export type ReviewWorkspaceTransport = Pick<typeof reviewWorkspaceApi, "load" | "update" | "fixture" | "generate" | "interrupt">;

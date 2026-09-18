@@ -93,7 +93,8 @@ class ReviewWorkspaceService:
                 finding_ids = {finding.id for finding in run.findings}
                 if len(finding_ids) != len(run.findings):
                     raise ValueError("Duplicate finding")
-                if any(evidence.source_revision_id != state.source_revision_id for finding in run.findings for evidence in finding.evidence):
+                if any(evidence.source_revision_id != state.source_revision_id
+                       for item in [*run.findings, *run.overview_items] for evidence in item.evidence):
                     raise ValueError("Evidence source mismatch")
                 personal = state.personal.get(run.id)
                 if personal:
@@ -140,7 +141,7 @@ class ReviewWorkspaceService:
         ):
             raise ReviewWorkspaceError("EVIDENCE_NOT_FOUND", "This evidence does not belong to the selected finding.", 422)
 
-    async def _save(self, document, workspace_id, previous, updated):
+    async def _save(self, document, workspace_id, previous, updated, extra_expected=None):
         # Derived availability is never authoritative stored state.
         old_data = previous.model_dump(exclude={"fixture_available"})
         new_data = updated.model_dump(exclude={"fixture_available"})
@@ -148,6 +149,8 @@ class ReviewWorkspaceService:
             return previous
         updated.revision = previous.revision + 1
         expected = {"source_revision_id": previous.source_revision_id, "source_status": "stored", "has_pdf_file": True}
+        if extra_expected:
+            expected.update(extra_expected)
         if document.get("review_workspace") is None:
             expected["review_workspace"] = None
         else:
@@ -234,6 +237,8 @@ class ReviewWorkspaceService:
         if any(run.kind == "fixture" for run in current.runs):
             return current
         self._revision(current, expected_revision)
+        if len(current.runs) >= 100:
+            raise ReviewWorkspaceError("REVIEW_RUN_LIMIT", "This document has reached the saved review-run limit. Existing reviews have not been changed.")
         fixture = self._fixture()
         if fixture is None:
             raise ReviewWorkspaceError("FIXTURE_UNAVAILABLE", "The reviewed example is unavailable.", 503)

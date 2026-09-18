@@ -1,13 +1,17 @@
-"""Key-free local review-workspace operations; no generated AI output yet."""
+"""Local review state and explicit, persisted AI-generation attempts."""
 import logging
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
-from clauseiq_types.review import FixtureReviewRequest, ReviewWorkspaceResponse, ReviewWorkspaceUpdate
+from clauseiq_types.review import (
+    FixtureReviewRequest, InterruptReviewRequest, ReviewWorkspaceResponse,
+    ReviewWorkspaceUpdate, StartReviewRequest,
+)
 from database.service import get_document_service
 from middleware.api_standardization import APIResponse, create_error_response
 from services.review_workspace_service import ReviewWorkspaceError, ReviewWorkspaceService
+from services.review_generation_service import ReviewGenerationService
 from workspace import get_workspace_id
 
 
@@ -46,3 +50,15 @@ async def update_review_workspace(document_id: str, body: ReviewWorkspaceUpdate,
 @router.post("/documents/{document_id}/review-workspace/fixture", response_model=APIResponse[ReviewWorkspaceResponse])
 async def create_fixture_review(document_id: str, body: FixtureReviewRequest, workspace_id: str = Depends(get_workspace_id)):
     return await _response(ReviewWorkspaceService(get_document_service()).create_fixture(document_id, workspace_id, body.expected_revision), document_id)
+
+
+@router.post("/documents/{document_id}/review-workspace/generate", response_model=APIResponse[ReviewWorkspaceResponse])
+async def generate_review(document_id: str, body: StartReviewRequest, workspace_id: str = Depends(get_workspace_id)):
+    return await _response(ReviewGenerationService(get_document_service()).start(document_id, workspace_id, body), document_id)
+
+
+@router.post("/documents/{document_id}/review-workspace/runs/{run_id}/interrupt", response_model=APIResponse[ReviewWorkspaceResponse])
+async def interrupt_review(document_id: str, run_id: str, body: InterruptReviewRequest, workspace_id: str = Depends(get_workspace_id)):
+    return await _response(ReviewGenerationService(get_document_service()).interrupt(
+        document_id, workspace_id, run_id, body.expected_revision,
+    ), document_id)

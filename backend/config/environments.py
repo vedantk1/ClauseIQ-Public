@@ -5,9 +5,9 @@ Provides configuration validation and environment-aware settings.
 from enum import Enum
 from urllib.parse import urlsplit
 from typing import Dict, Any, Optional
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator, validator
 from pydantic_settings import BaseSettings
-from ai_models.models import DEFAULT_MODEL, DEFAULT_QUERY_GATE_MODEL
+from ai_models.models import DEFAULT_MODEL, DEFAULT_QUERY_GATE_MODEL, resolve_retired_model_selection
 
 
 class Environment(str, Enum):
@@ -64,6 +64,10 @@ class AIConfig(BaseModel):
     gate_model: str = Field(default=DEFAULT_QUERY_GATE_MODEL, description="Model for conversation context gate")
     rewrite_model: str = Field(default=DEFAULT_QUERY_GATE_MODEL, description="Model for query rewriting")
 
+    @field_validator("default_model", "gate_model", "rewrite_model")
+    @classmethod
+    def resolve_retired_models(cls, value):
+        return resolve_retired_model_selection(value)
 
 
 
@@ -123,6 +127,10 @@ class EnvironmentConfig(BaseSettings):
     openai_max_tokens: int = Field(default=4000, description="Maximum tokens per request")
     openai_temperature: float = Field(default=0.7, description="AI temperature")
 
+    @field_validator("openai_default_model")
+    @classmethod
+    def resolve_retired_default(cls, value):
+        return resolve_retired_model_selection(value)
 
 
     # Qdrant Vector Search (self-hosted)

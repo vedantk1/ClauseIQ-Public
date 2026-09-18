@@ -29,7 +29,7 @@ export function SaveFeedback({ state, onReload, onRetry }: {
       <p>Saved state refreshed. Your pending changes have not been applied.</p>
       <p className="mt-1 text-text-secondary">Compare the saved wording with your local draft. Applying pending changes replaces the latest values for those fields.</p>
       <Action className="mt-2" onClick={onRetry}>Apply my pending changes</Action>
-    </> : <p>{state.status === "loading" ? "Loading saved workspace…" : state.pending ? "Saving changes… Keep this page open until confirmed." : state.briefDraft && state.workspace && !sameBrief(state.briefDraft, state.workspace.brief) ? "Brief edits have not been saved yet. Other confirmed work is retained." : "Changes saved locally. No AI calls are made here."}</p>}
+    </> : <p>{state.status === "loading" ? "Loading saved workspace…" : state.pending ? ["generating", "uncertain", "interrupting"].includes(state.reviewAction?.status) ? "Local edits are waiting while the review outcome is resolved. Keep this page open." : "Saving changes… Keep this page open until confirmed." : state.briefDraft && state.workspace && !sameBrief(state.briefDraft, state.workspace.brief) ? "Brief edits have not been saved yet. Other confirmed work is retained." : "Changes saved locally. Saving does not run AI."}</p>}
   </div>;
 }
 

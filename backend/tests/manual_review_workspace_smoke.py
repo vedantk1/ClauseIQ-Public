@@ -7,7 +7,7 @@ credentials are never accessed. No AI or vector provider is called.
 """
 import argparse
 import asyncio
-from contextlib import ExitStack
+from contextlib import ExitStack, asynccontextmanager
 from copy import deepcopy
 import json
 from pathlib import Path
@@ -18,10 +18,13 @@ from uuid import uuid4
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from clauseiq_types.review import ReviewWorkspaceUpdate
+from clauseiq_types.review import (
+    ReviewCoverage, ReviewGeneration, ReviewOverviewItem, ReviewWorkspaceUpdate, StartReviewRequest,
+)
 from services.ai.text_extractor import TextExtractor
 from services.file_storage_service import GridFSFileStorage
 from services.review_workspace_service import ReviewWorkspaceError, ReviewWorkspaceService
+from services.review_generation_service import ReviewGenerationService
 from services.source_service import SourceService
 from manual_source_smoke import document_service, isolated_adapter
 
@@ -131,6 +134,75 @@ async def run_smoke():
             assert len(current.runs) == 1
             report["checks"].append("real MongoDB CAS permits one winner; changed brief preserves immutable run and stable question identity")
 
+            stage = "mocked review generation preserves real persisted concurrent edits"
+            # The provider/credential boundary is mocked; source/review writes,
+            # competing revisions and fresh-connection reads use real MongoDB.
+            coverage = ReviewCoverage(page_count=25, extracted_pages=list(range(1, 26)), omitted_pages=[])
+            generation = ReviewGeneration(
+                model_id="gpt-5.6-terra", reasoning_effort="low", max_completion_tokens=1000,
+                catalog_verified_on="synthetic-smoke", prompt_version="synthetic-smoke-v1",
+                schema_version="synthetic-smoke-v1", extraction_version=imported["source_extraction"]["extraction_version"],
+                estimated_input_tokens=100,
+            )
+            prepared = SimpleNamespace(coverage=coverage, generation=generation)
+            result = SimpleNamespace(
+                status="ready", coverage=coverage, generation=generation,
+                overview_items=[ReviewOverviewItem(text="Synthetic review overview", evidence=[finding.evidence[0]])],
+                findings=[finding.model_copy(deep=True)], failure=None,
+            )
+            fresh_documents.get_workspace_api_key = AsyncMock(return_value="synthetic-mocked-credential")
+            fresh_documents.get_workspace_model = AsyncMock(return_value="gpt-5.6-terra")
+
+            @asynccontextmanager
+            async def mocked_client(key):
+                assert key == "synthetic-mocked-credential"
+                yield object()
+
+            stack.enter_context(patch("services.review_generation_service.workspace_openai_client", mocked_client))
+            stack.enter_context(patch("services.review_generation_service.prepare_review", return_value=prepared))
+
+            async def generate_with_edit(*_):
+                processing = await fresh_service.read(imported["id"], WORKSPACE)
+                assert processing.runs[-1].status == "processing"
+                await fresh_service.update(imported["id"], WORKSPACE, ReviewWorkspaceUpdate(
+                    expected_revision=processing.revision, operation={"type": "set_brief", "brief": {
+                        "perspective": "customer", "priorities": "Concurrent synthetic priority retained",
+                    }},
+                ))
+                return result
+
+            provider = stack.enter_context(patch("services.review_generation_service.generate_review", new=AsyncMock(side_effect=generate_with_edit)))
+            generated_service = ReviewGenerationService(fresh_documents)
+            initial_request = StartReviewRequest(expected_revision=current.revision, request_id="synthetic-attempt", model_id="gpt-5.6-terra")
+            current = await generated_service.start(imported["id"], WORKSPACE, initial_request)
+            assert current.runs[-1].status == "ready"
+            assert current.brief.priorities == "Concurrent synthetic priority retained"
+            assert current.runs[-1].context.priorities != current.brief.priorities
+            assert current.personal[run.id].saved_questions[finding.id].id == saved_id
+            assert current.runs[0] == run
+            assert await service.read(imported["id"], WORKSPACE) == current
+            assert await ReviewGenerationService(fresh_documents).start(imported["id"], WORKSPACE, initial_request) == current
+            provider.assert_awaited_once()
+            report["checks"].append("mocked generation claims durably, preserves concurrent brief/personal work and immutable earlier run; replay makes no provider call")
+
+            stage = "processing attempt survives lost request and explicit recovery"
+            provider.side_effect = asyncio.CancelledError()
+            pending_request = StartReviewRequest(expected_revision=current.revision, request_id="synthetic-interrupted", model_id="gpt-5.6-terra")
+            try:
+                await generated_service.start(imported["id"], WORKSPACE, pending_request)
+            except asyncio.CancelledError:
+                pass
+            else:
+                raise AssertionError("Synthetic request cancellation was not exercised")
+            current = await service.read(imported["id"], WORKSPACE)
+            assert current.runs[-1].status == "processing"
+            calls_before = provider.await_count
+            assert await ReviewGenerationService(fresh_documents).start(imported["id"], WORKSPACE, pending_request) == current
+            assert provider.await_count == calls_before
+            current = await generated_service.interrupt(imported["id"], WORKSPACE, "synthetic-interrupted", current.revision)
+            assert current.runs[-1].status == "interrupted"
+            report["checks"].append("processing attempt survives request loss and independent reload; replay never recharges; explicit interrupted recovery persists")
+
             stage = "scoping and legacy preservation"
             await expect_error(fresh_service.read(imported["id"], "other-workspace"), "DOCUMENT_NOT_FOUND")
             await expect_error(fresh_service.create_fixture(imported["id"], "other-workspace", 0), "DOCUMENT_NOT_FOUND")
@@ -138,17 +210,23 @@ async def run_smoke():
             assert await db.documents.find_one({"id": legacy["id"]}) == legacy_before
             assert set(await db.list_collection_names()) == {"smoke_owner", "documents", "pdf_files.files", "pdf_files.chunks"}
 
-            stage = "scoped document deletion removes nested personal work"
+            stage = "scoped deletion during generation rejects late result"
             # This source was never indexed; make existing optional vector cleanup
             # a deterministic no-op while exercising real file/document deletion.
             cleanup = SimpleNamespace(delete_document_from_rag=AsyncMock(return_value=True))
             stack.enter_context(patch("services.rag_service.get_rag_service", return_value=cleanup))
-            assert await fresh_documents.delete_document_for_workspace(imported["id"], WORKSPACE)
+            async def delete_during_generation(*_):
+                assert await fresh_documents.delete_document_for_workspace(imported["id"], WORKSPACE)
+                return result
+            provider.side_effect = delete_during_generation
+            await expect_error(generated_service.start(imported["id"], WORKSPACE, StartReviewRequest(
+                expected_revision=current.revision, request_id="synthetic-deleted", model_id="gpt-5.6-terra",
+            )), "DOCUMENT_NOT_FOUND")
             assert await db.documents.find_one({"id": imported["id"]}) is None
             assert await db["pdf_files.files"].count_documents({}) == 0
             await expect_error(fresh_service.read(imported["id"], WORKSPACE), "DOCUMENT_NOT_FOUND")
             assert await db.documents.find_one({"id": legacy["id"]}) == legacy_before
-            report["checks"].append("wrong scope rejected, legacy unchanged, scoped deletion removes source and nested review without side collections")
+            report["checks"].append("wrong scope rejected, legacy unchanged; deletion during generation removes nested reviews/source and cannot be undone by late output")
             documents.get_workspace_api_key.assert_not_awaited()
             for guard in guards:
                 guard.assert_not_called()

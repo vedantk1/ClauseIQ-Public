@@ -70,15 +70,16 @@ their safe status/message and include X-Document-ID and error.details.document_i
 when a source was imported.
 Non-ready new records return REVIEW_NOT_READY from the stored-clauses endpoint;
 they are not represented as successfully reviewed documents with zero concerns.
-There is no new paid retry endpoint in this increment. Reading sources, retrying
+Reading sources, retrying
 local extraction, downloading originals and reading old reviews never spend AI
 tokens. The existing upload-and-analysis UI remains available; /import uses the
 key-free source endpoint and opens the separate workspace preview.
 
-## Review workspace preview
+## Review workspace
 
-All routes below retain the local boundary and server-selected workspace. They
-do not read an AI key or call a provider. A stored source revision is required;
+All routes below retain the local boundary and server-selected workspace.
+GET, PUT and fixture operations do not read an AI key or call a provider;
+generation is a separate explicit action. A stored source revision is required;
 legacy analyses are left unchanged and require a separate PDF import.
 
 - GET /api/v1/documents/{document_id}/review-workspace returns document_id,
@@ -111,7 +112,41 @@ copied automatically across sources, runs or documents.
 Fixture findings and evidence are labelled kind=fixture, not AI-generated output.
 The server resolves exact stored spans; ambiguous/missing references refuse the
 fixture rather than silently dropping findings. Editing a brief preserves the
-run's original context. Real generation and finding-scoped Ask are not yet exposed.
+run's original context. Finding-scoped Ask is not yet exposed.
+
+### AI review attempts
+
+- POST /api/v1/documents/{document_id}/review-workspace/generate accepts
+  expected_revision, request_id and model_id. The model must match the selected
+  Settings model shown before starting. The saved brief is used; save edits first.
+  It returns the updated workspace after one bounded provider request, including
+  a terminal failed/incomplete run when generation does not yield valid output.
+- The request_id becomes the run ID. A repeated ID returns the recorded attempt
+  without calling OpenAI again, including after a lost response. A new ID requests
+  a new paid review. Only one processing attempt per document is allowed.
+- POST /api/v1/documents/{document_id}/review-workspace/runs/{run_id}/interrupt
+  accepts expected_revision. It marks a processing attempt interrupted without a
+  provider call. Late output cannot replace it. This is not provider cancellation;
+  the request may already have incurred a charge.
+
+Runs distinguish kind=fixture/ai and status=processing/ready/incomplete/failed/
+interrupted. AI runs carry a source/context snapshot, overview_items with evidence,
+findings, coverage, generation provenance, completed_at and safe failure information.
+The legacy overview string is retained for authored fixtures; new AI overview
+statements each require source references. Findings may be empty, not an assertion
+that the agreement has no issues. A not_found finding must state coverage_basis.
+
+Coverage identifies extracted and omitted physical pages and the all_extracted_text
+input scope. Supplied text is not proof that the model considered every provision.
+Quote validation failure withholds output and cannot become ready. Partial source
+input stays incomplete. Reading saved runs and editing personal work need no key.
+Model quotations must match the cited span or a unique, word-bounded exact excerpt
+within it. Published evidence always uses the full canonical stored span; no fuzzy
+matching or whitespace/case correction is performed.
+Model changes, source/input limits and missing credentials fail before paid work;
+no model fallback or automatic paid retry is performed. If an HTTP/save outcome is
+uncertain, reload first. The persisted processing record does not prove that a
+provider is still running; explicit interruption permits a later deliberate review.
 
 ## Workspace settings
 
@@ -130,8 +165,10 @@ query_gate_model_id, retention_days and toast_notifications_enabled. Models
 must be in the advertised catalog. Retention is 0..36500 days; enabling it can
 delete already-old documents on the next cleanup run.
 
-The fresh review default is gpt-5.6-luna; query preparation defaults to
-gpt-5-nano. Existing saved selections remain unchanged, including legacy gpt-5.
+Both review and query preparation default to gpt-5.6-terra. Mini and Nano are
+removed from the catalog and rejected on new saves/requests. Existing selections
+of those retired IDs resolve to Terra; historical run metadata is unchanged.
+Other saved selections remain unchanged, including legacy gpt-5.
 Settings may return an unsupported historical ID so it can be replaced explicitly;
 new saves must use the catalog. Catalog membership does not guarantee access for
 a particular OpenAI account. Prices are dated standard USD base rates, not quotes

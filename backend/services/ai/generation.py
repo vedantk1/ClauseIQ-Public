@@ -44,7 +44,8 @@ def generation_metadata(model: str, operation: str, reasoning_effort: str | None
 
 async def create_chat_completion(
     client, *, model: str, messages: list[dict[str, str]],
-    max_completion_tokens: int, reasoning_effort: str | None = None, **kwargs,
+    max_completion_tokens: int, reasoning_effort: str | None = None,
+    validate_output: bool = True, **kwargs,
 ):
     """Validate settings/output and classify errors; make one explicit model call.
 
@@ -87,6 +88,10 @@ async def create_chat_completion(
         raise AIRequestError("OpenAI could not be reached. Check your connection and retry when ready.", 503) from None
     except APIStatusError:
         raise AIRequestError("OpenAI could not complete this request. Retry when ready; no model fallback was used.", 502) from None
+    # The review engine validates every output itself so it can retain usage for
+    # refusals and unfinished responses. Existing callers keep the strict gate.
+    if not validate_output:
+        return response
     choices = getattr(response, "choices", None)
     if not choices:
         raise AIRequestError("The selected model returned no answer. No result was saved.")

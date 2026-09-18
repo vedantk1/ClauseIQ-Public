@@ -8,8 +8,11 @@ from dataclasses import asdict, dataclass
 from pydantic import BaseModel
 
 CATALOG_VERIFIED_ON = "2026-09-18"
-DEFAULT_MODEL = "gpt-5.6-luna"
-DEFAULT_QUERY_GATE_MODEL = "gpt-5-nano"
+DEFAULT_MODEL = "gpt-5.6-terra"
+DEFAULT_QUERY_GATE_MODEL = "gpt-5.6-terra"
+# Resolve retired configuration on read only. This is an explicit product
+# migration, never a provider-failure fallback or a rewrite of past attribution.
+_RETIRED_MODEL_SELECTIONS = {"gpt-5-mini": DEFAULT_MODEL, "gpt-5-nano": DEFAULT_MODEL}
 _NEW_EFFORTS = ("none", "low", "medium", "high", "xhigh", "max")
 _OLD_EFFORTS = ("minimal", "low", "medium", "high")
 _BASE_PRICE_NOTE = (
@@ -21,6 +24,11 @@ _LONG_PRICE_NOTE = (
     " Above 272,000 input tokens, the full request uses 2x input and 1.5x "
     "output rates. Cache writes cost 1.25x uncached input."
 )
+
+
+def resolve_retired_model_selection(model_id: str) -> str:
+    """Resolve known retired saved/config choices; preserve every other value."""
+    return _RETIRED_MODEL_SELECTIONS.get(model_id, model_id)
 
 
 @dataclass(frozen=True)
@@ -65,20 +73,14 @@ class AIModelConfig:
     """Configuration class for AI models."""
 
     _models = (
-        AIModel("gpt-5.6-luna", "GPT-5.6 Luna", "Low-cost default for everyday development.",
+        AIModel("gpt-5.6-luna", "GPT-5.6 Luna", "Optional lower-cost model for explicit comparisons.",
                 1_050_000, 0.20, 1.20),
-        AIModel("gpt-5.6-terra", "GPT-5.6 Terra", "Middle-tier option for quality and cost comparisons.",
+        AIModel("gpt-5.6-terra", "GPT-5.6 Terra", "Default model for document review and chat query preparation.",
                 1_050_000, 2.00, 12.00),
         AIModel("gpt-5.6-sol", "GPT-5.6 Sol", "Higher-cost quality evaluation; select deliberately.",
                 1_050_000, 4.00, 20.00,
                 pricing_note=_BASE_PRICE_NOTE + _LONG_PRICE_NOTE +
                 " Sol promotional rates are available at least through 2026-11-21."),
-        AIModel("gpt-5-mini", "GPT-5 Mini", "Retained inexpensive development and comparison option.",
-                400_000, 0.25, 2.00, reasoning_efforts=_OLD_EFFORTS,
-                pricing_note=_BASE_PRICE_NOTE),
-        AIModel("gpt-5-nano", "GPT-5 Nano", "Lowest base rates in this catalog; also used for chat query preparation.",
-                400_000, 0.05, 0.40, reasoning_efforts=_OLD_EFFORTS,
-                pricing_note=_BASE_PRICE_NOTE),
         AIModel("gpt-5", "GPT-5 (legacy)", "Preserved for existing selections; choose another model explicitly to migrate.",
                 400_000, 1.25, 10.00, reasoning_efforts=_OLD_EFFORTS,
                 pricing_note=_BASE_PRICE_NOTE, legacy=True),

@@ -10,7 +10,8 @@ import pytest
 from openai import AsyncOpenAI
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from ai_models.models import AIModelConfig, AIModelResponse, DEFAULT_MODEL
+from ai_models.models import AIModelConfig, AIModelResponse, DEFAULT_MODEL, DEFAULT_QUERY_GATE_MODEL
+from config.environments import AIConfig, EnvironmentConfig
 from database.service import DocumentService
 from services.ai import generation
 from services.ai.generation import AIRequestError, create_chat_completion, generation_metadata
@@ -24,9 +25,9 @@ def local_token_estimate(monkeypatch):
 
 
 def test_single_catalog_has_agreed_defaults_and_no_astra():
-    assert DEFAULT_MODEL == AIModelConfig.get_default_model() == "gpt-5.6-luna"
+    assert DEFAULT_MODEL == DEFAULT_QUERY_GATE_MODEL == AIModelConfig.get_default_model() == "gpt-5.6-terra"
     assert AIModelConfig.get_model_ids() == [
-        "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-5-mini", "gpt-5-nano", "gpt-5",
+        "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-5",
     ]
     assert sum(model.is_default for model in AIModelConfig.get_available_models()) == 1
     for model in AIModelConfig.get_models_for_api():
@@ -48,6 +49,16 @@ def test_settings_accept_every_catalog_model(model):
 def test_settings_reject_unregistered_choice():
     with pytest.raises(ValueError):
         SettingsUpdate(model_id="unknown")
+
+
+@pytest.mark.parametrize("retired", ["gpt-5-mini", "gpt-5-nano"])
+@pytest.mark.parametrize("field", ["model_id", "query_gate_model_id"])
+def test_retired_models_are_not_selectable(retired, field):
+    assert retired not in AIModelConfig.get_model_ids()
+    with pytest.raises(ValueError):
+        AIModelConfig.get_model_by_id(retired)
+    with pytest.raises(ValueError):
+        SettingsUpdate(**{field: retired})
 
 
 @pytest.mark.asyncio
@@ -122,7 +133,8 @@ async def test_incomplete_output_is_not_accepted(finish, content, refusal):
 @pytest.mark.parametrize("overrides", [
     {"model": "unknown"}, {"reasoning_effort": "minimal"},
     {"max_completion_tokens": 0}, {"max_completion_tokens": 128001},
-    {"temperature": 0.7}, {"model": "gpt-5-mini", "reasoning_effort": "none"},
+    {"temperature": 0.7}, {"model": "gpt-5", "reasoning_effort": "none"},
+    {"model": "gpt-5-mini"}, {"model": "gpt-5-nano"},
 ])
 async def test_invalid_request_options_fail_before_spend(overrides):
     client = AsyncMock()
@@ -148,7 +160,7 @@ def test_generation_metadata_matches_explicit_defaults():
         "reasoning_effort": "medium", "max_completion_tokens": 4000,
         "catalog_verified_on": "2026-09-18",
     }
-    assert generation_metadata("gpt-5-nano", "query_gate")["reasoning_effort"] == "low"
+    assert generation_metadata(DEFAULT_QUERY_GATE_MODEL, "query_gate")["reasoning_effort"] == "low"
 
 
 def test_generation_metadata_reports_invalid_budget_safely(monkeypatch):
@@ -160,17 +172,70 @@ def test_generation_metadata_reports_invalid_budget_safely(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_model_settings_default_only_when_unset(monkeypatch):
+async def test_model_settings_default_only_when_unset(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("OPENAI_DEFAULT_MODEL", raising=False)
     service = DocumentService()
     monkeypatch.setattr(service, "get_system_config", AsyncMock(return_value=None))
     assert await service.get_system_ai_model() == DEFAULT_MODEL
-    assert await service.get_query_gate_model() == "gpt-5-nano"
-    for existing in ("gpt-5", "gpt-5.6-sol", "unsupported-historical-model"):
+    assert await service.get_query_gate_model() == DEFAULT_QUERY_GATE_MODEL
+    for existing in ("gpt-5", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "unsupported-historical-model"):
         service.get_system_config.return_value = {"model_id": existing}
         assert await service.get_system_ai_model() == existing
         assert await service.get_query_gate_model() == existing
     service.get_system_config.assert_awaited_with("query_gate_model", raise_on_error=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("retired", ["gpt-5-mini", "gpt-5-nano"])
+async def test_retired_saved_selections_resolve_without_rewriting_storage(monkeypatch, retired):
+    service = DocumentService()
+    original = {"model_id": retired, "configured_at": "historical"}
+    monkeypatch.setattr(service, "get_system_config", AsyncMock(return_value=original))
+    monkeypatch.setattr(service, "set_system_config", AsyncMock())
+    assert await service.get_system_ai_model() == "gpt-5.6-terra"
+    assert await service.get_query_gate_model() == "gpt-5.6-terra"
+    assert await service.get_workspace_model("local") == "gpt-5.6-terra"
+    assert await service.get_system_ai_model_config() == original
+    assert await service.get_query_gate_model_config() == original
+    assert original == {"model_id": retired, "configured_at": "historical"}
+    service.set_system_config.assert_not_awaited()
+
+
+@pytest.mark.parametrize("configured,expected", [
+    ("gpt-5-mini", "gpt-5.6-terra"), ("gpt-5-nano", "gpt-5.6-terra"),
+    ("gpt-5.6-luna", "gpt-5.6-luna"), ("gpt-5.6-terra", "gpt-5.6-terra"),
+    ("gpt-5.6-sol", "gpt-5.6-sol"), ("gpt-5", "gpt-5"),
+    ("unknown-historical-model", "unknown-historical-model"),
+])
+@pytest.mark.asyncio
+async def test_environment_choices_resolve_only_explicitly_retired_models(monkeypatch, tmp_path, configured, expected):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("OPENAI_DEFAULT_MODEL", configured)
+    environment = EnvironmentConfig(_env_file=None)
+    assert environment.openai_default_model == expected
+    assert environment.ai.default_model == expected
+    direct = AIConfig(default_model=configured, gate_model=configured, rewrite_model=configured)
+    assert (direct.default_model, direct.gate_model, direct.rewrite_model) == (expected, expected, expected)
+    service = DocumentService()
+    monkeypatch.setattr(service, "get_system_config", AsyncMock(return_value=None))
+    assert await service.get_system_ai_model() == expected
+    if configured == "unknown-historical-model":
+        client = AsyncMock()
+        with pytest.raises(AIRequestError, match="not supported"):
+            await create_chat_completion(client, model=expected,
+                messages=[{"role": "user", "content": "Synthetic text"}], max_completion_tokens=1000)
+        client.chat.completions.create.assert_not_called()
+
+
+@pytest.mark.parametrize("retired", ["gpt-5-mini", "gpt-5-nano"])
+def test_historical_review_attribution_does_not_resolve_retired_ids(retired):
+    from clauseiq_types.review import ReviewGeneration
+
+    historical = ReviewGeneration(model_id=retired, reasoning_effort="medium", max_completion_tokens=4000,
+        catalog_verified_on="historical", prompt_version="historical-v1", schema_version="historical-v1",
+        extraction_version="historical-v1", estimated_input_tokens=100)
+    assert ReviewGeneration.model_validate(historical.model_dump()).model_id == retired
 
 
 @pytest.mark.asyncio

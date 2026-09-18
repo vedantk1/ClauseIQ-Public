@@ -13,8 +13,6 @@ MODEL_IDS = (
     "gpt-5.6-luna",
     "gpt-5.6-terra",
     "gpt-5.6-sol",
-    "gpt-5-mini",
-    "gpt-5-nano",
     "gpt-5",
 )
 
@@ -80,9 +78,10 @@ def test_native_mapping_takes_precedence(monkeypatch, offline_encoding):
     (token_utils.get_optimal_response_tokens, ("summary",)),
     (token_utils.get_model_capabilities, ()),
 ])
-def test_unknown_models_never_inherit_fallback_limits(function, args):
+@pytest.mark.parametrize("model", ["unknown-model", "gpt-5-mini", "gpt-5-nano"])
+def test_unavailable_models_never_inherit_fallback_limits(function, args, model):
     with pytest.raises(ValueError):
-        function(*args, model="unknown-model")
+        function(*args, model=model)
 
 
 @pytest.mark.parametrize("model", MODEL_IDS)
@@ -148,7 +147,7 @@ def test_default_input_budget_is_cost_capped(model):
 def test_input_override_is_clamped_to_context_after_output_and_safety(monkeypatch):
     monkeypatch.setenv("AI_MAX_INPUT_TOKENS", "9999999")
     assert token_utils.calculate_token_budget("gpt-5.6-sol", 16_000, 2048) == 1_031_952
-    assert token_utils.calculate_token_budget("gpt-5-mini", 16_000, 2048) == 381_952
+    assert token_utils.calculate_token_budget("gpt-5", 16_000, 2048) == 381_952
     monkeypatch.setenv("AI_MAX_INPUT_TOKENS", "12000")
     assert token_utils.calculate_token_budget("gpt-5.6-sol", 16_000, 2048) == 12_000
 

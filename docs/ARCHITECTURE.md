@@ -68,7 +68,7 @@ confirmed before reporting success. On an uncertain outcome, potentially attache
 files are retained rather than deleted. Only a confirmed-unattached new file is
 eligible for rollback; previous originals are preserved.
 
-## Review workspace preview
+## Review workspace
 
 The /import and /workspace frontend routes are independent of the legacy /review
 screen. services/review_workspace_service.py stores a review_workspace object in
@@ -91,13 +91,52 @@ confirmed saved question after failure. Cross-tab conflicts stop the queue; the
 person must reload saved state and explicitly choose whether to apply pending
 edits. Unconfirmed browser-only edits are not promised to survive a hard close.
 
-Only an explicitly requested synthetic fixture run is currently available.
+An explicitly requested synthetic fixture run is also available.
 The fixture definition ships in backend/fixtures/reviews, is bound to the unchanged
 25-page synthetic PDF SHA-256 and resolves each evidence match uniquely against
 persisted page spans. Arbitrary files never receive these example findings.
 The fixed Example Customer scenario is labelled and does not overwrite the
 person's brief. No generation, embeddings, credential reads or paid retries are
-part of this path. Real review generation and contextual Ask are later increments.
+part of the fixture path. Contextual Ask remains a later increment.
+
+### Explicit review generation
+
+services/ai/review_generation.py owns the versioned prompt, strict structured
+output and source-reference validation. It supplies all successfully extracted
+page text and exact span identities plus the saved brief. Initial review does not
+use top-k vector retrieval, make embedding requests, truncate the source, or migrate
+the retained Chat Completions endpoint. Input budgeting includes messages and the
+output schema; the completion allowance is a separate configurable spending guard.
+
+The new output separates source facts, interpretation, uncertainty and possible
+actions. Overview statements have evidence too. Exact source/span/page/quote
+matching happens before publishing output. A quote may be the full stored span or
+a unique, word-bounded literal excerpt within that span; the published reference
+always contains the full stored passage, never corrected or fuzzy-matched text.
+A reference-validation failure withholds
+the generated output and records an incomplete result rather than dropping a
+finding silently. Missing-term findings require a stated reviewed scope. This
+validation establishes wording and location, not truth, applicability or legal
+completeness. Partly extracted input remains incomplete even if every returned
+quote matches. Unsupported input and zero findings are not a clean bill of health.
+
+services/review_generation_service.py owns the persisted attempt lifecycle. The
+explicit generation request checks the saved workspace revision and displayed
+model against Settings, snapshots the source/brief/model, and conditionally saves
+a processing run before contacting OpenAI with the person's request-scoped key.
+The request ID is the run ID. Replaying that ID returns its existing state, never
+another paid call. Provider retries and automatic model fallback are disabled on
+this path. A new request ID is a deliberate new review, not recovery of the old one.
+
+Finalization rereads and conditionally updates the workspace, preserving concurrent
+personal edits. Completed runs retain prompt/schema/extraction versions, model,
+estimated input, actual usage when returned, duration and safe failure information.
+Source changes, deletion and explicit interruption fence late results. Terminal
+runs and older personal work are not overwritten by a new run. A process loss can
+leave a processing attempt; read-only refresh and explicit interruption expose
+that uncertainty without replaying paid work. Interruption does not cancel or
+refund a provider request, and exactly-once billing is not promised. There is no
+background worker or automatic restart recovery in this increment.
 
 ### Evidence display and PDF adapter
 
@@ -138,10 +177,12 @@ the trusted-OS-user boundary and limitations.
 
 backend/ai_models/models.py is the canonical model catalog. The workspace API
 serves its names, limits, reasoning options and dated base prices to the frontend;
-the UI does not maintain a second catalog. New installations use GPT-5.6 Luna
-for review and GPT-5 Nano for optional chat query preparation. Terra, Sol and
-Mini are selectable; an existing GPT-5 selection remains usable as legacy.
-Stored choices take precedence over the initial default. Unsupported saved IDs
+the UI does not maintain a second catalog. New installations use GPT-5.6 Terra
+for review and optional chat query preparation. Luna and Sol remain selectable;
+an existing GPT-5 selection remains usable as legacy. Mini and Nano are removed
+from the active catalog. Their old saved choices or environment defaults resolve
+to Terra, without rewriting historical run attribution or other preferences.
+Other stored choices take precedence over the initial default. Unknown saved IDs
 remain visible and fail explicitly instead of silently selecting another model.
 
 Classification, clause extraction, structured summaries, clause rewrites and

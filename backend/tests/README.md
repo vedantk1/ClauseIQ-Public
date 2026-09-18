@@ -81,7 +81,7 @@ markers, resume, exact fixture evidence and privacy/scoping failures.
 
 ~~~bash
 cd backend
-venv/bin/python -m pytest tests/test_review_workspace.py -q
+venv/bin/python -m pytest tests/test_review_workspace.py tests/test_review_generation_lifecycle.py tests/test_review_generation.py tests/test_review_run_contract.py -q
 venv/bin/python tests/manual_review_workspace_smoke.py --run-isolated-live
 ~~~
 
@@ -90,4 +90,25 @@ temporary MongoDB/GridFS database. A fresh connection must restore personal work
 real competing writes must have one winner. Scoped deletion removes nested review
 state without affecting unrelated synthetic records. Only its exact owned database
 is removed in cleanup. The application's library/settings/keys are never read or
-changed; provider and vector clients are forbidden. Inspect the cleanup report.
+changed; real provider and vector clients are forbidden. The generation lifecycle
+uses a mocked engine/client with real conditional storage, including claim/replay,
+restart-visible interruption and late-result fencing after deletion. Inspect the
+cleanup report.
+
+## Source-backed AI review contracts
+
+test_review_generation.py covers the versioned prompt and strict output contract,
+full-source/schema input budgeting, unsupported/partial input, exact source
+references (including unique literal excerpts resolved to full stored passages),
+refusal/length handling and usage attribution. It uses the installed
+SDK with a local HTTP mock to verify request serialization and disabled retries.
+test_review_generation_lifecycle.py checks claim-before-call, same-ID replay,
+concurrent edits, interruption, uncertain writes, source/deletion fencing and safe
+HTTP errors. test_review_run_contract.py rejects inconsistent persisted states.
+None of these tests validates live legal interpretation or spends API credit.
+
+manual_review_generation_check.py is excluded from Pytest. It requires separate
+paid-call approval and explicit flags, uses Terra with a known synthetic fixture,
+reserves a conservative request ceiling plus explicitly supplied prior reservations,
+and refuses a reused report name. See docs/DEVELOPMENT.md for the fixed text-only
+bound and manual accounting boundary; it does not read account billing.

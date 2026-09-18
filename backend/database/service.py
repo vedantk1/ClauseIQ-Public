@@ -692,7 +692,7 @@ class DocumentService:
         Set the system-wide AI model for the workspace.
 
         Args:
-            model_id: The OpenAI model ID to use (e.g., 'gpt-5', 'gpt-5-mini')
+            model_id: An active OpenAI model ID, such as 'gpt-5.6-terra'
             workspace_id: Workspace making the change
 
         Returns:
@@ -723,9 +723,11 @@ class DocumentService:
         """
         config = await self.get_system_config("system_ai_model", raise_on_error=True)
         if config and "model_id" in config:
-            # Preserve even unsupported historical IDs so Settings can show them;
-            # request validation rejects them instead of choosing another model.
-            return config["model_id"]
+            from ai_models.models import resolve_retired_model_selection
+            # Known retired selections resolve to Terra without rewriting stored
+            # choices or past runs. Other unsupported IDs remain visible and
+            # request validation rejects them rather than silently substituting.
+            return resolve_retired_model_selection(config["model_id"])
         from config.environments import get_environment_config
         return get_environment_config().ai.default_model
 
@@ -744,7 +746,7 @@ class DocumentService:
         Set the query gate model used for conversation context detection.
 
         Args:
-            model_id: The OpenAI model ID to use (e.g., 'gpt-5', 'gpt-5-nano')
+            model_id: An active OpenAI model ID, such as 'gpt-5.6-terra'
             workspace_id: Workspace making the change
 
         Returns:
@@ -771,11 +773,12 @@ class DocumentService:
         Get the query gate model for conversation context detection.
 
         Returns:
-            The configured model ID, or gpt-5-nano as default (fast & cheap for gate calls).
+            The configured model ID, resolving retired choices, or the Terra default.
         """
         config = await self.get_system_config("query_gate_model", raise_on_error=True)
         if config and "model_id" in config:
-            return config["model_id"]
+            from ai_models.models import resolve_retired_model_selection
+            return resolve_retired_model_selection(config["model_id"])
         from ai_models.models import DEFAULT_QUERY_GATE_MODEL
         return DEFAULT_QUERY_GATE_MODEL
 

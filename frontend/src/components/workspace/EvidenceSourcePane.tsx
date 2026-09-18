@@ -12,8 +12,17 @@ export function EvidenceSourcePane({ finding, source, onOpen }: {
   return <Panel>
     <h2 className="text-lg font-semibold">Related evidence</h2>
     <p className="mt-1 text-sm text-text-secondary">Read the rule and its qualifications together. Relationship labels are interpretation, not proof of legal effect.</p>
-    <div className="mt-4 space-y-4">
-      {finding.evidence.map((evidence, index) => {
+    <EvidenceList evidence={finding.evidence} source={source} onOpen={onOpen} />
+    {!finding.evidence.length && <p className="mt-3 text-sm">No source quotation accompanies this finding. Any not-found claim is limited to its stated reviewed scope, not proof that a term is absent.</p>}
+    <p className="mt-3 text-xs text-text-secondary">Matching confirms wording and location—not the finding&apos;s correctness or completeness.</p>
+  </Panel>;
+}
+
+export function EvidenceList({ evidence, source, onOpen }: {
+  evidence: ReviewEvidence[]; source: DocumentSourceResponse | null; onOpen: (evidence: ReviewEvidence) => void;
+}) {
+  return <div className="mt-4 space-y-4">
+      {evidence.map((evidence, index) => {
         const matched = evidenceMatches(evidence, source);
         return <article className="rounded-lg border border-border-muted p-4" key={`${evidence.span_id}-${index}`}>
           <h3 className="font-medium">{evidence.label}</h3>
@@ -22,21 +31,21 @@ export function EvidenceSourcePane({ finding, source, onOpen }: {
           <Action disabled={!matched} onClick={() => onOpen(evidence)}>Read page {evidence.page_number} in the original</Action>
         </article>;
       })}
-    </div>
-    <p className="mt-3 text-xs text-text-secondary">Matching confirms wording and location—not the finding&apos;s correctness or completeness.</p>
-  </Panel>;
+    </div>;
 }
 
-export function DocumentSourceView({ documentId, filename, source, finding, evidence, navigationRequest, onReturn }: {
+export function DocumentSourceView({ documentId, filename, source, finding, evidence, navigationRequest, onReturn, overviewText }: {
   documentId: string; filename: string; source: DocumentSourceResponse | null;
   finding: ReviewFinding | null; evidence: ReviewEvidence | null;
   navigationRequest: { requestId: number; pageNumber: number } | undefined;
   onReturn: () => void;
+  overviewText?: string;
 }) {
   const [pageNumber, setPageNumber] = useState(navigationRequest?.pageNumber || 1);
   const [navigationError, setNavigationError] = useState<string | null>(null);
   const page = source?.source_extraction?.pages.find(item => item.page_number === pageNumber);
   return <div className="space-y-4">
+    {overviewText && <Panel><h2 className="font-semibold">Source context for agreement overview</h2><p className="my-2 text-sm">{overviewText}</p><Action onClick={onReturn}>Return to overview</Action></Panel>}
     {finding && <Panel>
       <p className="text-sm text-text-secondary">Source context for</p>
       <h2 className="mt-1 text-lg font-semibold">{finding.title}</h2>

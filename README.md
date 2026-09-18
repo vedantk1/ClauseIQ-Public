@@ -55,12 +55,17 @@ The existing AI analysis flow remains available separately and saves the origina
 before generation. Extraction or AI failures do not discard an already stored PDF.
 Imported/not-ready records are labelled separately from completed analysis.
 
-The workspace preview connects Overview, Findings, Document and My review to
-local persistence. Its demonstration findings are explicitly authored synthetic
-data, available only for the unchanged tests/fixtures/pdfs/managed-services-25p.pdf.
+The review workspace connects Overview, Findings, Document and My review to
+local persistence. Save a brief, then explicitly Start review using the model
+selected in Settings. One bounded generation request produces an evidence-linked
+overview and findings; changing the brief never reruns AI or changes older runs.
+Source quotes are checked against stored extraction, not proof of legal accuracy.
+Incomplete extraction, invalid output and interrupted requests remain visible.
 Draft recovery, explicit saved questions, personal markers and resume position
-remain separate. New AI review generation and contextual Ask are not connected
-yet; importing, loading the example and saving work make no provider calls.
+remain separate. Contextual Ask is not connected yet. Importing, reading and
+saving personal work make no provider calls. An optional authored synthetic
+example remains available only for the unchanged
+tests/fixtures/pdfs/managed-services-25p.pdf and is labelled separately from AI output.
 See docs/API_REFERENCE.md for source and review-workspace APIs.
 
 ## Validation
@@ -92,9 +97,10 @@ and their reproducible sources are in tests/fixtures/pdfs.
 
 Active local development is the priority. There is no supported hosted production
 environment, deployment workflow or CI pipeline. Settings offers GPT-5.6 Luna,
-Terra and Sol, plus GPT-5 Mini and Nano for development/testing. Luna is the
-default when no model selection is saved; existing explicit selections are
-preserved. Choose more expensive models deliberately; there is no model fallback.
+Terra and Sol, with GPT-5 retained for legacy selections. Terra is the
+default for review and query preparation. Old Mini/Nano selections resolve to
+Terra; other explicit choices and historical run attribution are preserved.
+Choose models deliberately; there is no automatic provider fallback.
 
 No open-source license has been selected. Until one is added, the repository is
 UNLICENSED and no permission to copy, modify or redistribute the code is granted.

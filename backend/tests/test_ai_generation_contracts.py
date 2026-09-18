@@ -19,7 +19,7 @@ from services.chat_service import ChatService
 from services.rag_service import RAGService
 
 
-MODEL = "gpt-5.6-luna"
+MODEL = "gpt-5.6-terra"
 CLAUSE = {
     "heading": "Confidentiality", "text": "Both parties must keep the information confidential.",
     "clause_type": "confidentiality", "risk_level": "low", "risk_reasoning": "The obligation is mutual.",
@@ -65,7 +65,7 @@ async def run_main(operation, model):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("model", [MODEL, "gpt-5.6-terra", "gpt-5.6-sol", "gpt-5-mini", "gpt-5-nano"])
+@pytest.mark.parametrize("model", [MODEL, "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5"])
 @pytest.mark.parametrize("operation,content", [
     ("classification", "nda"), ("extraction", json.dumps({"clauses": [CLAUSE]})),
     ("summary", json.dumps(SUMMARY)), ("rewrite", "Each party must protect confidential information."),
@@ -120,23 +120,23 @@ def rag(monkeypatch):
     instance.is_available = AsyncMock(return_value=True)
     instance.conversation_history_window = 4
     instance.max_chunks_per_query = 3
-    settings = SimpleNamespace(get_query_gate_model=AsyncMock(return_value="gpt-5-nano"))
+    settings = SimpleNamespace(get_query_gate_model=AsyncMock(return_value="gpt-5.6-terra"))
     monkeypatch.setattr(database_service, "get_document_service", lambda: settings)
     return instance
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("operation,content", [("query_gate", "YES"), ("query_rewrite", "What is the notice period?")])
-async def test_chat_helpers_honor_explicit_cheap_model_and_low_reasoning(provider, rag, operation, content):
+async def test_chat_helpers_honor_terra_selection_and_low_reasoning(provider, rag, operation, content):
     provider.chat.completions.create.return_value = completion(content)
     if operation == "query_gate":
         assert await rag._needs_conversation_context("What about that?") is True
     else:
         assert await rag._rewrite_query_with_context("What about that?", []) == content
     request = provider.chat.completions.create.await_args.kwargs
-    assert request["model"] == "gpt-5-nano"
+    assert request["model"] == "gpt-5.6-terra"
     assert request["reasoning_effort"] == "low"
-    assert request["max_completion_tokens"] == get_optimal_response_tokens(operation, "gpt-5-nano")
+    assert request["max_completion_tokens"] == get_optimal_response_tokens(operation, "gpt-5.6-terra")
 
 
 @pytest.mark.asyncio

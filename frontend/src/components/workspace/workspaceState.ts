@@ -1,6 +1,6 @@
 import type {
-  DocumentSourceResponse, ReviewBrief, ReviewEvidence, ReviewPersonalState,
-  ReviewWorkspaceOperation, ReviewWorkspaceResponse,
+  DocumentSourceResponse, ReviewBrief, ReviewEvidence, ReviewPersonalState, ReviewPosition,
+  ReviewRun, ReviewWorkspaceOperation, ReviewWorkspaceResponse,
 } from "@clauseiq/shared-types";
 import type { ReviewWorkspaceTransport } from "@/lib/reviewWorkspaceApi";
 
@@ -11,6 +11,26 @@ export const emptyPersonal = (): ReviewPersonalState => ({
 export const draftKey = (runId: string, findingId: string) => JSON.stringify([runId, findingId]);
 export const sameBrief = (a: ReviewBrief, b: ReviewBrief) =>
   a.perspective === b.perspective && a.role === b.role && a.priorities === b.priorities;
+
+export const runStatus = (run: ReviewRun) => run.status || "ready";
+export const runLabel = (run: ReviewRun) => `${run.kind === "fixture" ? "Synthetic example" : "AI review"} — ${
+  { ready: "available", processing: "processing", incomplete: "incomplete", failed: "failed", interrupted: "interrupted" }[runStatus(run)]
+}`;
+
+/** UI tabs remain available for empty runs without creating invalid saved positions. */
+export function safeReviewPosition(run: ReviewRun, view: ReviewPosition["view"], findingId: string | null, evidenceId: string | null): ReviewPosition | null {
+  const finding = run.findings.find(item => item.id === findingId);
+  if (view === "findings" && !finding) return null;
+  return { view, finding_id: finding?.id || null,
+    evidence_span_id: finding?.evidence.some(item => item.span_id === evidenceId) ? evidenceId : null };
+}
+export type ReviewActionState = {
+  status: "idle" | "preparing" | "generating" | "uncertain" | "interrupting";
+  error: string | null;
+  canRetryRequest: boolean;
+  requestRejected?: boolean;
+};
+const idleReviewAction = (): ReviewActionState => ({ status: "idle", error: null, canRetryRequest: false });
 
 export function evidenceMatches(evidence: ReviewEvidence, source: DocumentSourceResponse | null): boolean {
   if (!source || evidence.source_revision_id !== source.source_revision_id) return false;
@@ -29,10 +49,12 @@ export interface WorkspaceSaveState {
   pending: number;
   localDrafts: Record<string, string>;
   briefDraft: ReviewBrief | null;
+  reviewAction: ReviewActionState;
 }
 
 export function hasUnconfirmedChanges(state: WorkspaceSaveState): boolean {
-  return state.pending > 0 || ["loading", "failed", "conflict", "review"].includes(state.status) ||
+  return state.pending > 0 || ["preparing", "generating", "uncertain", "interrupting"].includes(state.reviewAction?.status) ||
+    ["loading", "failed", "conflict", "review"].includes(state.status) ||
     !!(state.briefDraft && state.workspace && !sameBrief(state.briefDraft, state.workspace.brief));
 }
 
@@ -40,6 +62,7 @@ export function hasUnconfirmedChanges(state: WorkspaceSaveState): boolean {
 export class ReviewWorkspaceController {
   private current: WorkspaceSaveState = {
     workspace: null, status: "loading", error: null, pending: 0, localDrafts: {}, briefDraft: null,
+    reviewAction: idleReviewAction(),
   };
   private listeners = new Set<() => void>();
   private queue: QueueEntry[] = [];
@@ -47,6 +70,8 @@ export class ReviewWorkspaceController {
   private sending = false;
   private stopped = false;
   private generation = 0;
+  private pendingAttempt: { revision: number; requestId: string; modelId: string; rejected?: boolean } | null = null;
+  private pendingWaiters = new Set<() => void>();
 
   constructor(private documentId: string, private transport: ReviewWorkspaceTransport, private debounceMs = 500) {}
   getSnapshot = () => this.current;
@@ -56,6 +81,7 @@ export class ReviewWorkspaceController {
     if (this.stopped) return;
     this.current = { ...this.current, ...values, pending: this.queue.length + this.timers.size };
     this.listeners.forEach(listener => listener());
+    this.pendingWaiters.forEach(listener => listener());
   }
 
   async load() {
@@ -118,6 +144,7 @@ export class ReviewWorkspaceController {
 
   private async drain() {
     if (this.stopped || this.sending || !this.current.workspace || !this.queue.length ||
+        ["generating", "uncertain", "interrupting"].includes(this.current.reviewAction.status) ||
         ["failed", "conflict", "review", "loading"].includes(this.current.status)) return;
     this.sending = true;
     const entry = this.queue[0];
@@ -149,14 +176,22 @@ export class ReviewWorkspaceController {
 
   /** Keep pending intentions and local wording, but do not apply them after reload. */
   async reloadSaved() {
-    if (this.sending) return;
+    if (this.sending || ["preparing", "generating", "interrupting"].includes(this.current.reviewAction.status)) return;
     this.emit({ status: "loading", error: null });
     this.flushDrafts();
     const generation = ++this.generation;
     try {
       const workspace = await this.transport.load(this.documentId);
       if (this.stopped || generation !== this.generation) return;
-      this.emit({ workspace, status: this.queue.length ? "review" : "saved", error: null });
+      let reviewAction = this.current.reviewAction;
+      if (this.pendingAttempt) {
+        if (this.pendingAttempt.rejected || workspace.runs.some(run => run.id === this.pendingAttempt!.requestId)) {
+          const previousError = this.pendingAttempt.rejected ? this.current.reviewAction.error : null;
+          this.pendingAttempt = null;
+          reviewAction = { ...idleReviewAction(), error: previousError };
+        } else reviewAction = { ...reviewAction, canRetryRequest: true };
+      }
+      this.emit({ workspace, status: this.queue.length ? "review" : "saved", error: null, reviewAction });
     } catch (error) {
       if (generation === this.generation) this.emit({ status: "failed", error: safeMessage(error) });
     }
@@ -167,6 +202,83 @@ export class ReviewWorkspaceController {
     this.emit({ status: "saved", error: null });
     this.flushDrafts();
     void this.drain();
+  }
+
+  /** Paid work never enters the recoverable local-write queue. */
+  async startReview(modelId: string, requestId: string) {
+    if (this.stopped || this.current.reviewAction.status !== "idle" || !this.current.workspace ||
+        this.current.workspace.runs.some(run => runStatus(run) === "processing") ||
+        ["loading", "failed", "conflict", "review"].includes(this.current.status) || !modelId || !requestId) return;
+    this.emit({ reviewAction: { status: "preparing", error: null, canRetryRequest: false } });
+    this.saveBrief();
+    this.flushDrafts();
+    await this.waitForWrites();
+    if (this.stopped) return;
+    if (this.current.status !== "saved" || this.current.pending ||
+        (this.current.briefDraft && !sameBrief(this.current.briefDraft, this.current.workspace!.brief))) {
+      this.emit({ reviewAction: { ...idleReviewAction(), error: "Review was not started. Confirm pending changes and the latest brief first." } });
+      return;
+    }
+    this.pendingAttempt = { revision: this.current.workspace!.revision, requestId, modelId };
+    await this.sendReviewAttempt();
+  }
+
+  private waitForWrites(): Promise<void> {
+    return new Promise(resolve => {
+      const check = () => {
+        if (this.stopped || !this.current.pending || ["failed", "conflict", "review"].includes(this.current.status)) {
+          this.pendingWaiters.delete(check);
+          resolve();
+        }
+      };
+      this.pendingWaiters.add(check);
+      check();
+    });
+  }
+
+  private async sendReviewAttempt() {
+    const attempt = this.pendingAttempt;
+    if (!attempt || this.stopped) return;
+    this.emit({ reviewAction: { status: "generating", error: null, canRetryRequest: false } });
+    try {
+      const workspace = await this.transport.generate(this.documentId, attempt.revision, attempt.requestId, attempt.modelId);
+      if (this.stopped) return;
+      this.pendingAttempt = null;
+      this.acceptReviewResponse(workspace);
+    } catch (error) {
+      const rejected = isPreflightRejection(error);
+      if (this.pendingAttempt) this.pendingAttempt.rejected = rejected;
+      this.emit({ reviewAction: { status: "uncertain", canRetryRequest: false,
+        requestRejected: rejected,
+        error: rejected ? `Review was not started. ${safeMessage(error)} Refresh saved state and resolve this before starting again.`
+          : `${safeMessage(error)} The request was not retried. Refresh saved state to check whether it was recorded.` } });
+    }
+  }
+
+  /** Explicit retry only after GET found no run, using the original id and snapshot. */
+  async retryReviewRequest() {
+    if (this.current.reviewAction.status !== "uncertain" || !this.current.reviewAction.canRetryRequest || this.sending) return;
+    await this.sendReviewAttempt();
+  }
+
+  async interruptRun(runId: string) {
+    if (this.stopped || this.sending || this.current.reviewAction.status !== "idle" ||
+        !this.current.workspace?.runs.some(run => run.id === runId && runStatus(run) === "processing")) return;
+    this.emit({ reviewAction: { status: "interrupting", error: null, canRetryRequest: false } });
+    try {
+      const workspace = await this.transport.interrupt(this.documentId, this.current.workspace.revision, runId);
+      if (!this.stopped) this.acceptReviewResponse(workspace);
+    } catch (error) {
+      this.emit({ status: "failed", error: "The interrupted state could not be confirmed. Refresh saved state.",
+        reviewAction: { ...idleReviewAction(), error: `${safeMessage(error)} Refresh saved state before trying again.` } });
+    }
+  }
+
+  private acceptReviewResponse(workspace: ReviewWorkspaceResponse) {
+    // Preserve edits made while a long request was running. Reapply only explicitly.
+    this.emit({ workspace, status: "loading", error: null, reviewAction: idleReviewAction() });
+    this.flushDrafts();
+    this.emit({ status: this.queue.length ? "review" : "saved" });
   }
 
   flushDrafts() {
@@ -184,9 +296,16 @@ export class ReviewWorkspaceController {
     this.timers.forEach(timer => clearTimeout(timer));
     this.timers.clear();
     this.listeners.clear();
+    this.pendingWaiters.forEach(listener => listener());
   }
 }
 
 function safeMessage(error: unknown) {
   return error instanceof Error ? error.message : "The workspace could not be saved. Your local wording is still here.";
+}
+
+function isPreflightRejection(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error &&
+    ["REQUEST_ID_CONFLICT", "REVIEW_RUN_LIMIT", "REVIEW_ALREADY_PROCESSING", "REVIEW_MODEL_CHANGED",
+      "REVIEW_INPUT_REJECTED", "API_KEY_REQUIRED", "REVISION_CONFLICT"].includes(String(error.code));
 }

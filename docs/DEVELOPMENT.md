@@ -70,24 +70,29 @@ For review workspace persistence changes:
 
 ~~~bash
 cd backend
-venv/bin/python -m pytest tests/test_review_workspace.py -q
+venv/bin/python -m pytest tests/test_review_workspace.py tests/test_review_generation_lifecycle.py tests/test_review_generation.py tests/test_review_run_contract.py -q
 venv/bin/python tests/manual_review_workspace_smoke.py --run-isolated-live
 ~~~
 
 The review smoke uses an isolated synthetic database on the existing local MongoDB
 service. It verifies fresh-connection restoration, competing revision writes,
-scoping, immutable fixture runs and deletion of nested personal work without
+scoping, immutable runs and deletion of nested personal work without
 touching the application database. Its final report must show no leftovers.
-It makes no provider or vector requests and does not inspect saved credentials.
+It also checks real generation claims/finalization with a mocked provider,
+same-ID replay, restart-visible interruption and fencing of late results after
+deletion. It makes no provider or vector requests or saved credential reads.
 
-The /import and /workspace routes are a persistence preview, not the new AI review
-engine. Import tests/fixtures/pdfs/managed-services-25p.pdf, then explicitly load its
+The /import and /workspace routes support source-backed AI reviews and a key-free
+fixture preview. Import tests/fixtures/pdfs/managed-services-25p.pdf, then load its
 labelled synthetic example to exercise findings and saved work. Other PDFs may be
-imported and given a brief, but never receive those example findings. Fixture
+imported and reviewed explicitly with AI, but never receive those example findings. Fixture
 definitions ship under backend/fixtures/reviews; missing definitions disable the
 example rather than inventing output. Existing /review analysis remains separate.
 Focused frontend tests include delayed replies, conflicts, explicit saves,
-debounced draft recovery, page navigation and exact source excerpt checks.
+debounced draft recovery, page navigation and exact source excerpt checks. Paid
+generation is outside the normal save retry queue: unknown outcomes are reconciled
+by GET, and any deliberate resend retains its original request ID/model/revision.
+No automatic review occurs on import, navigation, brief changes or reload.
 
 ## Verification cadence
 
@@ -135,9 +140,11 @@ approved and cost-capped.
 
 Workspace Settings selects the review model and an optional separate chat query
 preparation model. Without a saved review choice, OPENAI_DEFAULT_MODEL can
-override the catalog default (gpt-5.6-luna). A saved choice always wins; changing
-an environment default never migrates existing selections. Query preparation
-defaults to gpt-5-nano. Unknown IDs produce an explicit error, not a fallback.
+override the catalog default (gpt-5.6-terra). Query preparation also defaults to
+gpt-5.6-terra. Mini and Nano are no longer selectable or accepted for new requests;
+old selections/default overrides for those two IDs resolve to Terra without
+rewriting saved run attribution. Other saved choices take precedence over the
+environment default. Unknown IDs produce an explicit error, not a fallback.
 
 Provider limits/prices are maintained in backend/ai_models/models.py and checked
 against the [official model catalog](https://developers.openai.com/api/docs/models).
@@ -153,6 +160,8 @@ these in the backend environment or backend/.env as needed:
 | AI_MAX_INPUT_TOKENS | 100000 |
 | AI_CLASSIFICATION_MAX_COMPLETION_TOKENS | 1024 |
 | AI_EXTRACTION_MAX_COMPLETION_TOKENS | 16000 |
+| AI_REVIEW_MAX_COMPLETION_TOKENS | 16000 |
+| AI_REVIEW_TIMEOUT_SECONDS | 120 (maximum 180) |
 | AI_SUMMARY_MAX_COMPLETION_TOKENS | 4000 |
 | AI_REWRITE_MAX_COMPLETION_TOKENS | 6000 |
 | AI_QUERY_GATE_MAX_COMPLETION_TOKENS | 1024 |
@@ -162,7 +171,10 @@ these in the backend environment or backend/.env as needed:
 The input cap applies to the complete estimated message input, not just document
 text; a 2,048-token capacity margin is also reserved. Completion settings clamp
 to the model's output maximum. Invalid budgets fail visibly. These are per-call
-limits, not an account-level monetary cap; one review makes multiple calls.
+limits, not an account-level monetary cap. The legacy analysis makes multiple calls;
+the new source-backed review makes one strict-schema call, with schema overhead
+included in its input guard. Its SDK retries are disabled and its total provider
+wait is bounded by AI_REVIEW_TIMEOUT_SECONDS, including connection time.
 Oversized prompts are rejected, not silently truncated. Partial-output failures
 do not trigger an automatic larger or more expensive retry.
 
@@ -176,6 +188,23 @@ Paid evaluation is separate: agree on models, synthetic/public fixtures, a small
 spending ceiling and stop conditions before making calls. Record correctness,
 grounding, latency and actual usage—not just a successful HTTP response. Do not
 paste keys into test files or use confidential agreements as evaluation fixtures.
+
+A separately authorized, single-call check is available in
+backend/tests/manual_review_generation_check.py (run from backend). It is fixed
+to GPT-5.6 Terra and the reviewed 25-page synthetic PDF, reads the key through the
+normal credential service and leaves the application library/Settings unchanged.
+Recheck official pricing and remaining approved spend before supplying
+--run-paid, --cap-usd, --previous-reserved-usd and a unique --report-name. The local
+report reserves a conservative text-request byte/framing bound plus the completion
+budget, including applicable long-context and cache-write uplifts, before dispatch.
+Only the fixed text-only request shape can use this guard; changed payloads fail
+closed. An existing report name refuses another call. Prior spend/reservations must
+be supplied explicitly; this is not an automatically reconciled account budget.
+Retain the full reservation for uncertain outcomes. Reports remain ignored under
+.local-only. Only this fixed synthetic diagnostic retains raw response message
+content; application generation does not. Successful
+schema/quote validation is not enough; inspect the generated interpretation against
+the fixture's source and expectations before claiming quality.
 
 ### Workspace migration
 

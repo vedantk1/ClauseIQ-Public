@@ -77,6 +77,18 @@ credential if exposed; removing a file or Git commit is not enough.
   quality. Source content and editable personal work are rendered as text, never
   trusted HTML. All new persistence routes retain the local boundary and scoped
   conditional writes; stale requests cannot silently overwrite newer work.
+- New AI review generation is an explicit, local-boundary-protected paid action.
+  It sends extracted source text and the saved brief using a request-scoped personal
+  key. Document content is untrusted prompt input, never executable instructions;
+  no external tools or research are available to this review call. Structured output
+  and exact quote checks reduce format/reference failures but cannot guarantee
+  resistance to prompt injection or correct legal interpretation. A quote must
+  match the cited stored span or a unique, word-bounded literal excerpt within it;
+  the server always publishes the full stored passage. There is no fuzzy matching
+  or whitespace/case correction. This validates location, not claim support.
+  A persisted request ID prevents automatic duplicate generation on replay; provider
+  retries are disabled. An interrupted/lost response can still incur a charge.
+  Marking an attempt interrupted fences local output but does not cancel OpenAI.
 - Multi-store migration/deletion is restartable but not a distributed transaction.
   Back up legacy data before migration and investigate reported cleanup errors.
 - Future agent tools require their own threat model, allowlists, resource limits

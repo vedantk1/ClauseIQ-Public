@@ -70,6 +70,21 @@ function harness({ delayed = false } = {}) {
       return new Promise((resolve, reject) => { call.finish = () => { try { resolve(commit()); } catch (error) { reject(error); } }; });
     },
     async fixture(documentId, revision) { calls.push({ documentId, revision, fixture: true }); return clone(server); },
+    async generate(documentId, revision, requestId, modelId) {
+      calls.push({ documentId, revision, requestId, modelId, generate: true });
+      if (!server.runs.some(run => run.id === requestId)) {
+        server.revision += 1;
+        server.runs.push({ ...clone(server.runs[0]), id: requestId, kind: "ai", status: "ready", context: clone(server.brief) });
+        server.personal[requestId] = clone(state.emptyPersonal());
+      }
+      return clone(server);
+    },
+    async interrupt(documentId, revision, runId) {
+      calls.push({ documentId, revision, runId, interrupt: true });
+      server.revision += 1;
+      server.runs.find(run => run.id === runId).status = "interrupted";
+      return clone(server);
+    },
   };
   const controller = new state.ReviewWorkspaceController("doc-1", transport, 500);
   return { state, controller, calls, transport,
@@ -238,20 +253,31 @@ test("API mutations carry expected revisions, preserve errors and encode documen
   const calls = [];
   const api = { async get(path) { calls.push(path); return { success: true, data: initial() }; },
     async put(path, body) { calls.push({ path, body }); return { success: false, error: { code: "REVISION_CONFLICT", message: "Changed elsewhere" } }; },
-    async post(path, body) { calls.push({ path, body }); return { success: true, data: initial() }; } };
+    async post(path, body, options) { calls.push({ path, body, options }); return { success: true, data: initial() }; } };
   const { reviewWorkspaceApi } = loadModule("../src/lib/reviewWorkspaceApi.ts", { "@/lib/api": { default: api, __esModule: true } });
   await reviewWorkspaceApi.load("a/b");
   const operation = { type: "set_brief", brief };
   await assert.rejects(reviewWorkspaceApi.update("a/b", 7, operation), error => error.code === "REVISION_CONFLICT" && error.message === "Changed elsewhere");
   await reviewWorkspaceApi.fixture("a/b", 8);
+  await reviewWorkspaceApi.generate("a/b", 9, "request-1", "test-model");
+  await reviewWorkspaceApi.interrupt("a/b", 10, "run/a");
   assert.equal(calls[0], "/documents/a%2Fb/review-workspace");
   assert.equal(calls[1].body.expected_revision, 7);
   assert.equal(calls[1].body.operation, operation);
   assert.equal(calls[2].body.expected_revision, 8);
+  assert.deepEqual(clone(calls[3].body), { expected_revision: 9, request_id: "request-1", model_id: "test-model" });
+  assert.equal(calls[3].options.timeout, 210000);
+  assert.equal(calls[4].path, "/documents/a%2Fb/review-workspace/runs/run%2Fa/interrupt");
+  assert.equal(calls[4].body.expected_revision, 10);
 });
 
 const stateHelpers = loadModule("../src/components/workspace/workspaceState.ts");
 const controls = loadModule("../src/components/workspace/WorkspaceControls.tsx", { react: React, "./workspaceState": stateHelpers });
+const generationControls = loadModule("../src/components/workspace/ReviewGenerationControls.tsx", {
+  react: React, "./workspaceState": stateHelpers, "./WorkspaceControls": controls,
+  "@/components/ui/Modal": () => null,
+  "@/context/WorkspaceContext": { useWorkspace: () => ({ settings: { has_api_key: true, model_id: "test-model" }, isLoading: false, error: null, refresh() {} }) },
+});
 
 test("saving feedback is honest during debounce, brief editing and conflict recovery", () => {
   const savedState = { workspace: initial(), status: "saved", pending: 0, localDrafts: {}, briefDraft: null, error: null };
@@ -275,7 +301,8 @@ function renderWorkspace(view, overrides = {}) {
     "@/components/ui/Modal": () => null,
     "@/hooks/useReviewWorkspace": { useReviewWorkspace: () => ({ controller: {}, state, source: null, filename: "synthetic.pdf", sourceError: null }) },
     "./workspaceState": stateHelpers, "./WorkspaceControls": controls,
-    "./EvidenceSourcePane": { EvidenceSourcePane: () => null, DocumentSourceView: () => null },
+    "./EvidenceSourcePane": { EvidenceSourcePane: () => null, DocumentSourceView: () => null, EvidenceList: () => null },
+    "./ReviewGenerationControls": generationControls,
   }).default;
   return renderToStaticMarkup(React.createElement(component, { documentId: "doc-1" }));
 }
@@ -305,4 +332,231 @@ test("My review contains confirmed saved questions and independent marker groups
   assert.match(html, /Revisit/);
   assert.match(html, /Reviewed by me/);
   assert.match(html, /Nothing marked here yet/);
+});
+
+test("starting review confirms dirty brief and all draft timers before one paid request", async () => {
+  const h = harness(); await h.controller.load();
+  h.controller.setBriefDraft(customer);
+  h.controller.setDraft("run-1", "finding-1", "Keep my wording");
+  await h.controller.startReview("test-model", "attempt-1");
+  assert.deepEqual(h.calls.map(call => call.operation?.type || "generate"), ["set_brief", "set_draft", "generate"]);
+  assert.equal(h.calls[2].revision, 2);
+  assert.equal(h.controller.getSnapshot().reviewAction.status, "idle");
+  assert.deepEqual(h.server().runs.at(-1).context, customer);
+  assert.equal(h.server().personal["run-1"].drafts["finding-1"], "Keep my wording");
+  assert.deepEqual(h.server().personal["attempt-1"].drafts, {});
+});
+
+test("double click cannot reserve two paid attempts while saves or generation are in flight", async () => {
+  const h = harness({ delayed: true }); await h.controller.load();
+  h.controller.setBriefDraft(customer);
+  const first = h.controller.startReview("test-model", "attempt-1");
+  const duplicate = h.controller.startReview("test-model", "attempt-2");
+  assert.equal(h.controller.getSnapshot().reviewAction.status, "preparing");
+  assert.equal(h.calls.length, 1);
+  h.calls[0].finish(); await first; await duplicate;
+  assert.equal(h.calls.filter(call => call.generate).length, 1);
+  assert.equal(h.calls.find(call => call.generate).requestId, "attempt-1");
+});
+
+test("failed or conflicted brief save blocks paid work and keeps the unsaved brief", async () => {
+  for (const code of ["NETWORK_ERROR", "REVISION_CONFLICT"]) {
+    const h = harness(); await h.controller.load();
+    h.controller.setBriefDraft(customer);
+    h.failNext(Object.assign(new Error("Not saved"), { code }));
+    await h.controller.startReview("test-model", "attempt-1");
+    assert.equal(h.calls.filter(call => call.generate).length, 0);
+    assert.equal(h.controller.getSnapshot().reviewAction.status, "idle");
+    assert.match(h.controller.getSnapshot().reviewAction.error, /not started/);
+    assert.equal(h.controller.getSnapshot().briefDraft.priorities, customer.priorities);
+  }
+});
+
+test("editing the brief while its save is pending does not send a stale perspective", async () => {
+  const h = harness({ delayed: true }); await h.controller.load();
+  h.controller.setBriefDraft(customer);
+  const start = h.controller.startReview("test-model", "attempt-1");
+  h.controller.setBriefDraft({ ...customer, perspective: "provider" });
+  h.calls[0].finish(); await start;
+  assert.equal(h.calls.filter(call => call.generate).length, 0);
+  assert.equal(h.controller.getSnapshot().briefDraft.perspective, "provider");
+});
+
+test("provider response preserves edits made meanwhile and requires explicit application", async () => {
+  const h = harness(); await h.controller.load();
+  const generate = h.transport.generate;
+  let finish;
+  h.transport.generate = (...args) => new Promise(resolve => { finish = async () => resolve(await generate(...args)); });
+  const start = h.controller.startReview("test-model", "attempt-1"); await settle();
+  assert.equal(h.controller.getSnapshot().reviewAction.status, "generating");
+  h.controller.setDraft("run-1", "finding-1", "Edited while generating"); h.timers();
+  h.controller.setBriefDraft({ ...brief, priorities: "New local priorities" });
+  assert.equal(h.calls.length, 0);
+  finish(); await start;
+  assert.equal(h.controller.getSnapshot().status, "review");
+  assert.equal(h.controller.getSnapshot().localDrafts[h.state.draftKey("run-1", "finding-1")], "Edited while generating");
+  assert.equal(h.controller.getSnapshot().briefDraft.priorities, "New local priorities");
+  assert.equal(h.calls.length, 1);
+  h.controller.retryPending(); await settle();
+  assert.equal(h.server().personal["run-1"].drafts["finding-1"], "Edited while generating");
+  assert.equal(h.server().runs.length, 2);
+});
+
+test("lost paid response never joins ordinary retry queue; GET recovers the same recorded run", async () => {
+  const h = harness(); await h.controller.load();
+  const generate = h.transport.generate;
+  h.transport.generate = async (...args) => {
+    await generate(...args);
+    throw Object.assign(new Error("Response lost"), { code: "NETWORK_ERROR" });
+  };
+  await h.controller.startReview("test-model", "attempt-1");
+  assert.equal(h.controller.getSnapshot().reviewAction.status, "uncertain");
+  h.controller.retryPending(); await settle();
+  await h.controller.startReview("test-model", "attempt-2");
+  await h.controller.retryReviewRequest();
+  assert.equal(h.calls.length, 1);
+  await h.controller.reloadSaved();
+  assert.equal(h.controller.getSnapshot().reviewAction.status, "idle");
+  assert.equal(h.controller.getSnapshot().workspace.runs.at(-1).id, "attempt-1");
+  assert.equal(h.calls.length, 1);
+});
+
+test("an unrecorded uncertain attempt requires read-only refresh and explicit same-id replay", async () => {
+  const h = harness(); await h.controller.load();
+  const generate = h.transport.generate;
+  const attempts = [];
+  let fail = true;
+  h.transport.generate = async (...args) => {
+    attempts.push(args);
+    if (fail) { fail = false; throw new Error("Connection failed"); }
+    return generate(...args);
+  };
+  await h.controller.startReview("original-model", "attempt-1");
+  await h.controller.retryReviewRequest();
+  assert.equal(attempts.length, 1);
+  await h.controller.reloadSaved();
+  assert.equal(h.controller.getSnapshot().reviewAction.canRetryRequest, true);
+  h.controller.setBriefDraft(customer);
+  h.controller.retryPending(); await settle();
+  assert.equal(attempts.length, 1);
+  await h.controller.retryReviewRequest();
+  assert.deepEqual(attempts[1], attempts[0]);
+  assert.equal(h.controller.getSnapshot().briefDraft.perspective, "customer");
+  assert.equal(h.server().runs.length, 2);
+});
+
+test("definitive preflight rejections permit a new attempt only after saved-state refresh", async () => {
+  for (const code of ["REVISION_CONFLICT", "REVIEW_MODEL_CHANGED", "API_KEY_REQUIRED", "REVIEW_INPUT_REJECTED"]) {
+    const h = harness(); await h.controller.load();
+    h.transport.generate = async () => { throw Object.assign(new Error("Preflight rejected"), { code }); };
+    await h.controller.startReview("test-model", "attempt-1");
+    assert.equal(h.controller.getSnapshot().reviewAction.requestRejected, true);
+    assert.equal(h.controller.getSnapshot().reviewAction.status, "uncertain");
+    await h.controller.reloadSaved();
+    assert.equal(h.controller.getSnapshot().reviewAction.status, "idle");
+    assert.equal(h.controller.getSnapshot().reviewAction.canRetryRequest, false);
+  }
+});
+
+test("unconfirmed final save never becomes a safe preflight failure", async () => {
+  const h = harness(); await h.controller.load();
+  h.transport.generate = async () => { throw Object.assign(new Error("Result save unconfirmed"), { code: "REVIEW_SAVE_UNCONFIRMED" }); };
+  await h.controller.startReview("test-model", "attempt-1");
+  await h.controller.reloadSaved();
+  assert.equal(h.controller.getSnapshot().reviewAction.status, "uncertain");
+  assert.equal(h.controller.getSnapshot().reviewAction.requestRejected, false);
+});
+
+test("reopening a processing run never generates, blocks a new attempt, and can be interrupted explicitly", async () => {
+  const h = harness();
+  const current = h.server(); current.runs[0].kind = "ai"; current.runs[0].status = "processing";
+  await h.controller.load();
+  await h.controller.startReview("test-model", "attempt-1");
+  assert.equal(h.calls.length, 0);
+  await h.controller.reloadSaved();
+  assert.equal(h.calls.length, 0);
+  await h.controller.interruptRun("run-1");
+  assert.equal(h.calls[0].interrupt, true);
+  assert.equal(h.controller.getSnapshot().workspace.runs[0].status, "interrupted");
+});
+
+test("recovered processing result keeps local drafts frozen for explicit compare and apply", async () => {
+  const h = harness(); await h.controller.load();
+  h.transport.generate = async (_doc, _revision, requestId) => {
+    const server = h.server(); server.revision += 1;
+    server.runs.push({ ...clone(server.runs[0]), id: requestId, kind: "ai", status: "processing" });
+    throw new Error("Outcome unavailable");
+  };
+  await h.controller.startReview("test-model", "attempt-1");
+  h.controller.setDraft("run-1", "finding-1", "Local after timeout");
+  await h.controller.reloadSaved();
+  assert.equal(h.controller.getSnapshot().status, "review");
+  assert.equal(h.controller.getSnapshot().reviewAction.status, "idle");
+  assert.equal(h.calls.length, 0);
+  assert.equal(h.controller.getSnapshot().localDrafts[h.state.draftKey("run-1", "finding-1")], "Local after timeout");
+});
+
+test("run labels distinguish legacy fixtures and incomplete, failed, interrupted and processing AI runs", () => {
+  assert.equal(stateHelpers.runLabel(initial().runs[0]), "Synthetic example — available");
+  for (const status of ["incomplete", "failed", "interrupted", "processing"]) {
+    assert.equal(stateHelpers.runLabel({ ...initial().runs[0], kind: "ai", status }), `AI review — ${status}`);
+  }
+});
+
+test("empty-run Findings navigation cannot enqueue an invalid position; other views clear dangling evidence", () => {
+  const run = { ...initial().runs[0], findings: [] };
+  assert.equal(stateHelpers.safeReviewPosition(run, "findings", null, null), null);
+  assert.equal(stateHelpers.safeReviewPosition(run, "findings", "old-finding", "old-span"), null);
+  assert.deepEqual(clone(stateHelpers.safeReviewPosition(run, "document", "old-finding", "old-span")), {
+    view: "document", finding_id: null, evidence_span_id: null,
+  });
+});
+
+test("new-run positions never reuse an evidence span from an unrelated finding", () => {
+  const run = initial().runs[0];
+  run.findings[0].evidence = [{ span_id: "current-span" }];
+  assert.deepEqual(clone(stateHelpers.safeReviewPosition(run, "findings", "finding-1", "old-span")), {
+    view: "findings", finding_id: "finding-1", evidence_span_id: null,
+  });
+  assert.equal(stateHelpers.safeReviewPosition(run, "document", "finding-1", "current-span").evidence_span_id, "current-span");
+});
+
+test("AI overview render exposes incomplete status, provenance, coverage and retained old run selection", () => {
+  const workspace = initial();
+  workspace.runs.push({ ...clone(workspace.runs[0]), id: "run-2", kind: "ai", status: "incomplete", context: brief,
+    overview_items: [{ text: "Source-backed overview", evidence: [] }],
+    coverage: { page_count: 3, extracted_pages: [1, 3], omitted_pages: [2], input_scope: "all_extracted_text", limitations: ["Page 2 has no extractable text."] },
+    generation: { model_id: "test-model", endpoint: "chat.completions", reasoning_effort: "low", prompt_version: "review-v1", schema_version: "review-v1", extraction_version: "extract-v1", estimated_input_tokens: 1000, max_completion_tokens: 2000, usage: null, duration_ms: 2000 },
+  });
+  const html = renderWorkspace("overview", { workspace });
+  assert.match(html, /AI review — incomplete/);
+  assert.match(html, /This review is incomplete/);
+  assert.match(html, /Source-backed overview/);
+  assert.match(html, /Pages omitted from review input: 2/);
+  assert.match(html, /Synthetic example — available/);
+  assert.match(html, /Prompt: review-v1/);
+  assert.match(html, /usage unavailable; this does not mean no charge/);
+  assert.doesNotMatch(html, /Example agreement overview/);
+});
+
+test("not-found findings expose reviewed scope and do not imply absence from missing materials", () => {
+  const workspace = initial(); workspace.runs[0].kind = "ai";
+  workspace.runs[0].findings[0].basis = "not_found";
+  workspace.runs[0].findings[0].coverage_basis = "Pages 1 and 3 only";
+  const html = renderWorkspace("findings", { workspace });
+  assert.match(html, /Not found within the reviewed scope/);
+  assert.match(html, /Pages 1 and 3 only/);
+  assert.match(html, /not proof of absence/);
+  assert.match(html, /AI-suggested wording/);
+});
+
+test("uncertain request controls expose read-only recovery and charge warning, not generic paid auto-retry", () => {
+  const state = { workspace: initial(), status: "saved", pending: 0, briefDraft: null,
+    reviewAction: { status: "uncertain", error: "Outcome unknown", canRetryRequest: false } };
+  const html = renderToStaticMarkup(React.createElement(generationControls.ReviewGenerationControls, { state, controller: {}, sourceReady: true, onSettings() {} }));
+  assert.match(html, /Check saved review state/);
+  assert.match(html, /charges may apply/);
+  assert.doesNotMatch(html, /Retry this request with the same ID/);
+  assert.match(html, /Selected model/);
+  assert.match(html, /test-model/);
 });

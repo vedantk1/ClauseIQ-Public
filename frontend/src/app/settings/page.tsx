@@ -140,7 +140,7 @@ export default function Settings() {
                 {!queryModel && <option value={queryModelId} disabled>{queryModelId ? `Unavailable model: ${queryModelId}` : "Choose a classification model"}</option>}
                 {getSelectableModels(models, queryModelId).map((model) => <option key={model.id} value={model.id}>{model.name}{model.legacy ? " (saved legacy model)" : ""}</option>)}
               </select>
-              <p className="text-xs text-text-secondary">This separate, normally inexpensive model checks chat questions before the review model answers. Changing the review model does not change this selection.</p>
+              <p className="text-xs text-text-secondary">This separate model checks chat questions before the review model answers. Changing the review model does not change this selection.</p>
               {queryModel && <ModelDetails model={queryModel} />}
             </div>
           </details>

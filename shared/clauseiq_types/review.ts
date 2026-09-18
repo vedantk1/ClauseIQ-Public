@@ -1,4 +1,4 @@
-/** Local personal review state; generated fixture runs remain immutable. */
+/** Local personal work is independent of source-scoped review runs. */
 export interface ReviewBrief {
   perspective: "neutral" | "customer" | "provider" | "other";
   role: string;
@@ -22,17 +22,47 @@ export interface ReviewFinding {
   next_step: string;
   suggested_question: string;
   evidence: ReviewEvidence[];
+  basis?: "source_text" | "not_found";
+  coverage_basis?: string;
+}
+
+export interface ReviewOverviewItem { text: string; evidence: ReviewEvidence[] }
+export interface ReviewCoverage {
+  page_count: number;
+  extracted_pages: number[];
+  omitted_pages: number[];
+  input_scope: "all_extracted_text";
+  limitations: string[];
+}
+export interface ReviewGeneration {
+  model_id: string;
+  endpoint: "chat.completions";
+  reasoning_effort: string;
+  max_completion_tokens: number;
+  catalog_verified_on: string;
+  prompt_version: string;
+  schema_version: string;
+  extraction_version: string;
+  estimated_input_tokens: number;
+  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | null;
+  duration_ms: number | null;
 }
 
 export interface ReviewRun {
   id: string;
-  kind: "fixture";
+  kind: "fixture" | "ai";
   source_revision_id: string;
   created_at: string;
   context: ReviewBrief;
-  fixture_version: string;
+  fixture_version?: string | null;
   overview: string;
   findings: ReviewFinding[];
+  status?: "processing" | "ready" | "incomplete" | "failed" | "interrupted";
+  completed_at?: string | null;
+  overview_items?: ReviewOverviewItem[];
+  coverage?: ReviewCoverage | null;
+  generation?: ReviewGeneration | null;
+  failure?: { code: string; message: string } | null;
 }
 
 export type ReviewMarker = "not_marked" | "revisit" | "reviewed_by_me";
@@ -79,4 +109,10 @@ export interface ReviewWorkspaceUpdate {
 
 export interface FixtureReviewRequest {
   expected_revision: number;
+}
+
+export interface StartReviewRequest {
+  expected_revision: number;
+  request_id: string;
+  model_id: string;
 }
