@@ -1,23 +1,6 @@
 "use client";
-import { useAuthRedirect } from "@/hooks/useAuthRedirect";
 
 export default function About() {
-  const { isAuthenticated, isLoading } = useAuthRedirect();
-
-  // Auth loading check
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent-purple"></div>
-      </div>
-    );
-  }
-
-  // Don't render if not authenticated
-  if (!isAuthenticated) {
-    return null;
-  }
-
   return (
     <div className="max-w-3xl mx-auto">
       <h1 className="text-2xl font-semibold mb-6">About ClauseIQ</h1>
@@ -26,8 +9,8 @@ export default function About() {
         <section>
           <h2 className="text-lg font-medium mb-2">What is ClauseIQ?</h2>
           <p>
-            ClauseIQ is a tool designed to help non-lawyers understand
-            employment contracts by extracting important information and
+            ClauseIQ is a local, single-person workspace for understanding
+            agreements by extracting important information and
             providing simple explanations. It uses natural language processing
             to analyze legal documents and present key points in plain language.
           </p>
@@ -36,9 +19,10 @@ export default function About() {
         <section>
           <h2 className="text-lg font-medium mb-2">How It Works</h2>
           <ol className="list-decimal list-inside space-y-2 ml-2">
-            <li>Upload your employment contract PDF</li>
+            <li>Add your OpenAI API key in Settings</li>
+            <li>Upload your agreement as a PDF</li>
             <li>Our system extracts and processes the text</li>
-            <li>The document is analyzed for legal clauses and risks</li>
+            <li>Document text is sent to OpenAI for clause and risk analysis</li>
             <li>Each section is analyzed and summarized</li>
             <li>Results are presented in an easy-to-understand format</li>
           </ol>

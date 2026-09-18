@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import config from '@/config/config';
+import { LOCAL_API_HEADERS } from '@/lib/api';
 
 /**
  * Hook for tracking document views and managing last viewed timestamps
@@ -10,18 +11,12 @@ export function useDocumentViewing() {
    */
   const trackDocumentView = useCallback(async (documentId: string): Promise<boolean> => {
     try {
-      const token = localStorage.getItem('access_token');
-      if (!token) {
-        console.warn("No access token found for tracking document view");
-        return false;
-      }
-
       const response = await fetch(
         `${config.apiUrl}/api/v1/documents/${documentId}/view`,
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${token}`,
+            ...LOCAL_API_HEADERS,
             'Content-Type': 'application/json',
           },
         }

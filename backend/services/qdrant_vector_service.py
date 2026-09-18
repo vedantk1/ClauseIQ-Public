@@ -11,7 +11,7 @@ SPECIFICATIONS:
 - Storage: Unlimited (self-hosted)
 - Performance: Sub-10ms search times
 - Scalability: Horizontal sharding supported
-- Security: User isolation via collection filtering
+- Security: Workspace isolation via collection filtering
 """
 import asyncio
 import logging
@@ -42,7 +42,7 @@ class QdrantVectorService:
 
     Features:
     - 3072-dimension text-embedding-3-large embeddings
-    - Payload-based user isolation (no namespaces needed)
+    - Payload-based workspace isolation (no namespaces needed)
     - Automatic collection creation and management
     - Comprehensive error handling
     - Health monitoring
@@ -55,7 +55,7 @@ class QdrantVectorService:
         self._openai_client = None
         self._initialized = False
         self.embedding_dimension = 3072  # text-embedding-3-large
-        self.collection_name = "clauseiq-vectors"
+        self.collection_name = self.settings.qdrant.collection_name
         self.embedding_model = "text-embedding-3-large"
 
     async def initialize(self) -> bool:
@@ -72,10 +72,10 @@ class QdrantVectorService:
             logger.info("Connecting to Qdrant")
 
             # Initialize synchronous client (for some operations)
-            self.client = QdrantClient(host=host, port=port)
+            self.client = QdrantClient(host=host, port=port, api_key=qdrant_config.api_key)
 
             # Initialize async client
-            self.async_client = AsyncQdrantClient(host=host, port=port)
+            self.async_client = AsyncQdrantClient(host=host, port=port, api_key=qdrant_config.api_key)
 
             # Note: OpenAI client is now obtained from context when needed (BYOK support)
             # We don't require a global API key for initialization
@@ -117,7 +117,7 @@ class QdrantVectorService:
                 # Create payload indexes for efficient filtering
                 await self.async_client.create_payload_index(
                     collection_name=self.collection_name,
-                    field_name="user_id",
+                    field_name="workspace_id",
                     field_schema="keyword"
                 )
                 await self.async_client.create_payload_index(
@@ -151,7 +151,7 @@ class QdrantVectorService:
         from services.ai.client_manager import get_openai_client
         client = get_openai_client()
         if client is None:
-            raise ValueError("OpenAI client not available - ensure you're in a user_openai_client context")
+            raise ValueError("OpenAI client not available - ensure you're in a workspace_openai_client context")
         return client
 
     async def _generate_embedding(self, text: str) -> List[float]:
@@ -213,7 +213,7 @@ class QdrantVectorService:
     async def store_document_chunks(
         self,
         document_id: str,
-        user_id: str,
+        workspace_id: str,
         chunks: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
         """
@@ -221,7 +221,7 @@ class QdrantVectorService:
 
         Args:
             document_id: MongoDB document ID
-            user_id: User ID for isolation
+            workspace_id: Workspace ID for isolation
             chunks: List of chunk dictionaries with 'text' and optional 'metadata'
 
         Returns:
@@ -250,7 +250,7 @@ class QdrantVectorService:
                 # Prepare payload (metadata)
                 payload = {
                     "document_id": document_id,
-                    "user_id": user_id,
+                    "workspace_id": workspace_id,
                     "chunk_index": i,
                     "text": chunk["text"],
                     "created_at": datetime.utcnow().isoformat()
@@ -259,6 +259,7 @@ class QdrantVectorService:
                 # Add any additional metadata from the chunk
                 if "metadata" in chunk:
                     payload.update(chunk["metadata"])
+                payload.update(document_id=document_id, workspace_id=workspace_id)
 
                 points.append(PointStruct(
                     id=point_id,
@@ -278,7 +279,7 @@ class QdrantVectorService:
                 "success": True,
                 "chunk_count": len(chunk_ids),
                 "chunk_ids": chunk_ids,
-                "namespace": f"user_{user_id}"  # For compatibility with existing code
+                "namespace": f"workspace_{workspace_id}"
             }
 
         except Exception as e:
@@ -288,7 +289,7 @@ class QdrantVectorService:
     async def search_similar_chunks(
         self,
         query: str,
-        user_id: str,
+        workspace_id: str,
         document_id: Optional[str] = None,
         k: int = 5,
         similarity_threshold: float = 0.7
@@ -298,7 +299,7 @@ class QdrantVectorService:
 
         Args:
             query: Search query text
-            user_id: User ID for isolation
+            workspace_id: Workspace ID for isolation
             document_id: Optional document ID to limit search scope
             k: Number of results to return
             similarity_threshold: Minimum similarity score (0-1, cosine similarity)
@@ -314,11 +315,11 @@ class QdrantVectorService:
             # Generate query embedding
             query_embedding = await self._generate_embedding(query)
 
-            # Build filter for user isolation
+            # Build filter for workspace isolation
             filter_conditions = [
                 FieldCondition(
-                    key="user_id",
-                    match=MatchValue(value=user_id)
+                    key="workspace_id",
+                    match=MatchValue(value=workspace_id)
                 )
             ]
 
@@ -349,7 +350,7 @@ class QdrantVectorService:
 
                 formatted_results.append({
                     "content": point.payload.get("text", ""),
-                    "metadata": {k: v for k, v in point.payload.items() if k != "text"},
+                    "metadata": {k: v for k, v in point.payload.items() if k not in {"text", "user_id"}},
                     "similarity_score": similarity_score,
                     "document_id": point.payload.get("document_id"),
                     "chunk_index": point.payload.get("chunk_index", 0)
@@ -362,13 +363,13 @@ class QdrantVectorService:
             logger.error(f"❌ Vector search failed: {type(e).__name__}")
             return []
 
-    async def delete_document_chunks(self, document_id: str, user_id: str) -> Dict[str, Any]:
+    async def delete_document_chunks(self, document_id: str, workspace_id: str) -> Dict[str, Any]:
         """
         Delete all chunks for a specific document.
 
         Args:
             document_id: Document ID to delete chunks for
-            user_id: User ID for isolation
+            workspace_id: Workspace ID for isolation
 
         Returns:
             Dict with success status and deletion info
@@ -377,9 +378,10 @@ class QdrantVectorService:
             return {"success": False, "error": "Qdrant service not available"}
 
         try:
-            # Delete by filter (document_id AND user_id for safety)
+            # Delete by filter (document_id AND workspace_id for safety)
             result = await self.async_client.delete(
                 collection_name=self.collection_name,
+                wait=True,
                 points_selector=Filter(
                     must=[
                         FieldCondition(
@@ -387,8 +389,8 @@ class QdrantVectorService:
                             match=MatchValue(value=document_id)
                         ),
                         FieldCondition(
-                            key="user_id",
-                            match=MatchValue(value=user_id)
+                            key="workspace_id",
+                            match=MatchValue(value=workspace_id)
                         )
                     ]
                 )
@@ -399,61 +401,15 @@ class QdrantVectorService:
             return {
                 "success": True,
                 "deleted_count": "batch_delete",  # Qdrant doesn't return exact count
-                "namespace": f"user_{user_id}"
+                "namespace": f"workspace_{workspace_id}"
             }
 
         except Exception as e:
             logger.error("Vector chunk deletion failed: %s", type(e).__name__)
             return {"success": False, "error": "Vector storage operation failed"}
 
-    async def delete_all_vectors(self) -> Dict[str, Any]:
-        """
-        🧹 NUCLEAR OPTION: Delete ALL vectors from the collection.
 
-        Used for foundational architecture deployment - complete database reset.
-        This will clear EVERYTHING from the Qdrant collection.
-
-        Returns:
-            Dict with success status and operation details
-        """
-        if not await self.initialize():
-            return {"success": False, "error": "Qdrant service not available"}
-
-        try:
-            # Get current stats
-            collection_info = await self.async_client.get_collection(self.collection_name)
-            total_vectors_before = collection_info.points_count
-
-            logger.info(f"🧹 NUCLEAR CLEARING: {total_vectors_before} vectors")
-
-            # Delete the collection and recreate it (cleanest approach)
-            await self.async_client.delete_collection(self.collection_name)
-
-            # Wait a moment
-            await asyncio.sleep(1)
-
-            # Recreate collection
-            await self._ensure_collection_exists()
-
-            # Get final stats
-            final_info = await self.async_client.get_collection(self.collection_name)
-            total_vectors_after = final_info.points_count
-
-            logger.info(f"🎯 NUCLEAR MISSION COMPLETE: {total_vectors_before} → {total_vectors_after} vectors")
-
-            return {
-                "success": True,
-                "vectors_before": total_vectors_before,
-                "vectors_after": total_vectors_after,
-                "namespaces_cleared": ["all"],
-                "operation": "nuclear_vector_clearing"
-            }
-
-        except Exception as e:
-            logger.error("Vector collection reset failed: %s", type(e).__name__)
-            return {"success": False, "error": "Vector storage operation failed"}
-
-    async def get_document_chunk_count(self, document_id: str, user_id: str) -> int:
+    async def get_document_chunk_count(self, document_id: str, workspace_id: str) -> int:
         """Get the number of chunks for a specific document."""
         if not await self.initialize():
             return 0
@@ -469,8 +425,8 @@ class QdrantVectorService:
                             match=MatchValue(value=document_id)
                         ),
                         FieldCondition(
-                            key="user_id",
-                            match=MatchValue(value=user_id)
+                            key="workspace_id",
+                            match=MatchValue(value=workspace_id)
                         )
                     ]
                 )

@@ -1,10 +1,10 @@
 /**
- * Toast utility that respects admin-configured settings.
+ * Toast utility that respects workspace settings.
  * Wraps react-hot-toast to conditionally show/hide notifications.
  */
 
 import { toast as hotToast } from "react-hot-toast";
-import { getApiBaseUrl } from "@/lib/api";
+import { getApiBaseUrl, LOCAL_API_HEADERS } from "@/lib/api";
 
 // Cache for the toast setting to avoid repeated API calls
 let toastEnabledCache: boolean | null = null;
@@ -25,7 +25,7 @@ async function isToastEnabled(): Promise<boolean> {
 
   try {
     const apiUrl = getApiBaseUrl();
-    const response = await fetch(`${apiUrl}/api/v1/app-config`);
+    const response = await fetch(`${apiUrl}/api/v1/app-config`, { headers: LOCAL_API_HEADERS });
     const data = await response.json();
 
     if (data.success && data.data) {
@@ -50,7 +50,7 @@ export function clearToastCache(): void {
 }
 
 /**
- * Toast wrapper that respects admin settings.
+ * Toast wrapper that respects workspace settings.
  * Falls back to showing toasts if setting can't be fetched.
  */
 export const toast = {

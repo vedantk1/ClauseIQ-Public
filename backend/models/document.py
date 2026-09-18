@@ -33,7 +33,7 @@ class DocumentDetailResponse(BaseModel):
     summary: Optional[str] = None
     clauses: Optional[List[Clause]] = None
     risk_summary: Optional[RiskSummary] = None
-    user_id: str
+    workspace_id: str
     rag_processed: Optional[bool] = None
     vector_stored: Optional[bool] = None
     chunk_count: Optional[int] = None
@@ -46,6 +46,7 @@ class DocumentDetailResponse(BaseModel):
 
 class AnalyzeDocumentResponse(BaseModel):
     id: str
+    workspace_id: str
     filename: str
     full_text: str
     summary: str

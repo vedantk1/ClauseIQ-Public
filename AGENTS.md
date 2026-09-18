@@ -12,16 +12,21 @@ state belong in .local-only or another ignored path.
 - docs — maintained architecture, API, security, and development documentation
 - docker-compose.dev.yml — MongoDB and Qdrant for local development
 
-The API is versioned under /api/v1. Authenticated AI operations use the
-signed-in user's OpenAI key through request-scoped client handling.
+The API is versioned under /api/v1. ClauseIQ is one local workspace with no
+accounts or admin roles. AI operations use the person's OpenAI key from
+Settings through request-scoped client handling.
 
 ## Working rules
 
 - Never add secrets, real credentials, private documents, personal data, or
   machine-specific paths to tracked files.
-- Never add an application-owner OpenAI key or an anonymous AI-spend path.
-- Keep user-document ownership checks intact across storage, analysis, chat,
-  reports, and vector data.
+- Never add an application-owner OpenAI key or a publicly accessible AI-spend path.
+- Preserve loopback bindings, browser Origin/Host checks and the local-request
+  marker. No hosted or shared installation is supported.
+- Keep document/workspace scoping intact across storage, analysis, chat,
+  reports and vectors. Do not reintroduce synthetic users or admin assignment.
+- Preserve existing local data during migrations; never silently merge legacy
+  accounts or discard credential state. Retention is opt-in, not a default.
 - Prefer modular services and configurable values over hard-coded behavior.
 - Use in-app modals, not browser-native alert or confirm dialogs.
 - Check whether local services are already running before starting them.

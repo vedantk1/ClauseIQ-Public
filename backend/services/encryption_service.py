@@ -1,123 +1,91 @@
-"""
-Encryption service for secure storage of sensitive data like API keys.
-Uses Fernet (AES-256) symmetric encryption.
-"""
-import os
+"""Local credential encryption without manually configured application secrets."""
 import base64
-import logging
+import os
+import stat
+import tempfile
+from pathlib import Path
 from typing import Optional
-from cryptography.fernet import Fernet, InvalidToken
+
+from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from dotenv import dotenv_values
 
-logger = logging.getLogger(__name__)
+from config.environments import get_environment_config
 
 
 class EncryptionService:
-    """Service for encrypting and decrypting sensitive data."""
+    """An owner-only key file protects database-only backups, not local OS access.
 
-    def __init__(self):
-        self._fernet: Optional[Fernet] = None
-        self._initialized = False
+    Decryption never creates a replacement key: restore missing state or enter
+    a new API key. Atomic publication prevents simultaneous saves rotating it.
+    """
 
-    def _get_encryption_key(self) -> bytes:
-        """
-        Get or derive the encryption key from environment variable.
-        The key should be at least 32 characters for security.
-        """
-        secret = os.getenv("API_KEY_ENCRYPTION_SECRET")
+    def __init__(self, state_dir: Optional[Path] = None):
+        if state_dir is None:
+            state_dir = Path(get_environment_config().workspace_state_dir)
+            if not state_dir.is_absolute():
+                state_dir = Path(__file__).resolve().parents[1] / state_dir
+        self.key_path = Path(state_dir) / "credential.key"
 
-        if not secret:
-            # Fall back to JWT secret if no specific encryption secret is set
-            # This ensures the service works in development
-            secret = os.getenv("JWT_SECRET_KEY", "")
-            if not secret or len(secret) < 32:
-                raise ValueError(
-                    "API_KEY_ENCRYPTION_SECRET or JWT_SECRET_KEY (min 32 chars) "
-                    "must be set for API key encryption"
-                )
-
-        # Use PBKDF2 to derive a proper Fernet key from the secret
-        # This ensures we always get a valid 32-byte key
-        salt = b"clauseiq_api_key_salt_v1"  # Static salt - OK since we derive from a secret
-        kdf = PBKDF2HMAC(
-            algorithm=hashes.SHA256(),
-            length=32,
-            salt=salt,
-            iterations=100000,
-        )
-        key = base64.urlsafe_b64encode(kdf.derive(secret.encode()))
-        return key
-
-    def _get_fernet(self) -> Fernet:
-        """Get or initialize the Fernet instance."""
-        if self._fernet is None:
-            key = self._get_encryption_key()
-            self._fernet = Fernet(key)
-            self._initialized = True
-        return self._fernet
+    def _fernet(self, *, create: bool) -> Fernet:
+        directory = self.key_path.parent
+        if create and not self.key_path.exists():
+            directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+            descriptor, candidate = tempfile.mkstemp(prefix=".credential-", dir=directory)
+            try:
+                with os.fdopen(descriptor, "wb") as handle:
+                    handle.write(Fernet.generate_key())
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                try:
+                    os.link(candidate, self.key_path)
+                except FileExistsError:
+                    pass
+            finally:
+                os.unlink(candidate)
+        descriptor = os.open(self.key_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        with os.fdopen(descriptor, "rb") as handle:
+            info = os.fstat(handle.fileno())
+            if not stat.S_ISREG(info.st_mode):
+                raise ValueError("Credential state is not a regular file")
+            if os.name == "posix" and (info.st_mode & 0o077):
+                raise ValueError("Credential key file must be accessible only by its owner")
+            return Fernet(handle.read())
 
     def encrypt(self, plaintext: str) -> str:
-        """
-        Encrypt a plaintext string and return base64-encoded ciphertext.
-
-        Args:
-            plaintext: The string to encrypt (e.g., an API key)
-
-        Returns:
-            Base64-encoded encrypted string
-        """
-        if not plaintext:
-            return ""
-
         try:
-            fernet = self._get_fernet()
-            encrypted = fernet.encrypt(plaintext.encode())
-            return encrypted.decode()  # Fernet output is already base64
-        except Exception as e:
-            logger.error("Encryption failed: %s", type(e).__name__)
-            raise ValueError("Failed to encrypt data") from None
+            return self._fernet(create=True).encrypt(plaintext.encode()).decode()
+        except Exception:
+            raise ValueError("Cannot access local credential state") from None
 
     def decrypt(self, ciphertext: str) -> str:
-        """
-        Decrypt a base64-encoded ciphertext and return plaintext.
-
-        Args:
-            ciphertext: Base64-encoded encrypted string
-
-        Returns:
-            Decrypted plaintext string
-        """
-        if not ciphertext:
-            return ""
-
         try:
-            fernet = self._get_fernet()
-            decrypted = fernet.decrypt(ciphertext.encode())
-            return decrypted.decode()
-        except InvalidToken:
-            logger.error("Decryption failed: Invalid token (key may have changed)")
-            raise ValueError("Failed to decrypt data - encryption key may have changed")
-        except Exception as e:
-            logger.error("Decryption failed: %s", type(e).__name__)
-            raise ValueError("Failed to decrypt data") from None
-
-    def is_initialized(self) -> bool:
-        """Check if the encryption service is properly initialized."""
-        try:
-            if not self._initialized:
-                self._get_fernet()
-            return True
+            return self._fernet(create=False).decrypt(ciphertext.encode()).decode()
         except Exception:
-            return False
+            raise ValueError("Restore local credential state or re-enter the API key in Settings") from None
 
 
-# Global singleton instance
+def decrypt_legacy_api_key(ciphertext: str) -> str:
+    """Read old secrets solely for migration, without restoring JWT/auth support."""
+    values = dotenv_values(Path(__file__).resolve().parents[1] / ".env")
+    secret = (os.environ.get("API_KEY_ENCRYPTION_SECRET") or values.get("API_KEY_ENCRYPTION_SECRET")
+              or os.environ.get("JWT_SECRET_KEY") or values.get("JWT_SECRET_KEY"))
+    if not secret:
+        raise ValueError("Legacy credential secret is unavailable; re-enter the key in Settings")
+    kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32,
+                    salt=b"clauseiq_api_key_salt_v1", iterations=100000)
+    try:
+        key = base64.urlsafe_b64encode(kdf.derive(secret.encode()))
+        return Fernet(key).decrypt(ciphertext.encode()).decode()
+    except Exception:
+        raise ValueError("Legacy credential cannot be decrypted; re-enter the key in Settings") from None
+
+
 _encryption_service: Optional[EncryptionService] = None
 
 
 def get_encryption_service() -> EncryptionService:
-    """Get the encryption service singleton instance."""
     global _encryption_service
     if _encryption_service is None:
         _encryption_service = EncryptionService()

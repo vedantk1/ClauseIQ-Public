@@ -10,7 +10,6 @@ import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { DocumentsLoading } from "@/components/documents/DocumentsLoading";
 import { DocumentsError } from "@/components/documents/DocumentsError";
 import { DocumentsEmpty } from "@/components/documents/DocumentsEmpty";
-import { AuthLoading } from "@/components/documents/AuthLoading";
 import { DocumentsHeader } from "@/components/documents/DocumentsHeader";
 import { DocumentsFilters } from "@/components/documents/DocumentsFilters";
 import { BulkSelectionToolbar } from "@/components/documents/BulkSelectionToolbar";
@@ -33,8 +32,6 @@ export default function Documents() {
     loading,
     error,
     retryFetch,
-    isAuthenticated,
-    authLoading: isLoading,
   } = useDocumentsData();
 
   const {
@@ -121,16 +118,6 @@ export default function Documents() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
-
-  // Auth loading check
-  if (isLoading) {
-    return <AuthLoading />;
-  }
-
-  // Don't render if not authenticated
-  if (!isAuthenticated) {
-    return null;
-  }
 
   // Loading State
   if (loading) {

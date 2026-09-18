@@ -3,7 +3,6 @@ Security middleware for additional protection and hardening.
 """
 import time
 import hashlib
-import secrets
 from typing import Dict, Set, Optional
 from fastapi import Request, HTTPException, status
 from fastapi.responses import Response
@@ -127,7 +126,6 @@ class SecurityMonitor:
     def __init__(self):
         self.suspicious_ips: Dict[str, Dict] = {}
         self.blocked_ips: Set[str] = set()
-        self.failed_auth_attempts: Dict[str, int] = {}
         self.cleanup_interval = 3600  # Clean up every hour
         self.last_cleanup = time.time()
 
@@ -160,21 +158,6 @@ class SecurityMonitor:
                 "reason": "excessive_suspicious_activities"
             })
 
-    def record_auth_failure(self, ip: str, email: str):
-        """Record authentication failure with timestamp for TTL cleanup (FND-008)."""
-        key = f"{ip}:{email}"
-        if key not in self.failed_auth_attempts:
-            self.failed_auth_attempts[key] = {"count": 0, "last_attempt": time.time()}
-
-        self.failed_auth_attempts[key]["count"] += 1
-        self.failed_auth_attempts[key]["last_attempt"] = time.time()
-
-        # Block after 5 failed attempts
-        if self.failed_auth_attempts[key]["count"] >= 5:
-            self.blocked_ips.add(ip)
-            from middleware.logging import security_logger
-            security_logger.log_auth_failure(email, ip, "too_many_failures")
-
     def is_ip_blocked(self, ip: str) -> bool:
         """Check if IP is blocked."""
         return ip in self.blocked_ips
@@ -192,18 +175,6 @@ class SecurityMonitor:
         for ip in expired_ips:
             del self.suspicious_ips[ip]
             self.blocked_ips.discard(ip)
-
-        # Clean up old auth failure records (FND-008: fixed TTL logic)
-        expired_attempts = []
-        for key, data in self.failed_auth_attempts.items():
-            # Remove after 1 hour of no activity
-            last_attempt = data["last_attempt"] if isinstance(data, dict) else 0
-            if now - last_attempt > 3600:
-                expired_attempts.append(key)
-
-        for key in expired_attempts:
-            del self.failed_auth_attempts[key]
-
 
 # Global security monitor
 security_monitor = SecurityMonitor()
@@ -255,11 +226,6 @@ async def security_middleware(request: Request, call_next):
                 detail="Invalid request"
             )
 
-        # Check for suspicious headers
-        user_agent = request.headers.get("user-agent", "")
-        if not user_agent or len(user_agent) < 10:
-            security_monitor.record_suspicious_activity(client_ip, "suspicious_user_agent")
-
         # Process request
         response = await call_next(request)
 
@@ -279,8 +245,9 @@ async def security_middleware(request: Request, call_next):
 
         return response
 
-    except HTTPException:
-        raise
+    except HTTPException as error:
+        from middleware.api_standardization import HTTPExceptionHandler
+        return await HTTPExceptionHandler.handler(request, error)
     except Exception as e:
         # Log security middleware errors
         from middleware.logging import security_logger
@@ -289,44 +256,3 @@ async def security_middleware(request: Request, call_next):
             {"error_type": type(e).__name__},
         )
         raise
-
-
-class CSRFProtection:
-    """CSRF protection for state-changing operations."""
-
-    def __init__(self):
-        self.tokens: Dict[str, float] = {}
-        self.token_lifetime = 3600  # 1 hour
-
-    def generate_token(self, user_id: str) -> str:
-        """Generate CSRF token for user."""
-        token = secrets.token_urlsafe(32)
-        self.tokens[token] = time.time()
-        return token
-
-    def validate_token(self, token: str) -> bool:
-        """Validate CSRF token."""
-        if token not in self.tokens:
-            return False
-
-        # Check if token is expired
-        if time.time() - self.tokens[token] > self.token_lifetime:
-            del self.tokens[token]
-            return False
-
-        return True
-
-    def cleanup_expired_tokens(self):
-        """Remove expired tokens."""
-        now = time.time()
-        expired_tokens = [
-            token for token, timestamp in self.tokens.items()
-            if now - timestamp > self.token_lifetime
-        ]
-
-        for token in expired_tokens:
-            del self.tokens[token]
-
-
-# Global CSRF protection instance
-csrf_protection = CSRFProtection()

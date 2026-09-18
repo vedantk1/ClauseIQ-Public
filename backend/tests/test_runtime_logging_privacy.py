@@ -1,7 +1,6 @@
-"""Privacy regressions for request, exception, chat, and admin logging."""
+"""Privacy regressions for request, exception, chat logging."""
 
 import json
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -10,7 +9,6 @@ from fastapi import HTTPException
 
 from config.logging import log_exception
 from middleware.logging import SecurityLogger, StructuredLogger
-from routers import admin as admin_router
 from routers import chat as chat_router
 
 
@@ -129,7 +127,7 @@ async def test_chat_runtime_error_keeps_stable_response_and_safe_log(monkeypatch
             await chat_router.get_or_create_session(
                 document_id=PRIVATE_CONTENT,
                 request=SimpleNamespace(),
-                current_user={"id": PRIVATE_IDENTITY},
+                workspace_id="local",
             )
 
     assert raised.value.status_code == 500
@@ -160,40 +158,9 @@ async def test_chat_preserves_classified_client_error_without_raw_service_text(
         await chat_router.get_or_create_session(
             document_id=PRIVATE_CONTENT,
             request=SimpleNamespace(),
-            current_user={"id": PRIVATE_IDENTITY},
+            workspace_id="local",
         )
 
     assert raised.value.status_code == 404
     assert raised.value.detail == "Document not found or access denied"
     assert PRIVATE_CONTENT not in raised.value.detail
-
-
-@pytest.mark.asyncio
-async def test_admin_handler_returns_stable_error_and_logs_only_type(monkeypatch):
-    class FailingAdminService:
-        async def get_admin_stats(self):
-            raise RuntimeError(PRIVATE_CONTENT)
-
-    monkeypatch.setattr(
-        admin_router,
-        "get_document_service",
-        lambda: FailingAdminService(),
-    )
-
-    with patch.object(admin_router.logger, "log") as mock_log:
-        response = await admin_router.get_admin_stats(admin_user={})
-
-    serialized = response.model_dump_json()
-    assert response.success is False
-    assert response.error["message"] == "Failed to get admin stats"
-    assert PRIVATE_CONTENT not in serialized
-    assert PRIVATE_CONTENT not in repr(mock_log.call_args)
-    assert "get_admin_stats" in repr(mock_log.call_args)
-    assert "RuntimeError" in repr(mock_log.call_args)
-
-
-def test_admin_source_has_no_exception_string_responses():
-    source = Path(admin_router.__file__).read_text(encoding="utf-8")
-    assert "str(e)" not in source
-    assert "str(error)" not in source
-    assert "errors.extend(result" not in source

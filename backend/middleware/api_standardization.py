@@ -148,15 +148,8 @@ class APIStandardizationMiddleware(BaseHTTPMiddleware):
                 correlation_id=correlation_id
             )
 
-            # FND-010: Use request origin instead of wildcard; never combine * with credentials
-            origin = request.headers.get("origin", "")
-            cors_headers = {
-                "X-Correlation-ID": correlation_id,
-                "Access-Control-Allow-Origin": origin if origin else "",
-                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-                "Access-Control-Allow-Headers": "*",
-                "Access-Control-Allow-Credentials": "true"
-            }
+            # CORS is applied once by the outer configured middleware.
+            cors_headers = {"X-Correlation-ID": correlation_id} if correlation_id else {}
 
             return JSONResponse(
                 status_code=500,
@@ -219,20 +212,8 @@ class HTTPExceptionHandler:
             correlation_id=correlation_id
         )
 
-        # FND-010: Use request origin instead of wildcard; never combine * with credentials
-        origin = request.headers.get("origin", "")
-        cors_headers = {
-            "X-Correlation-ID": correlation_id,
-            "Access-Control-Allow-Origin": origin if origin else "",
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers": "*",
-            "Access-Control-Allow-Credentials": "true"
-        } if correlation_id else {
-            "Access-Control-Allow-Origin": origin if origin else "",
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers": "*",
-            "Access-Control-Allow-Credentials": "true"
-        }
+        # CORS is applied once by the outer configured middleware.
+        cors_headers = {"X-Correlation-ID": correlation_id} if correlation_id else {}
 
         return JSONResponse(
             status_code=exc.status_code,
@@ -268,19 +249,8 @@ class ValidationExceptionHandler:
                 correlation_id=correlation_id
             )
 
-            # 🚀 FOUNDATIONAL: Ensure CORS headers in validation error responses
-            cors_headers = {
-                "X-Correlation-ID": correlation_id,
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-                "Access-Control-Allow-Headers": "*",
-                "Access-Control-Allow-Credentials": "true"
-            } if correlation_id else {
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-                "Access-Control-Allow-Headers": "*",
-                "Access-Control-Allow-Credentials": "true"
-            }
+            # CORS is applied once by the outer configured middleware.
+            cors_headers = {"X-Correlation-ID": correlation_id} if correlation_id else {}
 
             return JSONResponse(
                 status_code=422,
@@ -296,19 +266,8 @@ class ValidationExceptionHandler:
             correlation_id=correlation_id
         )
 
-        # 🚀 FOUNDATIONAL: Ensure CORS headers in fallback validation errors
-        cors_headers = {
-            "X-Correlation-ID": correlation_id,
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers": "*",
-            "Access-Control-Allow-Credentials": "true"
-        } if correlation_id else {
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers": "*",
-            "Access-Control-Allow-Credentials": "true"
-        }
+        # CORS is applied once by the outer configured middleware.
+        cors_headers = {"X-Correlation-ID": correlation_id} if correlation_id else {}
 
         return JSONResponse(
             status_code=422,

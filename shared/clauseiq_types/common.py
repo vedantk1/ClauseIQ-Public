@@ -130,20 +130,6 @@ class RiskSummary(BaseModel):
     low: int
 
 
-class User(BaseModel):
-    """User model."""
-    id: str
-    email: str
-    full_name: str
-    created_at: str
-    email_verified: bool = False
-
-
-class UserPreferences(BaseModel):
-    """User preferences."""
-    preferred_model: str
-
-
 class Note(BaseModel):
     """Individual note model."""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -154,7 +140,7 @@ class Note(BaseModel):
 class UserInteraction(BaseModel):
     """User interaction with a clause (notes, flags, etc.)."""
     clause_id: str
-    user_id: str
+    workspace_id: str
     notes: List[Note] = []
     is_flagged: bool = False
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
@@ -172,7 +158,7 @@ class Document(BaseModel):
     ai_structured_summary: Optional[Dict[str, Any]] = None
     clauses: Optional[List[Clause]] = None
     risk_summary: Optional[RiskSummary] = None
-    user_id: str
+    workspace_id: str
     user_interactions: Optional[Dict[str, UserInteraction]] = None  # clause_id -> UserInteraction
     last_viewed: Optional[str] = None  # ISO timestamp of when document was last viewed
 
@@ -187,5 +173,5 @@ class AvailableModel(BaseModel):
 class UserInteractions(BaseModel):
     """Collection of user interactions for a document."""
     document_id: str
-    user_id: str
+    workspace_id: str
     interactions: Dict[str, UserInteraction] = {}  # clause_id -> UserInteraction

@@ -5,6 +5,7 @@
 
 import Button from "@/components/Button";
 import Card from "@/components/Card";
+import config from "@/config/config";
 import { FileText, Upload } from "lucide-react";
 
 interface DocumentsEmptyProps {
@@ -34,7 +35,7 @@ export const DocumentsEmpty = ({ onUpload }: DocumentsEmptyProps) => {
               Upload Your First Document
             </Button>
             <p className="text-xs text-text-tertiary">
-              Supported formats: PDF, DOC, DOCX • Maximum file size: 10MB
+              Supported format: PDF • Maximum file size: {config.maxFileSizeMB} MB
             </p>
           </div>
         </Card>

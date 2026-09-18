@@ -48,7 +48,7 @@ export const getRelativeTime = (dateString: string) => {
  * Format contract type from snake_case to Title Case
  * EXACTLY as extracted from the original component
  */
-export const formatContractType = (contractType?: string) => {
+export const formatContractType = (contractType?: string | null) => {
   if (!contractType) return "Unknown Type";
 
   // Convert snake_case to Title Case
@@ -62,7 +62,7 @@ export const formatContractType = (contractType?: string) => {
  * Get contract type color classes
  * EXACTLY as extracted from the original component
  */
-export const getContractTypeColor = (contractType?: string) => {
+export const getContractTypeColor = (contractType?: string | null) => {
   const colors: ContractTypeColorMap = {
     employment: "bg-blue-500/20 text-blue-300 border-blue-500/30",
     nda: "bg-purple-500/20 text-purple-300 border-purple-500/30",

@@ -5,14 +5,13 @@ import uuid
 import logging
 from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, Request
 from pydantic import BaseModel
-from auth import get_current_user
+from workspace import get_workspace_id
 from database.service import get_document_service
 from middleware.api_standardization import APIResponse, create_success_response, create_error_response
 from middleware.versioning import versioned_response
 from services.document_service import (
     validate_file,
     process_document_with_llm,
-    is_llm_processing_available,
     calculate_risk_summary,
     process_and_save_analyzed_document
 )
@@ -21,6 +20,7 @@ from services.ai.text_extractor import get_text_extractor
 from services.ai_service import generate_structured_document_summary, generate_clause_rewrite
 from models.document import AnalyzeDocumentResponse
 from models.interaction import UserInteractionRequest, NoteRequest
+from routers.serialization import without_legacy_owner_fields
 from clauseiq_types.common import RiskLevel, Clause, RiskSummary, ContractType
 
 
@@ -28,12 +28,26 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["analysis"])
 
 
+async def _require_document(service, document_id: str, workspace_id: str):
+    document = await service.get_document_for_workspace(document_id, workspace_id)
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return document
+
+
+async def _require_clause(service, document_id: str, clause_id: str, workspace_id: str):
+    document = await _require_document(service, document_id, workspace_id)
+    if not any(clause.get("id") == clause_id for clause in (document.get("clauses") or [])):
+        raise HTTPException(status_code=404, detail="Clause not found in document")
+    return document
+
+
 @router.post("/analyze/", response_model=APIResponse[dict])
 @versioned_response
 async def analyze_document(
     request: Request,
     file: UploadFile = File(...),
-    current_user: dict = Depends(get_current_user)
+    workspace_id: str = Depends(get_workspace_id)
 ):
     """Analyze document and extract clauses with AI summaries."""
     correlation_id = getattr(request.state, 'correlation_id', None)
@@ -42,21 +56,12 @@ async def analyze_document(
         validate_file(file)
         service = get_document_service()
 
-        # Check if user has an API key set
-        user_api_key = await service.get_user_api_key(current_user["id"])
-        if not user_api_key:
+        # Check if workspace has an API key set
+        workspace_api_key = await service.get_workspace_api_key(workspace_id)
+        if not workspace_api_key:
             return create_error_response(
                 code="API_KEY_REQUIRED",
                 message="Please add your OpenAI API key in Settings before analyzing documents.",
-                correlation_id=correlation_id
-            )
-
-        # Check if user has reached their document limit
-        can_upload, limit_message = await service.can_user_upload_document(current_user["id"])
-        if not can_upload:
-            return create_error_response(
-                code="DOCUMENT_LIMIT_REACHED",
-                message=limit_message,
                 correlation_id=correlation_id
             )
 
@@ -81,21 +86,20 @@ async def analyze_document(
                 correlation_id=correlation_id
             )
 
-        # Get user's preferred model
-        user_model = await service.get_user_preferred_model(current_user["id"])
+        # Get workspace model
+        workspace_model = await service.get_workspace_model(workspace_id)
 
-        # Use the user's API key for all AI operations in this request
-        from services.ai.client_manager import user_openai_client
+        # Use the workspace API key for all AI operations in this request
+        from services.ai.client_manager import workspace_openai_client
 
-        async with user_openai_client(user_api_key):
-            print(f"Using user's API key for document processing")
+        async with workspace_openai_client(workspace_api_key):
             contract_type, clauses = await process_document_with_llm(
-                extracted_text, file.filename, user_model
+                extracted_text, file.filename, workspace_model
             )
 
             # Generate contract-type-specific structured summary for improved UI display
             ai_structured_summary = await generate_structured_document_summary(
-                extracted_text, file.filename, user_model, contract_type
+                extracted_text, file.filename, workspace_model, contract_type
             )
 
             # Generate document ID
@@ -109,7 +113,7 @@ async def analyze_document(
                 extracted_text=extracted_text,
                 clauses=clauses,
                 contract_type=contract_type,
-                user_id=current_user["id"],
+                workspace_id=workspace_id,
                 ai_structured_summary=ai_structured_summary,
                 file_content=content,
                 content_type=file.content_type or "application/pdf"
@@ -128,6 +132,7 @@ async def analyze_document(
         # Return response with ALL required fields for frontend
         response_data = {
             "id": doc_id,
+            "workspace_id": workspace_id,
             "filename": file.filename,
             "summary": ai_structured_summary.get("overview", "Document processed successfully") if ai_structured_summary else "Document processed successfully",
             "ai_structured_summary": ai_structured_summary,
@@ -160,7 +165,7 @@ async def analyze_document(
 async def get_document_clauses(
     document_id: str,
     request: Request,
-    current_user: dict = Depends(get_current_user)
+    workspace_id: str = Depends(get_workspace_id)
 ):
     """Get clauses for a specific document."""
     correlation_id = getattr(request.state, 'correlation_id', None)
@@ -169,7 +174,7 @@ async def get_document_clauses(
         service = get_document_service()
 
         # Get the document
-        document = await service.get_document_for_user(document_id, current_user["id"])
+        document = await service.get_document_for_workspace(document_id, workspace_id)
         if not document:
             return create_error_response(
                 code="DOCUMENT_NOT_FOUND",
@@ -177,34 +182,12 @@ async def get_document_clauses(
                 correlation_id=correlation_id
             )
 
-        # Get user's preferred model
-        user_model = await service.get_user_preferred_model(current_user["id"])
-
-        # Check if LLM processing is available
-        if not is_llm_processing_available():
-            return create_error_response(
-                code="LLM_NOT_AVAILABLE",
-                message="AI processing is not available. Please check OpenAI API configuration.",
-                correlation_id=correlation_id
-            )
-
-        # Use LLM-based clause extraction
-        # MIGRATED: Keep main functions from ai_service for API stability
-        from services.ai_service import extract_clauses_with_llm, detect_contract_type
-
-        # Detect contract type first (or use saved one if available)
-        contract_type = document.get("contract_type")
-        if not contract_type:
-            contract_type = await detect_contract_type(document.get("text", ""), document.get("filename", ""), user_model)
-        else:
-            # Convert string back to ContractType enum
-            from clauseiq_types.common import ContractType
-            contract_type = ContractType(contract_type)
-
-        analyzed_clauses = await extract_clauses_with_llm(document.get("text", ""), contract_type, user_model)
-
-        # Calculate risk summary using service method
-        risk_summary = calculate_risk_summary(analyzed_clauses)
+        # Viewing saved analysis never starts a new provider request.
+        analyzed_clauses = document.get("clauses") or []
+        risk_summary = document.get("risk_summary") or {
+            level: sum(clause.get("risk_level") == level for clause in analyzed_clauses)
+            for level in ("high", "medium", "low")
+        }
 
         response_data = {
             "clauses": analyzed_clauses,
@@ -218,6 +201,8 @@ async def get_document_clauses(
             correlation_id=correlation_id
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Document clause retrieval failed: %s", type(e).__name__)
         return create_error_response(
@@ -233,20 +218,23 @@ async def get_document_clauses(
 async def get_document_interactions(
     document_id: str,
     request: Request,
-    current_user: dict = Depends(get_current_user)
+    workspace_id: str = Depends(get_workspace_id)
 ):
     """Get all user interactions (notes and flags) for a document."""
     correlation_id = getattr(request.state, 'correlation_id', None)
 
     try:
         service = get_document_service()
-        interactions = await service.get_user_interactions(document_id, current_user["id"])
+        await _require_document(service, document_id, workspace_id)
+        interactions = await service.get_user_interactions(document_id, workspace_id)
 
         return create_success_response(
-            data={"interactions": interactions or {}},
+            data={"interactions": without_legacy_owner_fields(interactions or {})},
             correlation_id=correlation_id
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("User interaction retrieval failed: %s", type(e).__name__)
         return create_error_response(
@@ -263,13 +251,15 @@ async def save_clause_interaction(
     clause_id: str,
     request: Request,
     interaction_data: UserInteractionRequest,
-    current_user: dict = Depends(get_current_user)
+    workspace_id: str = Depends(get_workspace_id)
 ):
     """Save or update user interaction (note and/or flag) for a specific clause."""
     correlation_id = getattr(request.state, 'correlation_id', None)
 
     try:
         service = get_document_service()
+
+        await _require_clause(service, document_id, clause_id, workspace_id)
 
         # Validate interaction data
         note = interaction_data.note
@@ -279,17 +269,19 @@ async def save_clause_interaction(
         saved_interaction = await service.save_user_interaction(
             document_id=document_id,
             clause_id=clause_id,
-            user_id=current_user["id"],
+            workspace_id=workspace_id,
             note=note,
             is_flagged=is_flagged
         )
 
         return create_success_response(
-            data={"interaction": saved_interaction},
-            message="Interaction saved successfully",
+            data={"interaction": without_legacy_owner_fields(saved_interaction)},
+            meta={"message": "Interaction saved successfully"},
             correlation_id=correlation_id
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("User interaction save failed: %s", type(e).__name__)
         return create_error_response(
@@ -305,7 +297,7 @@ async def delete_clause_interaction(
     document_id: str,
     clause_id: str,
     request: Request,
-    current_user: dict = Depends(get_current_user)
+    workspace_id: str = Depends(get_workspace_id)
 ):
     """Delete user interaction for a specific clause."""
     correlation_id = getattr(request.state, 'correlation_id', None)
@@ -313,18 +305,22 @@ async def delete_clause_interaction(
     try:
         service = get_document_service()
 
+        await _require_clause(service, document_id, clause_id, workspace_id)
+
         await service.delete_user_interaction(
             document_id=document_id,
             clause_id=clause_id,
-            user_id=current_user["id"]
+            workspace_id=workspace_id
         )
 
         return create_success_response(
             data={"deleted": True},
-            message="Interaction deleted successfully",
+            meta={"message": "Interaction deleted successfully"},
             correlation_id=correlation_id
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("User interaction deletion failed: %s", type(e).__name__)
         return create_error_response(
@@ -343,7 +339,7 @@ async def add_clause_note(
     clause_id: str,
     request: Request,
     note_data: NoteRequest,
-    current_user: dict = Depends(get_current_user)
+    workspace_id: str = Depends(get_workspace_id)
 ):
     """Add a new note to a specific clause."""
     correlation_id = getattr(request.state, 'correlation_id', None)
@@ -351,19 +347,23 @@ async def add_clause_note(
     try:
         service = get_document_service()
 
+        await _require_clause(service, document_id, clause_id, workspace_id)
+
         # Add the note
         new_note = await service.add_note(
             document_id=document_id,
             clause_id=clause_id,
-            user_id=current_user["id"],
+            workspace_id=workspace_id,
             text=note_data.text
         )
 
         return create_success_response(
-            data={"note": new_note},
+            data={"note": without_legacy_owner_fields(new_note)},
             correlation_id=correlation_id
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Clause note creation failed: %s", type(e).__name__)
         return create_error_response(
@@ -381,7 +381,7 @@ async def update_clause_note(
     note_id: str,
     request: Request,
     note_data: NoteRequest,
-    current_user: dict = Depends(get_current_user)
+    workspace_id: str = Depends(get_workspace_id)
 ):
     """Update an existing note."""
     correlation_id = getattr(request.state, 'correlation_id', None)
@@ -389,17 +389,19 @@ async def update_clause_note(
     try:
         service = get_document_service()
 
+        await _require_clause(service, document_id, clause_id, workspace_id)
+
         # Update the note
         updated_note = await service.update_note(
             document_id=document_id,
             clause_id=clause_id,
-            user_id=current_user["id"],
+            workspace_id=workspace_id,
             note_id=note_id,
             text=note_data.text
         )
 
         return create_success_response(
-            data={"note": updated_note},
+            data={"note": without_legacy_owner_fields(updated_note)},
             correlation_id=correlation_id
         )
 
@@ -409,6 +411,8 @@ async def update_clause_note(
             message="Note not found",
             correlation_id=correlation_id
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Clause note update failed: %s", type(e).__name__)
         return create_error_response(
@@ -425,7 +429,7 @@ async def delete_clause_note(
     clause_id: str,
     note_id: str,
     request: Request,
-    current_user: dict = Depends(get_current_user)
+    workspace_id: str = Depends(get_workspace_id)
 ):
     """Delete a specific note."""
     correlation_id = getattr(request.state, 'correlation_id', None)
@@ -433,10 +437,12 @@ async def delete_clause_note(
     try:
         service = get_document_service()
 
+        await _require_clause(service, document_id, clause_id, workspace_id)
+
         success = await service.delete_note(
             document_id=document_id,
             clause_id=clause_id,
-            user_id=current_user["id"],
+            workspace_id=workspace_id,
             note_id=note_id
         )
 
@@ -452,6 +458,8 @@ async def delete_clause_note(
             correlation_id=correlation_id
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Clause note deletion failed: %s", type(e).__name__)
         return create_error_response(
@@ -471,7 +479,7 @@ async def generate_clause_rewrite_endpoint(
     clause_id: str,
     request: Request,
     rewrite_request: ClauseRewriteRequest,
-    current_user: dict = Depends(get_current_user)
+    workspace_id: str = Depends(get_workspace_id)
 ):
     """Generate a rewrite suggestion for a specific clause."""
     correlation_id = getattr(request.state, 'correlation_id', None)
@@ -479,20 +487,8 @@ async def generate_clause_rewrite_endpoint(
     try:
         service = get_document_service()
 
-        # Check if user has an API key set
-        user_api_key = await service.get_user_api_key(current_user["id"])
-        if not user_api_key:
-            return create_error_response(
-                code="API_KEY_REQUIRED",
-                message="Please add your OpenAI API key in Settings before generating rewrites.",
-                correlation_id=correlation_id
-            )
-
-        # Get user's preferred model
-        user_model = await service.get_user_preferred_model(current_user["id"])
-
         # Fetch the document to get full text and contract type
-        document = await service.get_document_for_user(rewrite_request.document_id, current_user["id"])
+        document = await service.get_document_for_workspace(rewrite_request.document_id, workspace_id)
         if not document:
             return create_error_response(
                 code="DOCUMENT_NOT_FOUND",
@@ -526,27 +522,36 @@ async def generate_clause_rewrite_endpoint(
                 correlation_id=correlation_id
             )
 
-        # Generate rewrite using AI with user's API key
+        # Generate rewrite using AI with workspace API key
+        workspace_api_key = await service.get_workspace_api_key(workspace_id)
+        if not workspace_api_key:
+            return create_error_response(
+                code="API_KEY_REQUIRED",
+                message="Please add your OpenAI API key in Settings before generating rewrites.",
+                correlation_id=correlation_id
+            )
+        workspace_model = await service.get_workspace_model(workspace_id)
+
         from clauseiq_types.common import Clause, ContractType
-        from services.ai.client_manager import user_openai_client
+        from services.ai.client_manager import workspace_openai_client
 
         # Convert dict to Clause object
         clause_obj = Clause(**clause)
         contract_type = ContractType(document.get("contract_type", "OTHER"))
 
-        async with user_openai_client(user_api_key):
+        async with workspace_openai_client(workspace_api_key):
             rewrite_suggestion = await generate_clause_rewrite(
                 clause=clause_obj,
                 document_text=document["text"],
                 contract_type=contract_type,
-                model=user_model
+                model=workspace_model
             )
 
         # Save rewrite to database
         updated_clause = await service.update_clause_rewrite(
             document_id=rewrite_request.document_id,
             clause_id=clause_id,
-            user_id=current_user["id"],
+            workspace_id=workspace_id,
             rewrite_suggestion=rewrite_suggestion
         )
 
@@ -559,6 +564,8 @@ async def generate_clause_rewrite_endpoint(
             correlation_id=correlation_id
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Clause rewrite request failed: %s", type(e).__name__)
         return create_error_response(

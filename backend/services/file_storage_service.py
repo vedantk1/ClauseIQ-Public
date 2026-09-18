@@ -1,7 +1,7 @@
 """
 File Storage Service for ClauseIQ - GridFS Implementation.
 
-Handles PDF file storage using MongoDB GridFS with user isolation and security.
+Handles PDF file storage using MongoDB GridFS with workspace isolation and security.
 Designed for bulletproof integration with existing ClauseIQ architecture.
 """
 import asyncio
@@ -28,32 +28,39 @@ class FileStorageInterface(ABC):
 
     @abstractmethod
     async def store_file(self, file_data: bytes, filename: str, content_type: str,
-                        user_id: str, metadata: Optional[Dict[str, Any]] = None) -> str:
+                        workspace_id: str, metadata: Optional[Dict[str, Any]] = None) -> str:
         """Store file and return file ID."""
         pass
 
     @abstractmethod
-    async def get_file(self, file_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+    async def get_file(self, file_id: str, workspace_id: str) -> Optional[Dict[str, Any]]:
         """Get file metadata and content stream."""
         pass
 
     @abstractmethod
-    async def get_file_stream(self, file_id: str, user_id: str) -> Optional[AsyncGenerator[bytes, None]]:
+    async def get_file_stream(self, file_id: str, workspace_id: str) -> Optional[AsyncGenerator[bytes, None]]:
         """Get file content as async stream."""
         pass
 
     @abstractmethod
-    async def delete_file(self, file_id: str, user_id: str) -> bool:
+    async def delete_file(self, file_id: str, workspace_id: str) -> bool:
         """Delete file."""
         pass
 
     @abstractmethod
-    async def file_exists(self, file_id: str, user_id: str) -> bool:
+    async def delete_document_files(
+        self, document_id: str, workspace_id: str, referenced_file_id: Optional[str] = None
+    ) -> bool:
+        """Delete all files in one document's workspace namespace."""
+        pass
+
+    @abstractmethod
+    async def file_exists(self, file_id: str, workspace_id: str) -> bool:
         """Check if file exists."""
         pass
 
     @abstractmethod
-    async def get_file_metadata(self, file_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+    async def get_file_metadata(self, file_id: str, workspace_id: str) -> Optional[Dict[str, Any]]:
         """Get file metadata without content."""
         pass
 
@@ -122,7 +129,7 @@ class GridFSFileStorage(FileStorageInterface):
         return hashlib.sha256(file_data).hexdigest()
 
     async def store_file(self, file_data: bytes, filename: str, content_type: str,
-                        user_id: str, metadata: Optional[Dict[str, Any]] = None) -> str:
+                        workspace_id: str, metadata: Optional[Dict[str, Any]] = None) -> str:
         """Store file in GridFS and return file ID."""
         await self._ensure_initialized()
 
@@ -135,7 +142,7 @@ class GridFSFileStorage(FileStorageInterface):
 
             # Prepare metadata
             file_metadata = {
-                'user_id': user_id,
+                'workspace_id': workspace_id,
                 'original_filename': filename,
                 'content_type': content_type,
                 'file_size': len(file_data),
@@ -148,6 +155,7 @@ class GridFSFileStorage(FileStorageInterface):
             # Add additional metadata if provided
             if metadata:
                 file_metadata.update(metadata)
+            file_metadata['workspace_id'] = workspace_id
 
             # Store file in GridFS using Motor's async GridFS bucket API
             file_stream = BytesIO(file_data)
@@ -166,12 +174,12 @@ class GridFSFileStorage(FileStorageInterface):
             logger.error("GridFS file storage failed: %s", type(e).__name__)
             raise
 
-    async def get_file(self, file_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+    async def get_file(self, file_id: str, workspace_id: str) -> Optional[Dict[str, Any]]:
         """Get file metadata and content.
 
         Args:
             file_id: The file ID to retrieve
-            user_id: The user ID to verify ownership
+            workspace_id: The workspace ID to verify scope
         """
         await self._ensure_initialized()
 
@@ -183,7 +191,7 @@ class GridFSFileStorage(FileStorageInterface):
             grid_out = await self._gridfs.open_download_stream(object_id)
 
             # Verify user ownership
-            if grid_out.metadata.get('user_id') != user_id:
+            if grid_out.metadata.get('workspace_id') != workspace_id:
                 logger.warning("Rejected unauthorized GridFS file access")
                 return None
 
@@ -207,7 +215,7 @@ class GridFSFileStorage(FileStorageInterface):
             logger.error("GridFS file retrieval failed: %s", type(e).__name__)
             return None
 
-    async def get_file_stream(self, file_id: str, user_id: str) -> Optional[AsyncGenerator[bytes, None]]:
+    async def get_file_stream(self, file_id: str, workspace_id: str) -> Optional[AsyncGenerator[bytes, None]]:
         """Get file content as async stream for efficient downloading."""
         await self._ensure_initialized()
 
@@ -219,7 +227,7 @@ class GridFSFileStorage(FileStorageInterface):
             grid_out = await self._gridfs.open_download_stream(object_id)
 
             # Verify user ownership
-            if grid_out.metadata.get('user_id') != user_id:
+            if grid_out.metadata.get('workspace_id') != workspace_id:
                 logger.warning("Rejected unauthorized GridFS file stream")
                 return None
 
@@ -241,7 +249,7 @@ class GridFSFileStorage(FileStorageInterface):
             logger.error("GridFS file streaming failed: %s", type(e).__name__)
             return None
 
-    async def delete_file(self, file_id: str, user_id: str) -> bool:
+    async def delete_file(self, file_id: str, workspace_id: str) -> bool:
         """Delete file from GridFS."""
         await self._ensure_initialized()
 
@@ -249,15 +257,15 @@ class GridFSFileStorage(FileStorageInterface):
             # Convert string ID to ObjectId
             object_id = ObjectId(file_id)
 
-            # First, verify user ownership by getting file metadata
+            # First, verify workspace scope by getting file metadata
             try:
                 grid_out = await self._gridfs.open_download_stream(object_id)
-                if grid_out.metadata.get('user_id') != user_id:
+                if grid_out.metadata.get('workspace_id') != workspace_id:
                     logger.warning("Rejected unauthorized GridFS file deletion")
                     return False
             except NoFile:
                 logger.info("GridFS file not found for deletion")
-                return False
+                return True  # Idempotent cleanup after an interrupted deletion.
 
             # Delete the file using GridFS bucket API
             await self._gridfs.delete(object_id)
@@ -269,8 +277,39 @@ class GridFSFileStorage(FileStorageInterface):
             logger.error("GridFS file deletion failed: %s", type(e).__name__)
             return False
 
-    async def file_exists(self, file_id: str, user_id: str) -> bool:
-        """Check if file exists and user has access."""
+    async def delete_document_files(
+        self, document_id: str, workspace_id: str, referenced_file_id: Optional[str] = None
+    ) -> bool:
+        """Delete only PDFs linked to this document, including superseded files.
+
+        Check a current pointer before deleting anything. A corrupt pointer must
+        never delete another document's file. Missing files are already clean.
+        """
+        await self._ensure_initialized()
+        try:
+            files = self._db["pdf_files.files"]
+            if referenced_file_id:
+                referenced = await files.find_one({"_id": ObjectId(referenced_file_id)}, {"metadata": 1})
+                if referenced:
+                    metadata = referenced.get("metadata") or {}
+                    if metadata.get("workspace_id") != workspace_id or metadata.get("document_id") != document_id:
+                        logger.warning("Rejected inconsistent document PDF pointer")
+                        return False
+            async for record in files.find({
+                "metadata.workspace_id": workspace_id,
+                "metadata.document_id": document_id,
+            }, {"_id": 1}):
+                try:
+                    await self._gridfs.delete(record["_id"])
+                except NoFile:
+                    pass  # Safe to retry if another cleanup already removed it.
+            return True
+        except Exception as e:
+            logger.error("Document PDF cleanup failed: %s", type(e).__name__)
+            return False
+
+    async def file_exists(self, file_id: str, workspace_id: str) -> bool:
+        """Check if file exists and workspace has access."""
         await self._ensure_initialized()
 
         try:
@@ -288,13 +327,13 @@ class GridFSFileStorage(FileStorageInterface):
             file_doc = files[0]
             # The metadata is in the metadata field of the document
             file_metadata = file_doc.get('metadata', {})
-            return file_metadata.get('user_id') == user_id
+            return file_metadata.get('workspace_id') == workspace_id
 
         except Exception as e:
             logger.error("GridFS existence check failed: %s", type(e).__name__)
             return False
 
-    async def get_file_metadata(self, file_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+    async def get_file_metadata(self, file_id: str, workspace_id: str) -> Optional[Dict[str, Any]]:
         """Get file metadata without content."""
         await self._ensure_initialized()
 
@@ -306,7 +345,7 @@ class GridFSFileStorage(FileStorageInterface):
             grid_out = await self._gridfs.open_download_stream(object_id)
 
             # Verify user ownership
-            if grid_out.metadata.get('user_id') != user_id:
+            if grid_out.metadata.get('workspace_id') != workspace_id:
                 logger.warning("Rejected unauthorized GridFS metadata access")
                 return None
 
@@ -332,17 +371,8 @@ class GridFSFileStorage(FileStorageInterface):
         try:
             await self._ensure_initialized()
 
-            # Test basic GridFS operation
-            test_data = b"health_check"
-            test_stream = BytesIO(test_data)
-            test_id = await self._gridfs.upload_from_stream(
-                "health_check.txt",
-                test_stream,
-                metadata={'user_id': 'health_check', 'test': True}
-            )
-
-            # Clean up test file
-            await self._gridfs.delete(test_id)
+            # Health checks must not leave unowned test files after interruption.
+            await self._db.command("ping")
 
             return {
                 'status': 'healthy',

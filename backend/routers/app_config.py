@@ -14,7 +14,7 @@ router = APIRouter(prefix="/app-config", tags=["app-config"])
 
 
 class AppConfigResponse(BaseModel):
-    """Public UI configuration consumed before authentication."""
+    """Non-sensitive UI configuration for the local workspace."""
 
     toast_notifications_enabled: bool = True
 

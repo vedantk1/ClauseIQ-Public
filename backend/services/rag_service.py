@@ -14,7 +14,7 @@ DESIGN PRINCIPLES:
 ARCHITECTURE:
 - Document Chunking: Smart legal document segmentation
 - Embeddings: OpenAI text-embedding-3-large for maximum accuracy
-- Vector Storage: Qdrant (self-hosted) with user isolation via filtering
+- Vector Storage: Qdrant (self-hosted) with workspace isolation via filtering
 - RAG Pipeline: Retrieval + Generation with source attribution
 """
 import asyncio
@@ -88,7 +88,7 @@ class ChatSession:
     """Represents a chat session for a document."""
     session_id: str
     document_id: str
-    user_id: str
+    workspace_id: str
     messages: List[ChatMessage]
     created_at: str
     updated_at: str
@@ -296,7 +296,7 @@ class RAGService:
             # Return chunks without embeddings - graceful degradation
             return chunks
 
-    async def process_document_for_rag(self, document_id: str, text: str, filename: str, user_id: str) -> Dict[str, Any]:
+    async def process_document_for_rag(self, document_id: str, text: str, filename: str, workspace_id: str) -> Dict[str, Any]:
         """
         Process a document for RAG by creating chunks and storing them in the vector database.
         Returns data to be stored in MongoDB alongside existing document data.
@@ -327,7 +327,7 @@ class RAGService:
             vector_service = self._get_vector_service()
             storage_result = await vector_service.store_document_chunks(
                 document_id=document_id,
-                user_id=user_id,
+                workspace_id=workspace_id,
                 chunks=chunk_data
             )
 
@@ -378,14 +378,14 @@ class RAGService:
             return 0.0
 
     async def _needs_conversation_context(self, query: str) -> bool:
-        """Gate: Determine if query needs conversation context using admin-configured gate model."""
+        """Gate: Determine if query needs conversation context using workspace-configured gate model."""
         try:
             safe_openai_call = _get_rate_limited_openai_call()
             if not safe_openai_call:
                 logger.warning("Rate-limited OpenAI call not available for context gate")
                 return False
 
-            # Get the admin-configured query gate model
+            # Get the workspace-configured query gate model
             from database.service import get_document_service
             service = get_document_service()
             gate_model = await service.get_query_gate_model()
@@ -435,14 +435,14 @@ Response (YES or NO only):"""
             return False
 
     async def _rewrite_query_with_context(self, query: str, conversation_history: List[Dict[str, Any]]) -> str:
-        """Rewrite query using conversation context and admin-configured query gate model."""
+        """Rewrite query using conversation context and workspace-configured query gate model."""
         try:
             safe_openai_call = _get_rate_limited_openai_call()
             if not safe_openai_call:
                 logger.warning("Rate-limited OpenAI call not available for query rewriting")
                 return query
 
-            # Use the same admin-configured model as query gate for rewrite calls
+            # Use the same workspace-configured model as query gate for rewrite calls
             from database.service import get_document_service
             service = get_document_service()
             gate_model = await service.get_query_gate_model()
@@ -509,7 +509,7 @@ REWRITTEN QUESTION:"""
         self,
         query: str,
         document_id: str,
-        user_id: str,
+        workspace_id: str,
         conversation_history: List[Dict[str, Any]] = None,
         max_chunks: int = None
     ) -> Dict[str, Any]:
@@ -539,7 +539,7 @@ REWRITTEN QUESTION:"""
             vector_service = self._get_vector_service()
             search_results = await vector_service.search_similar_chunks(
                 query=enhanced_query,
-                user_id=user_id,
+                workspace_id=workspace_id,
                 document_id=document_id,
                 k=max_chunks,
                 similarity_threshold=0.15
@@ -550,7 +550,7 @@ REWRITTEN QUESTION:"""
                 logger.info("🔄 Enhanced query found no results; retrying with the original query")
                 search_results = await vector_service.search_similar_chunks(
                     query=query,
-                    user_id=user_id,
+                    workspace_id=workspace_id,
                     document_id=document_id,
                     k=max_chunks,
                     similarity_threshold=0.1  # Even lower threshold for fallback
@@ -688,7 +688,7 @@ RESPONSE:"""
                 "error": "RAG response generation failed"
             }
 
-    async def _get_or_create_vector_store(self, user_id: str) -> str:
+    async def _get_or_create_vector_store(self, workspace_id: str) -> str:
         """
         LEGACY (OpenAI Vector Store) – not used in current architecture.
         Qdrant is the active vector storage via `QdrantVectorService`.
@@ -699,7 +699,7 @@ RESPONSE:"""
 
             # For now, create one vector store per user
             # In production, you might want to optimize this
-            vector_store_name = f"clauseiq-user-{user_id}"
+            vector_store_name = f"clauseiq-workspace-{workspace_id}"
 
             # Try to find existing vector store
             vector_stores = await client.vector_stores.list()
@@ -827,7 +827,7 @@ RESPONSE:"""
             # Last resort: return first few chunks
             return chunks[:max_chunks] if chunks else []
 
-    async def delete_document_from_rag(self, document_id: str, user_id: str) -> bool:
+    async def delete_document_from_rag(self, document_id: str, workspace_id: str) -> bool:
         """
         Delete all RAG data for a document when it's deleted from MongoDB.
         This ensures consistency between MongoDB and vector storage.
@@ -836,7 +836,7 @@ RESPONSE:"""
             vector_service = self._get_vector_service()
             deletion_result = await vector_service.delete_document_chunks(
                 document_id=document_id,
-                user_id=user_id
+                workspace_id=workspace_id
             )
 
             if deletion_result.get("success", False):
@@ -851,13 +851,13 @@ RESPONSE:"""
             logger.error("RAG document deletion failed: %s", type(e).__name__)
             return False
 
-    async def get_document_rag_status(self, document_id: str, user_id: str) -> Dict[str, Any]:
+    async def get_document_rag_status(self, document_id: str, workspace_id: str) -> Dict[str, Any]:
         """Get RAG processing status for a document."""
         try:
             # Get document from MongoDB
             from database.service import get_document_service
             doc_service = get_document_service()
-            document = await doc_service.get_document_for_user(document_id, user_id)
+            document = await doc_service.get_document_for_workspace(document_id, workspace_id)
 
             if not document:
                 return {"available": False, "error": "Document not found"}
@@ -869,7 +869,7 @@ RESPONSE:"""
 
             # Get chunk count from Qdrant
             vector_service = self._get_vector_service()
-            chunk_count = await vector_service.get_document_chunk_count(document_id, user_id)
+            chunk_count = await vector_service.get_document_chunk_count(document_id, workspace_id)
 
             return {
                 "available": True,

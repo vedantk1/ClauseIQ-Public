@@ -3,8 +3,7 @@
 import { apiClient } from "@/lib/api";
 
 /**
- * Legacy compatibility hook to replace useApiCall from AuthContext v1
- * This creates a fetch-like interface using the new APIClient
+ * A fetch-like interface for callers using the centralized local API client.
  */
 export const useApiCall = () => {
   return async (endpoint: string, options: RequestInit = {}) => {

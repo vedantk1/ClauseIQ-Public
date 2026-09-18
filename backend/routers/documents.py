@@ -1,14 +1,11 @@
 """
 Document management routes.
 """
-import uuid
 import logging
 from datetime import datetime
-from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, Response, Query
+from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, Response
 from fastapi.responses import StreamingResponse
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from typing import Optional
-from auth import get_current_user, verify_token
+from workspace import get_workspace_id
 from database.service import get_document_service
 from middleware.api_standardization import APIResponse
 from middleware.versioning import versioned_response
@@ -23,52 +20,9 @@ from models.document import (
 router = APIRouter(tags=["documents"])
 logger = logging.getLogger(__name__)
 
-# PDF authentication now uses standard header auth only (FND-003: removed query-token path)
-async def get_current_user_for_pdf(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=True))
-):
-    """Get current user for PDF viewing - uses Authorization header only."""
-    from database.service import get_document_service
-
-    auth_token = credentials.credentials
-
-    if not auth_token:
-        raise HTTPException(
-            status_code=401,
-            detail="Authentication required. Provide Authorization header."
-        )
-
-    # Verify token (sync function - no await needed)
-    payload = verify_token(auth_token)
-    if payload is None:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid authentication token"
-        )
-
-    user_id = payload.get("sub")
-    if user_id is None:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid token payload"
-        )
-
-    # Get user from database
-    service = get_document_service()
-    user = await service.get_user_by_id(user_id)
-
-    if user is None:
-        raise HTTPException(
-            status_code=401,
-            detail="User not found"
-        )
-
-    return user
-
-
 @router.post("/extract-text/", response_model=APIResponse[dict])
 @versioned_response("1.0")
-async def extract_text(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
+async def extract_text(file: UploadFile = File(...), workspace_id: str = Depends(get_workspace_id)):
     """Extract text from uploaded PDF file."""
     try:
         validate_file(file)
@@ -84,7 +38,7 @@ async def extract_text(file: UploadFile = File(...), current_user: dict = Depend
             return APIResponse(
                 success=True,
                 data={"text": extracted_text, "filename": file.filename},
-                message="Text extracted successfully"
+                meta={"message": "Text extracted successfully"}
             )
 
         except ValueError:
@@ -117,17 +71,17 @@ async def extract_text(file: UploadFile = File(...), current_user: dict = Depend
 
 @router.get("/documents/", response_model=APIResponse[DocumentListResponse])
 @versioned_response("1.0")
-async def list_documents(current_user: dict = Depends(get_current_user)):
-    """Get list of documents for the current user."""
+async def list_documents(workspace_id: str = Depends(get_workspace_id)):
+    """Get list of documents for the local workspace."""
     try:
         service = get_document_service()
-        user_docs = await service.get_documents_for_user(current_user["id"])
+        workspace_docs = await service.get_documents_for_workspace(workspace_id)
 
-        response_data = DocumentListResponse(documents=user_docs)
+        response_data = DocumentListResponse(documents=workspace_docs)
         return APIResponse(
             success=True,
             data=response_data,
-            message="Documents retrieved successfully"
+            meta={"message": "Documents retrieved successfully"}
         )
     except Exception as e:
         logger.error("Document list retrieval failed: %s", type(e).__name__)
@@ -139,11 +93,11 @@ async def list_documents(current_user: dict = Depends(get_current_user)):
 
 @router.get("/documents/{document_id}", response_model=APIResponse[DocumentDetailResponse])
 @versioned_response("1.0")
-async def retrieve_document(document_id: str, current_user: dict = Depends(get_current_user)):
+async def retrieve_document(document_id: str, workspace_id: str = Depends(get_workspace_id)):
     """Get a specific document by ID."""
     try:
         service = get_document_service()
-        document = await service.get_document_for_user(document_id, current_user["id"])
+        document = await service.get_document_for_workspace(document_id, workspace_id)
 
         if not document:
             raise HTTPException(status_code=404, detail="Document not found")
@@ -152,7 +106,7 @@ async def retrieve_document(document_id: str, current_user: dict = Depends(get_c
         return APIResponse(
             success=True,
             data=response_data,
-            message="Document retrieved successfully"
+            meta={"message": "Document retrieved successfully"}
         )
     except HTTPException:
         raise
@@ -166,24 +120,24 @@ async def retrieve_document(document_id: str, current_user: dict = Depends(get_c
 
 @router.post("/documents/{document_id}/view", response_model=APIResponse[dict])
 @versioned_response("1.0")
-async def track_document_view(document_id: str, current_user: dict = Depends(get_current_user)):
+async def track_document_view(document_id: str, workspace_id: str = Depends(get_workspace_id)):
     """Track that a document has been viewed by updating the last_viewed timestamp."""
     try:
         service = get_document_service()
 
-        # First verify the document exists and belongs to the user
-        document = await service.get_document_for_user(document_id, current_user["id"])
+        # First verify the document exists and belongs to the local workspace
+        document = await service.get_document_for_workspace(document_id, workspace_id)
         if not document:
             raise HTTPException(status_code=404, detail="Document not found")
 
         # Update the last_viewed timestamp
-        success = await service.update_document_last_viewed(document_id, current_user["id"])
+        success = await service.update_document_last_viewed(document_id, workspace_id)
 
         if success:
             return APIResponse(
                 success=True,
                 data={"last_viewed": datetime.now().isoformat()},
-                message="Document view tracked successfully"
+                meta={"message": "Document view tracked successfully"}
             )
         else:
             raise HTTPException(
@@ -203,18 +157,18 @@ async def track_document_view(document_id: str, current_user: dict = Depends(get
 
 @router.delete("/documents/{document_id}", response_model=APIResponse[dict])
 @versioned_response("1.0")
-async def delete_document(document_id: str, current_user: dict = Depends(get_current_user)):
+async def delete_document(document_id: str, workspace_id: str = Depends(get_workspace_id)):
     """Delete a specific document."""
     try:
         service = get_document_service()
 
-        # First check if the document exists and belongs to the user
-        document = await service.get_document_for_user(document_id, current_user["id"])
+        # First check if the document exists and belongs to the local workspace
+        document = await service.get_document_for_workspace(document_id, workspace_id)
         if not document:
             raise HTTPException(status_code=404, detail="Document not found")
 
         # Delete the document
-        success = await service.delete_document_for_user(document_id, current_user["id"])
+        success = await service.delete_document_for_workspace(document_id, workspace_id)
         if not success:
             raise HTTPException(
                 status_code=500,
@@ -224,7 +178,7 @@ async def delete_document(document_id: str, current_user: dict = Depends(get_cur
         return APIResponse(
             success=True,
             data={"message": "Document deleted successfully"},
-            message="Document deleted successfully"
+            meta={"message": "Document deleted successfully"}
         )
     except HTTPException:
         raise
@@ -238,22 +192,17 @@ async def delete_document(document_id: str, current_user: dict = Depends(get_cur
 
 @router.delete("/documents", response_model=APIResponse[dict])
 @versioned_response("1.0")
-async def delete_all_documents(current_user: dict = Depends(get_current_user)):
-    """Delete all documents for the current user."""
+async def delete_all_documents(workspace_id: str = Depends(get_workspace_id)):
+    """Delete all documents for the local workspace."""
     try:
         service = get_document_service()
 
-        success = await service.delete_all_documents_for_user(current_user["id"])
-        if not success:
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to delete documents",
-            )
+        deleted_count = await service.delete_all_documents_for_workspace(workspace_id)
 
         return APIResponse(
             success=True,
-            data={"message": "All documents deleted successfully"},
-            message="All documents deleted successfully"
+            data={"message": "All documents deleted successfully", "deleted_count": deleted_count},
+            meta={"message": "All documents deleted successfully"}
         )
     except Exception as e:
         logger.error("Bulk document deletion failed: %s", type(e).__name__)
@@ -268,14 +217,14 @@ async def delete_all_documents(current_user: dict = Depends(get_current_user)):
 @router.get("/documents/{document_id}/pdf")
 async def download_pdf(
     document_id: str,
-    current_user: dict = Depends(get_current_user_for_pdf)
+    workspace_id: str = Depends(get_workspace_id)
 ):
     """Download the original PDF file for a document."""
     try:
         service = get_document_service()
 
-        # First check if document exists and belongs to user
-        document = await service.get_document_for_user(document_id, current_user["id"])
+        # First check if document exists and belongs to the local workspace
+        document = await service.get_document_for_workspace(document_id, workspace_id)
         if not document:
             raise HTTPException(status_code=404, detail="Document not found")
 
@@ -284,7 +233,7 @@ async def download_pdf(
             raise HTTPException(status_code=404, detail="PDF file not available for this document")
 
         # Get PDF file metadata and stream
-        metadata, stream = await service.get_pdf_file_stream(document_id, current_user["id"])
+        metadata, stream = await service.get_pdf_file_stream(document_id, workspace_id)
 
         if not metadata or not stream:
             raise HTTPException(status_code=404, detail="PDF file not found")
@@ -313,18 +262,18 @@ async def download_pdf(
 
 
 @router.head("/documents/{document_id}/pdf")
-async def check_pdf_exists(document_id: str, current_user: dict = Depends(get_current_user)):
+async def check_pdf_exists(document_id: str, workspace_id: str = Depends(get_workspace_id)):
     """Check if PDF file exists for a document (HEAD request)."""
     try:
         service = get_document_service()
 
-        # Check if document exists and belongs to user
-        document = await service.get_document_for_user(document_id, current_user["id"])
+        # Check if document exists and belongs to the local workspace
+        document = await service.get_document_for_workspace(document_id, workspace_id)
         if not document:
             raise HTTPException(status_code=404, detail="Document not found")
 
         # Check if document has PDF file
-        has_pdf = await service.has_pdf_file(document_id, current_user["id"])
+        has_pdf = await service.has_pdf_file(document_id, workspace_id)
 
         if not has_pdf:
             raise HTTPException(status_code=404, detail="PDF file not available")
@@ -348,13 +297,13 @@ async def check_pdf_exists(document_id: str, current_user: dict = Depends(get_cu
 
 @router.get("/documents/{document_id}/pdf/metadata", response_model=APIResponse[dict])
 @versioned_response("1.0")
-async def get_pdf_metadata(document_id: str, current_user: dict = Depends(get_current_user)):
+async def get_pdf_metadata(document_id: str, workspace_id: str = Depends(get_workspace_id)):
     """Get PDF file metadata without downloading the file."""
     try:
         service = get_document_service()
 
-        # Check if document exists and belongs to user
-        document = await service.get_document_for_user(document_id, current_user["id"])
+        # Check if document exists and belongs to the local workspace
+        document = await service.get_document_for_workspace(document_id, workspace_id)
         if not document:
             raise HTTPException(status_code=404, detail="Document not found")
 
@@ -373,7 +322,7 @@ async def get_pdf_metadata(document_id: str, current_user: dict = Depends(get_cu
         if not pdf_file_id:
             raise HTTPException(status_code=404, detail="PDF file not found")
 
-        metadata = await file_storage.get_file_metadata(pdf_file_id, current_user["id"])
+        metadata = await file_storage.get_file_metadata(pdf_file_id, workspace_id)
 
         if not metadata:
             raise HTTPException(status_code=404, detail="PDF file metadata not found")
@@ -393,7 +342,7 @@ async def get_pdf_metadata(document_id: str, current_user: dict = Depends(get_cu
         return APIResponse(
             success=True,
             data=response_data,
-            message="PDF metadata retrieved successfully"
+            meta={"message": "PDF metadata retrieved successfully"}
         )
 
     except HTTPException:

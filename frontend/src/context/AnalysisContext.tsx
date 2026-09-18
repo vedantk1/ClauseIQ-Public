@@ -12,6 +12,8 @@ import React, {
 } from "react";
 import { useAppState } from "../store/appState";
 import { apiClient, handleAPIError, handleAPISuccess } from "../lib/api";
+import { loadWorkspaceDocuments } from "@/lib/documentsApi";
+import type { DocumentItem } from "@/types/documents";
 import type {
   Clause,
   RiskSummary,
@@ -32,7 +34,7 @@ export interface StructuredSummary {
 
 interface AnalysisContextType {
   // State from store
-  documents: Document[];
+  documents: DocumentItem[];
   currentDocument: {
     id: string | null;
     filename: string;
@@ -80,6 +82,7 @@ export const AnalysisProvider: React.FC<{ children: ReactNode }> = ({
 
       const response = await apiClient.uploadFile<{
         id: string;
+        workspace_id: string;
         filename: string;
         summary: string;
         ai_structured_summary?: StructuredSummary;
@@ -94,6 +97,7 @@ export const AnalysisProvider: React.FC<{ children: ReactNode }> = ({
       if (response.success && response.data) {
         const {
           id,
+          workspace_id,
           filename,
           summary,
           ai_structured_summary,
@@ -115,7 +119,7 @@ export const AnalysisProvider: React.FC<{ children: ReactNode }> = ({
           ai_structured_summary: ai_structured_summary || null,
           clauses,
           risk_summary: risk_summary,
-          user_id: "", // Will be set by backend
+          workspace_id,
           user_interactions: null,
           last_viewed: null, // Add missing property
         };
@@ -164,15 +168,11 @@ export const AnalysisProvider: React.FC<{ children: ReactNode }> = ({
     try {
       dispatch({ type: "ANALYSIS_SET_LOADING", payload: true });
 
-      const response = await apiClient.get<Document[]>("/documents/");
-
-      if (response.success && response.data) {
-        dispatch({ type: "ANALYSIS_SET_DOCUMENTS", payload: response.data });
-      } else {
-        handleAPIError(response, "Failed to load documents");
-      }
-    } catch {
-      console.error("Failed to load documents");
+      const documents = await loadWorkspaceDocuments();
+      dispatch({ type: "ANALYSIS_SET_DOCUMENTS", payload: documents });
+    } catch (error) {
+      dispatch({ type: "ANALYSIS_SET_ERROR", payload: error instanceof Error ? error.message : "Failed to load documents" });
+      throw error;
     } finally {
       dispatch({ type: "ANALYSIS_SET_LOADING", payload: false });
     }
@@ -244,6 +244,7 @@ export const AnalysisProvider: React.FC<{ children: ReactNode }> = ({
               response.error?.message || "Failed to load document";
             dispatch({ type: "ANALYSIS_SET_ERROR", payload: errorMessage });
             handleAPIError(response, "Failed to load document");
+            throw new Error(errorMessage);
           }
         } catch (error) {
           const errorMessage =

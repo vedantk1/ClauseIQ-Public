@@ -2,8 +2,8 @@
 Environment-specific configuration management for ClauseIQ.
 Provides configuration validation and environment-aware settings.
 """
-import os
 from enum import Enum
+from urllib.parse import urlsplit
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field, validator
 from pydantic_settings import BaseSettings
@@ -52,30 +52,6 @@ class ServerConfig(BaseModel):
         return v or []
 
 
-class SecurityConfig(BaseModel):
-    """Security configuration with validation."""
-    jwt_secret_key: str = Field(..., min_length=32, description="JWT secret key")
-    jwt_algorithm: str = Field(default="HS256", description="JWT algorithm")
-    access_token_expire_minutes: int = Field(default=30, ge=1, description="Access token expiry")
-    refresh_token_expire_days: int = Field(default=7, ge=1, description="Refresh token expiry")
-    password_reset_token_expire_minutes: int = Field(default=30, ge=1, description="Password reset token expiry")
-    frontend_url: str = Field(default="http://localhost:3000", description="Frontend URL for email links")
-
-    # Known weak/placeholder secrets that must not be used in production (FND-012)
-    _PLACEHOLDER_SECRETS = {
-        "your-super-secret-jwt-key-change-this-in-production-make-it-long-and-random",
-        "change-this-in-production",
-        "secret",
-        "your-secret-key",
-    }
-
-    @validator('jwt_secret_key')
-    def validate_jwt_secret(cls, v):
-        if len(v) < 32:
-            raise ValueError('JWT secret key must be at least 32 characters long')
-        return v
-
-
 class AIConfig(BaseModel):
     """AI model and generation configuration with validation."""
     default_model: str = Field(default="gpt-5", description="Default AI model")
@@ -114,26 +90,6 @@ class FileUploadConfig(BaseModel):
         return v or [".pdf"]
 
 
-class EmailConfig(BaseModel):
-    """Email configuration with validation."""
-    smtp_host: str = Field(default="smtp.gmail.com", description="SMTP host")
-    smtp_port: int = Field(default=587, ge=1, le=65535, description="SMTP port")
-    smtp_username: str = Field(default="", description="SMTP username")
-    smtp_password: str = Field(default="", description="SMTP password")
-    email_from: str = Field(default="noreply@clauseiq.com", description="From email address")
-    email_from_name: str = Field(default="ClauseIQ", description="From name")
-    verification_required: bool = Field(
-        default=False,
-        description="Whether users must verify their email before using protected features",
-    )
-
-    @validator('email_from')
-    def validate_email(cls, v):
-        if v and '@' not in v:
-            raise ValueError('Invalid email address format')
-        return v
-
-
 class EnvironmentConfig(BaseSettings):
     """Full application configuration with environment variable support."""
     # Environment
@@ -153,18 +109,13 @@ class EnvironmentConfig(BaseSettings):
     mongodb_server_selection_timeout_ms: int = Field(default=30000, description="MongoDB server selection timeout in milliseconds")
 
     # Server
-    host: str = Field(default="localhost", description="Server host")
+    host: str = Field(default="127.0.0.1", description="Server host")
     port: int = Field(default=8000, description="Server port")
-    cors_origins: str = Field(default="http://localhost:3000", description="CORS allowed origins")
+    cors_origins: str = Field(default="http://localhost:3000,http://127.0.0.1:3000", description="Local frontend origins")
     debug: bool = Field(default=False, description="Debug mode")
 
-    # Security
-    jwt_secret_key: str = Field(default="your-super-secret-jwt-key-change-this-in-production-make-it-long-and-random", description="JWT secret key")
-    jwt_algorithm: str = Field(default="HS256", description="JWT algorithm")
-    jwt_access_token_expire_minutes: int = Field(default=30, description="Access token expiry")
-    jwt_refresh_token_expire_days: int = Field(default=7, description="Refresh token expiry")
-    jwt_password_reset_token_expire_minutes: int = Field(default=30, description="Password reset token expiry")
-    frontend_url: str = Field(default="http://localhost:3000", description="Frontend URL for email links")
+    # Relative paths are resolved from the backend directory, including in Docker.
+    workspace_state_dir: str = Field(default=".local-only/workspace", description="Private local credential state directory")
 
     # AI
     openai_default_model: str = Field(default="gpt-5", description="Default AI model")
@@ -184,21 +135,6 @@ class EnvironmentConfig(BaseSettings):
     max_file_size_mb: int = Field(default=10, description="Maximum file size in MB")
     allowed_file_types: str = Field(default=".pdf", description="Allowed file extensions")
     storage_dir: str = Field(default="./documents_storage", description="Storage directory")
-
-    # Email
-    smtp_host: str = Field(default="smtp.gmail.com", description="SMTP host")
-    smtp_port: int = Field(default=587, description="SMTP port")
-    smtp_username: str = Field(default="", description="SMTP username")
-    smtp_password: str = Field(default="", description="SMTP password")
-    email_from: str = Field(default="noreply@clauseiq.com", description="From email address")
-    email_from_name: str = Field(default="ClauseIQ", description="From name")
-    email_verification_required: Optional[bool] = Field(
-        default=None,
-        description=(
-            "Email-verification override for development/testing; "
-            "staging and production always require verification"
-        ),
-    )
 
     model_config = {
         "env_file": ".env",
@@ -232,18 +168,6 @@ class EnvironmentConfig(BaseSettings):
         )
 
     @property
-    def security(self) -> SecurityConfig:
-        """Get security configuration."""
-        return SecurityConfig(
-            jwt_secret_key=self.jwt_secret_key,
-            jwt_algorithm=self.jwt_algorithm,
-            access_token_expire_minutes=self.jwt_access_token_expire_minutes,
-            refresh_token_expire_days=self.jwt_refresh_token_expire_days,
-            password_reset_token_expire_minutes=self.jwt_password_reset_token_expire_minutes,
-            frontend_url=self.frontend_url
-        )
-
-    @property
     def ai(self) -> AIConfig:
         """Get AI configuration."""
         return AIConfig(
@@ -274,27 +198,6 @@ class EnvironmentConfig(BaseSettings):
             storage_dir=self.storage_dir
         )
 
-    @property
-    def email(self) -> EmailConfig:
-        """Get email configuration."""
-        return EmailConfig(
-            smtp_host=self.smtp_host,
-            smtp_port=self.smtp_port,
-            smtp_username=self.smtp_username,
-            smtp_password=self.smtp_password,
-            email_from=self.email_from,
-            email_from_name=self.email_from_name,
-            verification_required=self.requires_email_verification(),
-        )
-
-    def requires_email_verification(self) -> bool:
-        """Resolve the email-verification policy with fail-closed hosted defaults."""
-        if self.environment in (Environment.STAGING, Environment.PRODUCTION):
-            return True
-        if self.email_verification_required is not None:
-            return self.email_verification_required
-        return False
-
     def is_development(self) -> bool:
         """Check if running in development environment."""
         return self.environment == Environment.DEVELOPMENT
@@ -315,30 +218,18 @@ class EnvironmentConfig(BaseSettings):
             "database_name": self.database.database,
             "cors_origins": self.server.cors_origins,
             "max_file_size": self.file_upload.max_file_size_mb,
-            "email_verification_required": self.requires_email_verification(),
         }
 
 
 def get_environment_config() -> EnvironmentConfig:
-    """Get validated environment configuration.\n    \n    FND-012: Rejects placeholder/default secrets in production/staging to prevent insecure deployments.\n    """
+    """Validate a local-only installation; hosted modes are unsupported."""
     config = EnvironmentConfig()
-
-    # FND-012: Fail fast if production/staging is using placeholder secrets
     if config.environment in (Environment.PRODUCTION, Environment.STAGING):
-        if config.jwt_secret_key in SecurityConfig._PLACEHOLDER_SECRETS:
-            raise RuntimeError(
-                f"FATAL: JWT_SECRET_KEY is set to a known placeholder value in {config.environment.value} environment. "
-                "Set a strong, unique secret via the JWT_SECRET_KEY environment variable."
-            )
-
-        import os
-        encryption_secret = os.getenv("API_KEY_ENCRYPTION_SECRET", "")
-        if not encryption_secret:
-            import warnings
-            warnings.warn(
-                "API_KEY_ENCRYPTION_SECRET is not set — falling back to JWT_SECRET_KEY for encryption. "
-                "Set a dedicated API_KEY_ENCRYPTION_SECRET for proper separation of concerns.",
-                stacklevel=2,
-            )
-
+        raise RuntimeError("ClauseIQ supports local development/testing only, not hosted environments.")
+    for origin in config.server.cors_origins:
+        parsed = urlsplit(origin)
+        if (parsed.scheme not in ("http", "https") or parsed.hostname not in
+                ("localhost", "127.0.0.1", "::1") or parsed.username or parsed.password
+                or parsed.path or parsed.query or parsed.fragment):
+            raise ValueError("CORS_ORIGINS must contain exact loopback browser origins only")
     return config

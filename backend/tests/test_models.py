@@ -22,9 +22,7 @@ sys.path.insert(0, str(shared_dir))
 from models.common import Clause, ClauseType, RiskLevel, ContractType
 from clauseiq_types.common import (
     Clause as SharedClause,
-    RiskSummary,
-    User,
-    UserPreferences
+    RiskSummary
 )
 
 
@@ -184,48 +182,6 @@ class TestRiskSummary:
         # This test might pass if no validator exists - that's okay for now
         assert summary.high == -1  # Currently allowed, but we know about it
 
-
-class TestUser:
-    """Test the User model validation."""
-
-    def test_user_creation_valid_data(self):
-        """Test User creation with valid data."""
-        user_data = {
-            "id": "user-123",
-            "email": "test@example.com",
-            "full_name": "John Doe",
-            "created_at": "2025-09-10T10:00:00Z"
-        }
-
-        user = User(**user_data)
-
-        assert user.id == "user-123"
-        assert user.email == "test@example.com"
-        assert user.full_name == "John Doe"
-        assert user.created_at == "2025-09-10T10:00:00Z"
-
-    def test_user_missing_required_fields(self):
-        """Test that missing required fields raise ValidationError."""
-        incomplete_data = {
-            "email": "test@example.com"
-            # Missing id, full_name, created_at
-        }
-
-        with pytest.raises(ValidationError):
-            User(**incomplete_data)
-
-
-class TestUserPreferences:
-    """Test the UserPreferences model validation."""
-
-    def test_user_preferences_valid_data(self):
-        """Test UserPreferences creation with valid data."""
-        prefs_data = {
-            "preferred_model": "gpt-4.1"
-        }
-
-        prefs = UserPreferences(**prefs_data)
-        assert prefs.preferred_model == "gpt-4.1"
 
 
 class TestEnums:

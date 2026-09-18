@@ -27,19 +27,7 @@ class RateLimiter:
         client_ip = get_real_client_ip(request)
         user_agent = request.headers.get("user-agent", "")
 
-        # If authenticated, use user ID from JWT
-        auth_header = request.headers.get("authorization", "")
-        if auth_header.startswith("Bearer "):
-            try:
-                from auth import verify_token
-                token = auth_header.split(" ")[1]
-                payload = verify_token(token, expected_type=None)
-                if payload:
-                    return f"user:{payload.get('sub', 'unknown')}"
-            except:
-                pass
-
-        # Fallback to IP-based identification
+        # Local connection identification, without account state.
         identifier = f"{client_ip}:{hashlib.md5(user_agent.encode()).hexdigest()[:8]}"
         return f"ip:{identifier}"
 
@@ -99,10 +87,8 @@ class RateLimitConfig:
 
     # Default limits (requests per minute)
     DEFAULT = {"limit": 60, "window": 60}
-    AUTH = {"limit": 30, "window": 60}  # Allow more auth requests for login flows
     UPLOAD = {"limit": 10, "window": 60}  # Limited for file uploads
     AI_ANALYSIS = {"limit": 20, "window": 60}  # Limited for expensive AI operations
-    AI_DEBUG = {"limit": 300, "window": 60}  # High limit for AI debug endpoints to prevent loops
 
 
 def _normalize_path(path: str) -> str:
@@ -112,22 +98,7 @@ def _normalize_path(path: str) -> str:
 
 
 def get_real_client_ip(request: Request) -> str:
-    """Extract real client IP from proxy headers (FND-007).
-
-    Trusts X-Forwarded-For and X-Real-IP headers set by our Nginx reverse proxy.
-    Falls back to request.client.host.
-    """
-    # X-Real-IP is set by our Nginx config — single trusted hop
-    x_real_ip = request.headers.get("x-real-ip")
-    if x_real_ip:
-        return x_real_ip.strip()
-
-    # X-Forwarded-For: take the leftmost (original client) IP
-    x_forwarded_for = request.headers.get("x-forwarded-for")
-    if x_forwarded_for:
-        # First IP in the chain is the original client
-        return x_forwarded_for.split(",")[0].strip()
-
+    """Use the direct peer; local installations have no trusted proxy."""
     return request.client.host if request.client else "unknown"
 
 
@@ -137,14 +108,10 @@ async def rate_limit_middleware(request: Request, call_next):
         # FND-006: Normalize path to match both /api/v1/* and bare paths
         path = _normalize_path(request.url.path)
 
-        if path.startswith("/auth/"):
-            config = RateLimitConfig.AUTH
-        elif path.startswith("/documents/") and request.method == "POST":
+        if path.startswith("/documents/") and request.method == "POST":
             config = RateLimitConfig.UPLOAD
         elif path.startswith("/analysis/"):
             config = RateLimitConfig.AI_ANALYSIS
-        elif path.startswith("/ai-debug/"):
-            config = RateLimitConfig.AI_DEBUG
         else:
             config = RateLimitConfig.DEFAULT
 
@@ -161,15 +128,11 @@ async def rate_limit_middleware(request: Request, call_next):
             from middleware.security import security_monitor
             security_monitor.record_suspicious_activity(client_key, "rate_limit_exceeded")
 
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail={
-                    "error": "Rate limit exceeded",
-                    "limit": config["limit"],
-                    "window": config["window"],
-                    "reset_time": info["reset_time"]
-                }
-            )
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=429, content={
+                "success": False,
+                "error": {"code": "RATE_LIMIT_EXCEEDED", "message": "Rate limit exceeded"},
+            }, headers={"Retry-After": str(max(1, int(info["reset_time"] - time.time())))})
 
         # Process request
         response = await call_next(request)
@@ -184,6 +147,7 @@ async def rate_limit_middleware(request: Request, call_next):
     except HTTPException:
         raise
     except Exception as e:
-        # Log error but don't block requests
+        # Never repeat a handler after an error: it may already have spent AI
+        # credits or changed stored data before raising.
         logger.error("Rate limit middleware failed: %s", type(e).__name__)
-        return await call_next(request)
+        raise

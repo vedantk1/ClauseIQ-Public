@@ -8,7 +8,7 @@ FEATURES:
 - Message history persistence in MongoDB
 - Integration with RAG service for intelligent responses
 - Source attribution and transparency
-- User isolation and security
+- Workspace isolation and security
 - 🤖 AI-friendly debug logging for troubleshooting
 """
 import logging
@@ -36,7 +36,7 @@ class ChatService:
         return await self.rag_service.is_available()
 
     # 🚀 FOUNDATIONAL ARCHITECTURE: ONE SESSION PER DOCUMENT
-    async def get_or_create_session(self, document_id: str, user_id: str) -> Dict[str, Any]:
+    async def get_or_create_session(self, document_id: str, workspace_id: str) -> Dict[str, Any]:
         """
         🎯 FOUNDATIONAL METHOD: Get or create THE single session for a document.
 
@@ -47,7 +47,7 @@ class ChatService:
         """
         try:
             # Verify user owns the document
-            document = await self.doc_service.get_document_for_user(document_id, user_id)
+            document = await self.doc_service.get_document_for_workspace(document_id, workspace_id)
             if not document:
                 ai_debug.log_api_error(
                     endpoint="chat_session",
@@ -80,7 +80,7 @@ class ChatService:
             session_data = {
                 "session_id": session_id,
                 "document_id": document_id,
-                "user_id": user_id,
+                "workspace_id": workspace_id,
                 "messages": [],
                 "created_at": now,
                 "updated_at": now
@@ -88,7 +88,7 @@ class ChatService:
 
             # Use atomic operation to prevent race conditions
             session_result = await self.doc_service.create_or_get_chat_session(
-                document_id, user_id, session_data
+                document_id, workspace_id, session_data
             )
 
             if not session_result:
@@ -139,7 +139,7 @@ class ChatService:
     async def send_message(
         self,
         document_id: str,
-        user_id: str,
+        workspace_id: str,
         message: str
     ) -> Dict[str, Any]:
         """
@@ -149,14 +149,14 @@ class ChatService:
         """
         try:
             # Get or create THE session
-            session_result = await self.get_or_create_session(document_id, user_id)
+            session_result = await self.get_or_create_session(document_id, workspace_id)
             if not session_result["success"]:
                 return session_result
 
             session = session_result["session"]
 
             # Get document for processing
-            document = await self.doc_service.get_document_for_user(document_id, user_id)
+            document = await self.doc_service.get_document_for_workspace(document_id, workspace_id)
             if not document:
                 return {
                     "success": False,
@@ -164,7 +164,7 @@ class ChatService:
                 }
 
             # Process the message
-            return await self._process_message_foundational(document, session, message, user_id)
+            return await self._process_message_foundational(document, session, message, workspace_id)
 
         except Exception as e:
             logger.error("Chat message send failed: %s", type(e).__name__)
@@ -180,12 +180,12 @@ class ChatService:
                 "error": "Failed to send message"
             }
 
-    async def get_session_history(self, document_id: str, user_id: str) -> Dict[str, Any]:
+    async def get_session_history(self, document_id: str, workspace_id: str) -> Dict[str, Any]:
         """
         🎯 FOUNDATIONAL METHOD: Get chat history for THE document session.
         """
         try:
-            session_result = await self.get_or_create_session(document_id, user_id)
+            session_result = await self.get_or_create_session(document_id, workspace_id)
             if not session_result["success"]:
                 return session_result
 
@@ -206,7 +206,7 @@ class ChatService:
                 "error": "Failed to get session history"
             }
 
-    async def _process_message_foundational(self, document: dict, session: dict, message: str, user_id: str) -> Dict[str, Any]:
+    async def _process_message_foundational(self, document: dict, session: dict, message: str, workspace_id: str) -> Dict[str, Any]:
         """Process message using foundational architecture (single session)."""
         import time
 
@@ -215,8 +215,8 @@ class ChatService:
             session_id = session["session_id"]
 
             # Get user's preferred model early for use throughout the process
-            user_preferred_model = await self.doc_service.get_user_preferred_model(user_id)
-            logger.info("Chat model selected: %s", user_preferred_model)
+            workspace_model = await self.doc_service.get_workspace_model(workspace_id)
+            logger.info("Chat model selected: %s", workspace_model)
 
             # Create user message
             user_message = {
@@ -227,7 +227,7 @@ class ChatService:
             }
 
             # Add user message to session atomically
-            await self.doc_service.add_chat_message_atomic(document_id, user_id, user_message)
+            await self.doc_service.add_chat_message_atomic(document_id, workspace_id, user_message)
 
             # 🚀 STEP 1: Service Availability Check
             step_start = time.time()
@@ -284,7 +284,7 @@ class ChatService:
             ]
 
             rag_result = await self.rag_service.retrieve_relevant_chunks(
-                message, document_id, user_id, conversation_history
+                message, document_id, workspace_id, conversation_history
             )
 
             retrieval_time = round((time.time() - step_start) * 1000, 2)
@@ -304,7 +304,7 @@ class ChatService:
                     "content": "I couldn't find relevant information in the document to answer your question. Please try rephrasing your question or asking about a different topic covered in the document.",
                     "timestamp": datetime.utcnow().isoformat(),
                     "sources": [],
-                    "model_used": user_preferred_model  # Add model info to fallback response
+                    "model_used": workspace_model  # Add model info to fallback response
                 }
             else:
                 relevant_chunks = rag_result["chunks"]
@@ -323,11 +323,11 @@ class ChatService:
 
                 # 🚀 STEP 4: LLM Response Generation
                 step_start = time.time()
-                response_result = await self._generate_ai_response(document, message, conversation_history, relevant_chunks, enhanced_query, user_preferred_model)
+                response_result = await self._generate_ai_response(document, message, conversation_history, relevant_chunks, enhanced_query, workspace_model)
                 generation_time = round((time.time() - step_start) * 1000, 2)
 
                 if response_result.get("success", False):
-                    model_used = response_result.get("model", user_preferred_model or "unknown")  # Fallback to user_preferred_model
+                    model_used = response_result.get("model", workspace_model or "unknown")  # Fallback to workspace_model
                     ai_debug.log_rag_pipeline_step(
                         step_name="llm_generation",
                         success=True,
@@ -363,11 +363,11 @@ class ChatService:
                         "content": "I apologize, but I'm having trouble generating a response right now. Please try again later.",
                         "timestamp": datetime.utcnow().isoformat(),
                         "sources": [],
-                        "model_used": user_preferred_model  # Add model info to error response
+                        "model_used": workspace_model  # Add model info to error response
                     }
 
             # Add assistant message to session atomically
-            update_result = await self.doc_service.add_chat_message_atomic(document_id, user_id, assistant_message)
+            update_result = await self.doc_service.add_chat_message_atomic(document_id, workspace_id, assistant_message)
 
             if not update_result:
                 logger.warning("Failed to save assistant chat message")
@@ -405,7 +405,7 @@ class ChatService:
                 "error": "Failed to process message"
             }
 
-    async def _generate_ai_response(self, document: dict, message: str, conversation_history: list, relevant_chunks: list, enhanced_query: str = None, user_preferred_model: str = None) -> dict:
+    async def _generate_ai_response(self, document: dict, message: str, conversation_history: list, relevant_chunks: list, enhanced_query: str = None, workspace_model: str = None) -> dict:
         """Generate AI response using the RAG service."""
         try:
             # Format context from relevant chunks
@@ -435,13 +435,13 @@ User Question: {message}
 Please provide a clear, helpful answer based on the document content. If the context doesn't contain enough information to answer the question, say so clearly."""
 
             # Get AI response from RAG service with user's preferred model
-            logger.info(f"🎯 [CHAT MODEL] Using AI model '{user_preferred_model}' for chat response")
+            logger.info(f"🎯 [CHAT MODEL] Using AI model '{workspace_model}' for chat response")
 
             ai_response = await self.rag_service.generate_rag_response(
                 query=message,
                 relevant_chunks=relevant_chunks,
                 enhanced_query=enhanced_query,
-                model=user_preferred_model
+                model=workspace_model
             )
 
             if ai_response and ai_response.get("response"):
@@ -458,12 +458,12 @@ Please provide a clear, helpful answer based on the document content. If the con
                     "success": True,
                     "content": ai_response["response"],
                     "sources": sources,
-                    "model": ai_response.get("model", user_preferred_model or "unknown")
+                    "model": ai_response.get("model", workspace_model or "unknown")
                 }
             else:
                 return {
                     "success": False,
-                    "model": user_preferred_model or "unknown",
+                    "model": workspace_model or "unknown",
                     "error": ai_response.get("error", "Failed to generate response") if ai_response else "No response from AI service"
                 }
 
@@ -471,17 +471,17 @@ Please provide a clear, helpful answer based on the document content. If the con
             logger.error("Chat AI response generation failed: %s", type(e).__name__)
             return {
                 "success": False,
-                "model": user_preferred_model or "unknown",
+                "model": workspace_model or "unknown",
                 "error": "Failed to generate AI response"
             }
 
-    async def clear_chat_history(self, document_id: str, user_id: str) -> Dict[str, Any]:
+    async def clear_chat_history(self, document_id: str, workspace_id: str) -> Dict[str, Any]:
         """Clear all messages from a chat session while keeping the session structure."""
         try:
             logger.info("Clearing document chat history")
 
             # First, get the current session to count messages before clearing
-            session_result = await self.get_or_create_session(document_id, user_id)
+            session_result = await self.get_or_create_session(document_id, workspace_id)
             if not session_result["success"]:
                 return {
                     "success": False,
@@ -493,7 +493,7 @@ Please provide a clear, helpful answer based on the document content. If the con
             messages_count = len(session.get("messages", []))
 
             # Clear messages from the session
-            clear_result = await self.doc_service.clear_chat_messages(document_id, user_id)
+            clear_result = await self.doc_service.clear_chat_messages(document_id, workspace_id)
 
             if not clear_result:
                 logger.error("Failed to clear chat session messages")

@@ -1,7 +1,7 @@
 """
 Document Cleanup Service.
 
-Handles automatic cleanup of expired documents based on admin-configured retention period.
+Handles automatic cleanup only after the operator opts into workspace retention.
 """
 import asyncio
 import logging

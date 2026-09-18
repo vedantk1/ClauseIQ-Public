@@ -1,7 +1,7 @@
 import "./globals.css";
 import { Inter, Space_Grotesk } from "next/font/google";
 import { AppStateProvider } from "@/store/appState";
-import { AuthProvider } from "@/context/AuthContext";
+import { WorkspaceProvider } from "@/context/WorkspaceContext";
 import { AnalysisProvider } from "@/context/AnalysisContext";
 import ConditionalNavBar from "@/components/ConditionalNavBar";
 import ThemeProvider from "@/components/ThemeProvider";
@@ -21,9 +21,9 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata = {
-  title: "ClauseIQ - Contract Analysis Platform",
+  title: "ClauseIQ - Local Contract Workspace",
   description:
-    "Understand any employment contract in minutes with AI-powered analysis",
+    "Review agreements and ask document-grounded questions in your local workspace.",
 };
 
 export default function RootLayout({
@@ -38,7 +38,7 @@ export default function RootLayout({
       >
         <AppStateProvider>
           <ThemeProvider>
-            <AuthProvider>
+            <WorkspaceProvider>
               <AnalysisProvider>
                 <ErrorBoundary>
                   <div className="min-h-screen flex flex-col">
@@ -48,7 +48,7 @@ export default function RootLayout({
                 </ErrorBoundary>
                 <ToasterProvider />
               </AnalysisProvider>
-            </AuthProvider>
+            </WorkspaceProvider>
           </ThemeProvider>
         </AppStateProvider>
       </body>

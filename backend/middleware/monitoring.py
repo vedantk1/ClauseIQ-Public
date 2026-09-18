@@ -263,42 +263,15 @@ class HealthChecker:
             "status": "healthy",
             "type": "openai",
             "mode": "bring-your-own-key",
-            "note": "OpenAI credentials are configured per authenticated user"
+            "note": "OpenAI credentials are configured in local workspace Settings"
         }
-
-    @staticmethod
-    def check_email_health() -> Dict:
-        """Check email service configuration."""
-        try:
-            from config.environments import get_environment_config
-            config = get_environment_config()
-
-            if not all([config.email.smtp_host, config.email.smtp_port, config.email.smtp_username, config.email.smtp_password]):
-                return {
-                    "status": "unhealthy",
-                    "error": "Email configuration incomplete",
-                    "type": "email"
-                }
-
-            return {
-                "status": "healthy",
-                "type": "email"
-            }
-        except Exception as e:
-            return {
-                "status": "unhealthy",
-                "error": "Email health check failed",
-                "error_type": type(e).__name__,
-                "type": "email"
-            }
 
     @classmethod
     async def get_comprehensive_health(cls) -> Dict:
         """Get comprehensive health check results."""
         health_checks = {
             "database": await cls.check_database_health(),
-            "openai": cls.check_openai_health(),
-            "email": cls.check_email_health()
+            "openai": cls.check_openai_health()
         }
 
         # Overall status

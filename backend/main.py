@@ -1,11 +1,10 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Security
+from fastapi.security import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
-import json
 from config.environments import get_environment_config
-from routers import auth, documents, analysis, analytics, health, reports, chat, admin, app_config
-from routers import ai_debug as ai_debug_router
+from routers import documents, analysis, analytics, health, reports, chat, app_config, workspace
+from middleware.local_access import local_access_middleware
 from middleware.rate_limiter import rate_limit_middleware
 from middleware.logging import logging_middleware
 from middleware.monitoring import performance_monitoring_middleware
@@ -104,10 +103,16 @@ async def lifespan(app: FastAPI):
     )
     logger.info("Database connection established successfully")
 
+    # Preflight ownership across all stores before any migration or cleanup.
+    from database.workspace_migration import initialize_workspace
+    from services.workspace_service import get_workspace_service
+    migration = await initialize_workspace()
+    await get_workspace_service().initialize_credentials(migration["legacy_user_id"])
+
     # Run document cleanup on startup (fire-and-forget background task)
     try:
         from services.cleanup_service import run_startup_cleanup
-        asyncio.create_task(run_startup_cleanup())
+        cleanup_task = asyncio.create_task(run_startup_cleanup())
         logger.info("Document cleanup task scheduled")
     except Exception as error:
         logger.warning(
@@ -116,7 +121,14 @@ async def lifespan(app: FastAPI):
             error.__class__.__name__,
         )
 
-    yield
+    try:
+        yield
+    finally:
+        if "cleanup_task" in locals():
+            cleanup_task.cancel()
+            from contextlib import suppress
+            with suppress(asyncio.CancelledError):
+                await cleanup_task
     # Shutdown
     ai_debug.log_system_event(
         event_type="BACKEND_SHUTDOWN",
@@ -196,15 +208,6 @@ app = FastAPI(
 
 # Get environment configuration (already loaded above)
 
-# --- MOVE CORS MIDDLEWARE TO THE TOP (FIRST) ---
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=config.server.cors_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # Add middleware in correct order (LIFO - Last In, First Out)
 # Security middleware first (outermost layer)
 app.middleware("http")(security_middleware)
@@ -221,9 +224,21 @@ app.middleware("http")(performance_monitoring_middleware)
 # Logging (innermost layer for complete request context)
 app.middleware("http")(logging_middleware)
 
+# Outermost gate runs before logging, parsing uploads, database or AI work.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=config.server.cors_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-ClauseIQ-Local"],
+)
+app.middleware("http")(local_access_middleware(config.server.cors_origins))
+
 # Include routers with versioning support
-v1_router = VersionedAPIRouter(version=APIVersion.V1)
-v1_router.include_router(auth.router)
+local_marker = APIKeyHeader(name="X-ClauseIQ-Local", auto_error=False,
+                           description="Local browser marker: enter 1. Not an account credential.")
+v1_router = VersionedAPIRouter(version=APIVersion.V1, dependencies=[Security(local_marker)])
+v1_router.include_router(workspace.router)
 v1_router.include_router(documents.router)
 v1_router.include_router(analysis.router, prefix="/analysis")
 v1_router.include_router(analytics.router)
@@ -231,13 +246,7 @@ v1_router.include_router(health.router)
 v1_router.include_router(reports.router)
 v1_router.include_router(chat.router, prefix="/chat")
 
-# 🤖 AI DEBUG ROUTER: Special endpoints for AI assistant troubleshooting
-v1_router.include_router(ai_debug_router.router)
-
-# Admin portal routes
-v1_router.include_router(admin.router)
-
-# Public, non-sensitive application configuration
+# Non-sensitive presentation configuration, behind the same local boundary.
 v1_router.include_router(app_config.router)
 
 app.include_router(v1_router)
@@ -260,7 +269,7 @@ async def root():
             "AI-Powered Clause Detection",
             "Risk Assessment",
             "Chat with Documents (RAG)",
-            "User Authentication",
+            "Single-person Local Workspace",
             "Performance Monitoring",
             "Security Hardening"
         ]
@@ -270,50 +279,5 @@ async def root():
 async def health():
     """Basic health check endpoint (legacy compatibility)."""
     return {"status": "healthy", "service": "ClauseIQ Legal AI Backend"}
-
-@app.get("/health/detailed")
-async def detailed_health():
-    """Detailed health check including database status."""
-    try:
-        from database.migrations import get_migration_manager
-
-        db_factory = get_database_factory()
-        db_healthy = await db_factory.health_check()
-
-        # Get migration status
-        migration_status = None
-        try:
-            migration_manager = await get_migration_manager()
-            migration_status = await migration_manager.get_migration_status()
-        except Exception as error:
-            logger.warning(
-                "Health check event "
-                "(operation=migration_status, stage=database, status=error, error_type=%s)",
-                error.__class__.__name__,
-            )
-
-        return {
-            "status": "healthy" if db_healthy else "unhealthy",
-            "version": "1.0.0",
-            "database": {
-                "status": "connected" if db_healthy else "disconnected",
-                "info": db_factory.get_connection_info()
-            },
-            "migrations": migration_status,
-            "timestamp": db_factory.get_connection_info().get("last_health_check")
-        }
-    except Exception as error:
-        logger.error(
-            "Health check event "
-            "(operation=detailed_health, stage=service, status=error, error_type=%s)",
-            error.__class__.__name__,
-        )
-        return {
-            "status": "unhealthy",
-            "version": "1.0.0",
-            "database": {"status": "error", "error": "Health check failed"},
-            "migrations": None,
-            "error": "Health check failed"
-        }
 
 # End of main application setup

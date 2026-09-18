@@ -10,10 +10,5 @@ export default function ConditionalNavBar() {
     return null;
   }
 
-  // Hide navbar on admin pages (admin has its own layout header)
-  if (pathname.startsWith("/admin")) {
-    return null;
-  }
-
   return <NavBar />;
 }

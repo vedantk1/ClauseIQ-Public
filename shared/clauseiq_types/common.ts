@@ -125,18 +125,6 @@ export interface RiskSummary {
   low: number;
 }
 
-export interface User {
-  id: string;
-  email: string;
-  full_name: string;
-  created_at: string;
-  email_verified?: boolean;
-}
-
-export interface UserPreferences {
-  preferred_model: string;
-}
-
 export interface AvailableModel {
   id: string;
   name: string;
@@ -151,7 +139,7 @@ export interface Note {
 
 export interface UserInteraction {
   clause_id: string;
-  user_id: string;
+  workspace_id: string;
   notes: Note[];
   is_flagged: boolean;
   created_at: string;
@@ -168,7 +156,7 @@ export interface Document {
   ai_structured_summary?: Record<string, unknown> | null;
   clauses?: Clause[] | null;
   risk_summary?: RiskSummary | null;
-  user_id: string;
+  workspace_id: string;
   user_interactions?: Record<string, UserInteraction> | null;
   last_viewed?: string | null;
 }

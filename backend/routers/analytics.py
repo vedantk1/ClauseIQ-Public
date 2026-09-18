@@ -6,7 +6,7 @@ from models.analytics import AnalyticsData, AnalyticsActivity, AnalyticsMonthlyS
 from database.service import get_document_service
 from middleware.api_standardization import APIResponse, create_success_response, create_error_response
 from middleware.versioning import versioned_response
-from auth import get_current_user
+from workspace import get_workspace_id
 
 logger = logging.getLogger(__name__)
 
@@ -17,16 +17,16 @@ router = APIRouter(prefix="/analytics", tags=["analytics"])
 async def get_analytics_dashboard(
     request: Request,
     time_range: Literal["7d", "30d", "90d", "1y"] = Query(default="30d", description="Time range for analytics"),
-    current_user: dict = Depends(get_current_user)
+    workspace_id: str = Depends(get_workspace_id)
 ):
-    """Get analytics dashboard data with real user document statistics."""
+    """Get analytics dashboard data with local workspace document statistics."""
     correlation_id = getattr(request.state, 'correlation_id', None)
 
     try:
         service = get_document_service()
 
-        # Get all documents for the user
-        documents = await service.get_documents_for_user(current_user["id"])
+        # Get all documents in the workspace
+        documents = await service.get_documents_for_workspace(workspace_id)
 
         # Filter documents based on time range
         now = datetime.now()

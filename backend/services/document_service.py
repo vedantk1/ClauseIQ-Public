@@ -119,7 +119,7 @@ def build_document_data(
     extracted_text: str,
     clauses: List[Clause],
     contract_type: ContractType,
-    user_id: str,
+    workspace_id: str,
     ai_structured_summary: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
@@ -131,7 +131,7 @@ def build_document_data(
         extracted_text: Extracted text content
         clauses: List of analyzed clauses
         contract_type: Detected contract type
-        user_id: User ID
+        workspace_id: User ID
         ai_structured_summary: Optional AI-generated summary
 
     Returns:
@@ -148,7 +148,7 @@ def build_document_data(
         "clauses": [clause.dict() for clause in clauses],
         "risk_summary": risk_summary,
         "contract_type": contract_type.value if contract_type else None,
-        "user_id": user_id
+        "workspace_id": workspace_id
     }
 
 
@@ -158,7 +158,7 @@ async def process_and_save_analyzed_document(
     extracted_text: str,
     clauses: List[Clause],
     contract_type: ContractType,
-    user_id: str,
+    workspace_id: str,
     ai_structured_summary: Optional[Dict[str, Any]],
     file_content: bytes,
     content_type: str = "application/pdf"
@@ -174,7 +174,7 @@ async def process_and_save_analyzed_document(
         extracted_text: Extracted text content
         clauses: List of analyzed clauses
         contract_type: Detected contract type
-        user_id: User ID
+        workspace_id: User ID
         ai_structured_summary: AI-generated summary
         file_content: Raw PDF file bytes
         content_type: Content type (default: application/pdf)
@@ -190,7 +190,7 @@ async def process_and_save_analyzed_document(
     # Build document data
     document_data = build_document_data(
         doc_id, filename, extracted_text, clauses,
-        contract_type, user_id, ai_structured_summary
+        contract_type, workspace_id, ai_structured_summary
     )
 
     # Process RAG before saving document
@@ -202,7 +202,7 @@ async def process_and_save_analyzed_document(
             document_id=doc_id,
             text=extracted_text,
             filename=filename,
-            user_id=user_id
+            workspace_id=workspace_id
         )
 
         # Update document with RAG metadata
@@ -229,7 +229,7 @@ async def process_and_save_analyzed_document(
     logger.info("Saving document to database")
     try:
         # First save document metadata
-        await service.save_document_for_user(document_data, user_id)
+        await service.save_document_for_workspace(document_data, workspace_id)
         logger.info("Document saved successfully to database")
 
         # Then store the PDF file (atomic operation)
@@ -237,7 +237,7 @@ async def process_and_save_analyzed_document(
             logger.info("Storing PDF file")
             pdf_stored = await service.store_pdf_file(
                 document_id=doc_id,
-                user_id=user_id,
+                workspace_id=workspace_id,
                 file_data=file_content,
                 filename=filename,
                 content_type=content_type

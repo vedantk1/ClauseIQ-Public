@@ -161,25 +161,9 @@ async def logging_middleware(request: Request, call_next):
     request_id = str(uuid.uuid4())
     start_time = time.time()
 
-    # Authentication context remains available to downstream middleware while
-    # never being written by this logger.
-    user_id = None
-    auth_header = request.headers.get("authorization", "")
-    if auth_header.startswith("Bearer "):
-        try:
-            from auth import verify_token
-
-            token = auth_header.split(" ", 1)[1]
-            payload = verify_token(token, expected_type=None)
-            if payload:
-                user_id = payload.get("sub")
-        except Exception:
-            pass
-
-    structured_logger.log_request(request_id, request, user_id)
+    structured_logger.log_request(request_id, request)
 
     request.state.request_id = request_id
-    request.state.user_id = user_id
     request.state.start_time = start_time
 
     try:
@@ -200,7 +184,7 @@ async def logging_middleware(request: Request, call_next):
         response.headers["X-Response-Time"] = f"{duration * 1000:.2f}ms"
         return response
     except HTTPException as http_error:
-        structured_logger.log_error(request_id, http_error, request, user_id)
+        structured_logger.log_error(request_id, http_error, request)
         structured_logger.log_response(
             request_id,
             http_error.status_code,
@@ -208,7 +192,7 @@ async def logging_middleware(request: Request, call_next):
         )
         raise
     except Exception as error:
-        structured_logger.log_error(request_id, error, request, user_id)
+        structured_logger.log_error(request_id, error, request)
         duration = time.time() - start_time
         structured_logger.log_response(request_id, 500, duration)
 

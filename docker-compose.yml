@@ -18,7 +18,7 @@ services:
       dockerfile: frontend/Dockerfile
     container_name: clauseiq-frontend
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
       - NEXT_PUBLIC_ENVIRONMENT=development
@@ -38,7 +38,7 @@ services:
       dockerfile: backend/Dockerfile
     container_name: clauseiq-backend
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       # Database
       - MONGODB_URI=mongodb://mongodb:27017
@@ -49,10 +49,13 @@ services:
       # Server
       - HOST=0.0.0.0
       - PORT=8000
+      # Match the persistent credential volume regardless of host setup.
+      - WORKSPACE_STATE_DIR=/app/backend/.local-only/workspace
       # CORS
-      - CORS_ORIGINS=http://localhost:3000,http://frontend:3000
+      - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
     env_file:
-      - ./backend/.env
+      - path: ./backend/.env
+        required: false
     depends_on:
       mongodb:
         condition: service_healthy
@@ -62,6 +65,7 @@ services:
       # Persist uploaded documents
       - backend_storage:/app/backend/documents_storage
       - backend_logs:/app/backend/logs
+      - backend_credentials:/app/backend/.local-only/workspace
     restart: unless-stopped
     networks:
       - clauseiq-network
@@ -139,4 +143,6 @@ volumes:
   backend_storage:
     driver: local
   backend_logs:
+    driver: local
+  backend_credentials:
     driver: local

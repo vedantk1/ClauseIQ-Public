@@ -1,7 +1,7 @@
 """
 AI Model Configuration
 Centralized configuration for available AI models and their descriptions.
-Admin can select which model to use system-wide.
+The local operator selects the model in workspace Settings.
 """
 from typing import Dict, List, Optional
 from dataclasses import dataclass
@@ -27,8 +27,7 @@ class AIModelResponse(BaseModel):
 class AIModelConfig:
     """Configuration class for AI models."""
 
-    # Available AI models that admin can choose from
-    # The admin selects which model is used system-wide for all users
+    # Existing catalog; refreshed separately from the workspace migration.
     _models = [
         AIModel(
             id="gpt-5",

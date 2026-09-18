@@ -1,5 +1,6 @@
 // API service for user interactions (notes and flags)
 import config from "@/config/config";
+import { LOCAL_API_HEADERS } from "@/lib/api";
 
 export interface Note {
   id: string;
@@ -9,7 +10,7 @@ export interface Note {
 
 export interface UserInteraction {
   clause_id: string;
-  user_id: string;
+  workspace_id: string;
   notes: Note[];
   is_flagged: boolean;
   created_at: string;
@@ -30,11 +31,10 @@ export interface UserInteractionsResponse {
 }
 
 class UserInteractionService {
-  private async getAuthHeaders(): Promise<HeadersInit> {
-    const token = localStorage.getItem("access_token");
+  private async getLocalHeaders(): Promise<HeadersInit> {
     return {
       "Content-Type": "application/json",
-      Authorization: token ? `Bearer ${token}` : "",
+      ...LOCAL_API_HEADERS,
     };
   }
 
@@ -53,7 +53,7 @@ class UserInteractionService {
     try {
       const url = `${config.apiUrl}/api/v1/analysis/documents/${documentId}/interactions`;
 
-      const headers = await this.getAuthHeaders();
+      const headers = await this.getLocalHeaders();
 
       const response = await fetch(url, {
         method: "GET",
@@ -90,7 +90,7 @@ class UserInteractionService {
         `${config.apiUrl}/api/v1/analysis/documents/${documentId}/interactions/${clauseId}`,
         {
           method: "PUT",
-          headers: await this.getAuthHeaders(),
+          headers: await this.getLocalHeaders(),
           body: JSON.stringify(interaction),
         },
       );
@@ -121,7 +121,7 @@ class UserInteractionService {
         `${config.apiUrl}/api/v1/analysis/documents/${documentId}/interactions/${clauseId}`,
         {
           method: "DELETE",
-          headers: await this.getAuthHeaders(),
+          headers: await this.getLocalHeaders(),
         },
       );
 
@@ -149,7 +149,7 @@ class UserInteractionService {
         `${config.apiUrl}/api/v1/analysis/documents/${documentId}/interactions/${clauseId}/notes`,
         {
           method: "POST",
-          headers: await this.getAuthHeaders(),
+          headers: await this.getLocalHeaders(),
           body: JSON.stringify({ text }),
         },
       );
@@ -178,7 +178,7 @@ class UserInteractionService {
 
     try {
       const url = `${config.apiUrl}/api/v1/analysis/documents/${documentId}/interactions/${clauseId}/notes/${noteId}`;
-      const headers = await this.getAuthHeaders();
+      const headers = await this.getLocalHeaders();
       const body = JSON.stringify({ text });
 
 
@@ -229,7 +229,7 @@ class UserInteractionService {
         `${config.apiUrl}/api/v1/analysis/documents/${documentId}/interactions/${clauseId}/notes/${noteId}`,
         {
           method: "DELETE",
-          headers: await this.getAuthHeaders(),
+          headers: await this.getLocalHeaders(),
         },
       );
 

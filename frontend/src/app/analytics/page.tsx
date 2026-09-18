@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { useAuthRedirect } from "@/hooks/useAuthRedirect";
+import { LOCAL_API_HEADERS } from "@/lib/api";
 import Card from "@/components/Card";
 import Button from "@/components/Button";
 import Skeleton from "@/components/Skeleton";
@@ -56,7 +56,6 @@ interface AnalyticsData {
 type TimeRange = "7d" | "30d" | "90d" | "1y";
 
 export default function AnalyticsDashboard() {
-  const { isAuthenticated, isLoading } = useAuthRedirect();
   const router = useRouter();
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(
     null
@@ -110,17 +109,12 @@ export default function AnalyticsDashboard() {
       setLoading(true);
 
       try {
-        const token = localStorage.getItem("access_token");
-        if (!token) {
-          throw new Error("No access token found");
-        }
-
         const response = await fetch(
           `${config.apiUrl}/api/v1/analytics/dashboard?time_range=${timeRange}`,
           {
             method: "GET",
             headers: {
-              Authorization: `Bearer ${token}`,
+              ...LOCAL_API_HEADERS,
               "Content-Type": "application/json",
             },
           }
@@ -215,20 +209,6 @@ export default function AnalyticsDashboard() {
         return "bg-surface-secondary";
     }
   };
-
-  // Auth loading check
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent-purple"></div>
-      </div>
-    );
-  }
-
-  // Don't render if not authenticated
-  if (!isAuthenticated) {
-    return null;
-  }
 
   if (loading) {
     return (

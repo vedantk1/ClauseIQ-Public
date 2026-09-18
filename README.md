@@ -1,43 +1,28 @@
 # ClauseIQ
 
-ClauseIQ is a full-stack legal-document analysis application. It extracts text
-from PDF contracts, produces structured clause and risk analysis, and supports
-document-grounded chat through a retrieval-augmented generation pipeline.
+ClauseIQ is a personal contract-review application that runs on your computer.
+Upload a PDF, inspect structured clause and risk analysis, add notes, request
+rewrite suggestions, and ask document-grounded questions.
 
-The project is in active redevelopment. It is currently intended to run
-locally, has no supported public deployment, and does not provide an
-application-funded AI service.
+The application opens directly into one local workspace. There are no accounts,
+passwords, email verification, or admin roles. AI features use the OpenAI API
+with your own key, entered in Settings. This is not an offline AI application
+or a public, application-funded service.
 
 > ClauseIQ is an engineering project, not legal advice. AI output can be
-> incomplete or wrong and must be reviewed by a qualified person.
-
-## Capabilities
-
-- Account registration, authentication, and document ownership
-- PDF upload, extraction, structured analysis, and review
-- Clause-level notes, rewrite suggestions, and risk summaries
-- Document-grounded chat backed by Qdrant
-- Document management, analytics, and administrative controls
-- Bring-your-own-key (BYOK) OpenAI access for authenticated users
+> incomplete or wrong and must be checked against the source.
 
 ## Technology
 
 - Frontend: Next.js 15, React 19, TypeScript, Tailwind CSS
 - Backend: FastAPI, Python 3.13
-- Data: MongoDB
-- Vector search: Qdrant
+- Storage: MongoDB, GridFS and Qdrant
 - Local infrastructure: Docker Compose
 
 ## Local development
 
-Prerequisites:
-
-- Node.js 24 or newer
-- Python 3.13 or newer
-- Docker with Docker Compose
-- An OpenAI API key for the signed-in user who runs AI features
-
-Prepare the environment:
+Prerequisites: Node.js 24+, Python 3.13+, Docker with Docker Compose, and an
+OpenAI API key if you want to run AI features.
 
 ~~~bash
 cp backend/.env.example backend/.env
@@ -46,60 +31,48 @@ npm ci
 npm run setup
 ~~~
 
-Replace the two development-only secret placeholders in backend/.env. The
-default development policy sets EMAIL_VERIFICATION_REQUIRED=false, so local
-accounts are treated as verified and BYOK works without SMTP. Staging and
-production always require verification. To exercise verification locally, set
-the flag to true and configure SMTP.
-
-Start MongoDB and Qdrant, then run both application servers in development mode:
+No application secrets or email configuration need to be generated. Check that
+ports 3000, 8000, 27017, 6333 and 6334 are free or already running ClauseIQ, then:
 
 ~~~bash
 docker compose -f docker-compose.dev.yml up -d
 npm run dev
 ~~~
 
-Open:
+Open http://localhost:3000 and add your key in Settings. The backend is at
+http://localhost:8000; its API documentation is at http://localhost:8000/docs.
+Only local access is supported. Do not expose these services to a network or
+put them behind a public tunnel.
 
-- Frontend: http://localhost:3000
-- Backend: http://localhost:8000
-- API documentation: http://localhost:8000/docs
-- Qdrant dashboard: http://localhost:6333/dashboard
-
-Create an account and add your OpenAI API key in application settings. With
-the default development policy, no email step is required. The backend
-environment does not accept an application-owner OpenAI key.
-
-For a containerized smoke run instead, use:
-
-~~~bash
-docker compose up --build
-~~~
+Documents stay in the library until you delete them, unless you explicitly
+enable automatic deletion in Settings. There is no document-count cap; individual
+upload size and request limits still apply. Existing saved reviews, PDFs, notes
+and reports remain usable without an AI key.
 
 ## Validation
-
-Run the deterministic local checks with:
 
 ~~~bash
 npm run check
 ~~~
 
-Individual commands are documented in docs/DEVELOPMENT.md.
+This runs deterministic backend/frontend tests, shared-type build, frontend
+type checking, lint and production build. It does not call paid AI services.
 
 ## Documentation
 
-- docs/DEVELOPMENT.md — setup, commands, and troubleshooting
-- docs/ARCHITECTURE.md — components, data flow, and trust boundaries
-- docs/API_REFERENCE.md — API groups and access rules
-- docs/SECURITY.md — security model and disclosure guidance
-- docs/REPOSITORY_POLICY.md — public/private file policy and Git workflow
+- docs/DEVELOPMENT.md — setup, commands, migration and troubleshooting
+- docs/ARCHITECTURE.md — components and data boundaries
+- docs/API_REFERENCE.md — API groups and local access
+- docs/SECURITY.md — local trust model, credentials and known limitations
+- docs/REPOSITORY_POLICY.md — public/private file policy
 - docs/CONTRIBUTING.md — contribution workflow
+- DOCKER.md — infrastructure and container smoke runs
 
-## Deployment and licensing
+## Project status and licensing
 
-There is no deployment workflow in this repository. Hosting and continuous
-delivery will be designed separately if the project later needs them.
+Active local development is the priority. There is no supported hosted production
+environment, deployment workflow or CI pipeline. Model support remains the
+existing GPT-5, GPT-5 Mini and GPT-5 Nano catalog for now.
 
-No open-source license has been selected yet. Until a license is added, the
-repository is UNLICENSED and no permission to copy, modify, or redistribute the
-code is granted.
+No open-source license has been selected. Until one is added, the repository is
+UNLICENSED and no permission to copy, modify or redistribute the code is granted.

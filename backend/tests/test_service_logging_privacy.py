@@ -1,7 +1,6 @@
 """Privacy regressions for database, vector, and storage service diagnostics."""
 
 import ast
-import json
 import re
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -12,8 +11,6 @@ from fastapi import HTTPException
 from database.interface import ConnectionConfig, DatabaseBackend, DatabaseError
 from database import mongodb_adapter as mongodb_adapter_module
 from database.mongodb_adapter import MongoDBAdapter
-from middleware import admin as admin_middleware
-from routers import admin as admin_router
 from routers import documents as documents_router
 from services import document_service
 from services import ai_service
@@ -50,6 +47,7 @@ SENSITIVE_NAMES = {
     "text",
     "to_email",
     "user_id",
+    "workspace_id",
 }
 
 
@@ -128,9 +126,9 @@ async def test_mongodb_errors_hide_driver_details_from_logs_and_callers():
         "error",
     ) as mock_error:
         with pytest.raises(DatabaseError) as raised:
-            await adapter.get_user_by_email("private@example.test")
+            await adapter.get_document("private-document", "local")
 
-    assert str(raised.value) == "Failed to get user"
+    assert str(raised.value) == "Failed to get document"
     assert PRIVATE_CONTENT not in repr(mock_error.call_args)
     assert "RuntimeError" in repr(mock_error.call_args)
 
@@ -157,25 +155,11 @@ async def test_document_analysis_errors_hide_provider_details(monkeypatch, caplo
 
 
 
-@pytest.mark.asyncio
-async def test_admin_access_logs_do_not_include_account_email():
-    private_email = "private-admin-candidate@example.test"
-
-    with (
-        patch.object(admin_middleware, "is_admin_email", return_value=False),
-        patch.object(admin_middleware.logger, "warning") as mock_warning,
-        pytest.raises(HTTPException) as raised,
-    ):
-        await admin_middleware.get_admin_user({"email": private_email})
-
-    assert raised.value.status_code == 403
-    assert private_email not in repr(mock_warning.call_args)
-
 
 @pytest.mark.asyncio
 async def test_document_route_errors_hide_storage_details(monkeypatch, caplog):
     class FailingService:
-        async def get_documents_for_user(self, _user_id):
+        async def get_documents_for_workspace(self, _workspace_id):
             raise RuntimeError(PRIVATE_CONTENT)
 
     monkeypatch.setattr(
@@ -185,42 +169,8 @@ async def test_document_route_errors_hide_storage_details(monkeypatch, caplog):
     )
 
     with pytest.raises(HTTPException) as raised:
-        await documents_router.list_documents({"id": "private-user"})
+        await documents_router.list_documents(workspace_id="local")
 
     assert raised.value.status_code == 500
     assert raised.value.detail == "Failed to retrieve documents"
     assert PRIVATE_CONTENT not in caplog.text
-
-
-
-def test_admin_database_schema_returns_shapes_not_record_content():
-    private_values = {
-        "email": "private-schema@example.test",
-        "filename": "private-contract.pdf",
-        "content": PRIVATE_CONTENT,
-        "openai_api_key_encrypted": "encrypted-private-value",
-        "nested": {"prompt": PRIVATE_CONTENT},
-        "items": [PRIVATE_CONTENT],
-    }
-
-    schema = admin_router.sanitize_mongo_document(private_values)
-    serialized = json.dumps(schema)
-
-    for value in (
-        "private-schema@example.test",
-        "private-contract.pdf",
-        PRIVATE_CONTENT,
-        "encrypted-private-value",
-    ):
-        assert value not in serialized
-
-    assert schema["email"] == "[string]"
-    assert schema["filename"] == "[string]"
-    assert schema["content"] == "[string]"
-    assert schema["openai_api_key_encrypted"] == "[redacted]"
-    assert schema["nested"] == {"prompt": "[string]"}
-    assert schema["items"] == {
-        "type": "array",
-        "length": 1,
-        "item_schema": "[string]",
-    }

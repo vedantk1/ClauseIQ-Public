@@ -2,7 +2,7 @@
 OpenAI client management for ClauseIQ AI services.
 Extracted from ai_service.py for better maintainability.
 Includes rate limiting to prevent API quota exhaustion.
-Supports request-scoped user API keys via context variables.
+Supports request-scoped workspace API keys via context variables.
 """
 import asyncio
 import logging
@@ -13,7 +13,7 @@ from contextvars import ContextVar
 _openai_semaphore: Optional[asyncio.Semaphore] = None
 _embedding_semaphore: Optional[asyncio.Semaphore] = None
 
-# Each authenticated request supplies its user's API key through this context.
+# Each local workspace request supplies its configured API key through this context.
 _request_openai_client: ContextVar[Optional[Any]] = ContextVar(
     "request_openai_client",
     default=None,
@@ -32,7 +32,7 @@ def _ensure_rate_limiters() -> None:
 
 
 def get_openai_client():
-    """Return the OpenAI client supplied for the current authenticated request."""
+    """Return the OpenAI client supplied for the current local request."""
     return _request_openai_client.get()
 
 
@@ -48,9 +48,9 @@ def clear_request_client() -> None:
 
 
 @asynccontextmanager
-async def user_openai_client(api_key: str):
+async def workspace_openai_client(api_key: str):
     """
-    Use a user-specific OpenAI API key for the duration of one request.
+    Use a workspace OpenAI API key for the duration of one request.
 
     Nested contexts are safe: the previous request client is restored on exit.
     """
@@ -66,6 +66,7 @@ async def user_openai_client(api_key: str):
         yield client
     finally:
         _request_openai_client.reset(token)
+        await client.close()
 
 
 def is_ai_available() -> bool:
@@ -75,7 +76,7 @@ def is_ai_available() -> bool:
 
 def create_openai_client(api_key: str):
     """
-    Create a new OpenAI client with the specified user API key.
+    Create a new OpenAI client with the specified workspace API key.
 
     Args:
         api_key: The OpenAI API key to use

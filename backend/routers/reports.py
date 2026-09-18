@@ -4,7 +4,7 @@ Report generation routes.
 import logging
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import Response
-from auth import get_current_user
+from workspace import get_workspace_id
 from database.service import get_document_service
 from middleware.api_standardization import create_error_response
 from middleware.versioning import versioned_response
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 async def generate_document_pdf_report(
     document_id: str,
     request: Request,
-    current_user: dict = Depends(get_current_user)
+    workspace_id: str = Depends(get_workspace_id)
 ):
     """Generate a PDF report for a specific document."""
     correlation_id = getattr(request.state, 'correlation_id', None)
@@ -26,8 +26,8 @@ async def generate_document_pdf_report(
     try:
         service = get_document_service()
 
-        # Get the document for the current user
-        document = await service.get_document_for_user(document_id, current_user["id"])
+        # Get the document for the local workspace
+        document = await service.get_document_for_workspace(document_id, workspace_id)
 
         if not document:
             raise HTTPException(

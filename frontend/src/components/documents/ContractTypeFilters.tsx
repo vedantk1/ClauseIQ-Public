@@ -13,7 +13,7 @@ interface ContractTypeFiltersProps {
   documents: DocumentItem[];
   selectedContractType: string;
   setSelectedContractType: (type: string) => void;
-  getAvailableContractTypes: () => (string | undefined)[];
+  getAvailableContractTypes: () => string[];
 }
 
 export const ContractTypeFilters = ({

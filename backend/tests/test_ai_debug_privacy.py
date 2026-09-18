@@ -1,19 +1,13 @@
-"""Privacy regression tests for backend diagnostic logging and endpoints."""
+"""Privacy regression tests for retained backend diagnostic logging."""
 
 import json
 import sys
-import types
 from pathlib import Path
 from unittest.mock import patch
-
-import pytest
-
 
 backend_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_dir))
 
-from routers import admin as admin_router
-from routers import ai_debug as ai_debug_router
 from utils.ai_debug_helper import AIDebugLogger, DebugLevel
 
 
@@ -96,91 +90,3 @@ def test_chat_metrics_keep_counts_without_identifiers():
     assert "private-session" not in serialized
     assert "private-document" not in serialized
     assert "private-user" not in serialized
-
-
-def test_admin_log_parser_returns_metadata_without_raw_message():
-    secret_message = (
-        "user private-user-id failed login with token "
-        "NOT_A_REAL_TOKEN_SENTINEL"
-    )
-    line = (
-        "2026-09-04 12:00:00,001 - auth - ERROR - "
-        f"[authenticate:42] - {secret_message}"
-    )
-
-    entry = admin_router.parse_log_line(line)
-    serialized = json.dumps(entry)
-
-    assert entry == {
-        "timestamp": "2026-09-04 12:00:00.001",
-        "level": "ERROR",
-        "message": "Log entry recorded",
-        "source": "auth",
-        "action": "login",
-    }
-    assert secret_message not in serialized
-    assert "private-user-id" not in serialized
-    assert "NOT_A_REAL_TOKEN_SENTINEL" not in serialized
-
-
-@pytest.mark.asyncio
-async def test_log_endpoints_return_metadata_not_raw_lines(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    log_dir = tmp_path / "logs"
-    log_dir.mkdir()
-
-    secret_prompt = "summarize this confidential acquisition clause"
-    secret_exception = "database password was leaked here"
-    structured_line = (
-        "2026-09-04 12:00:00 - ai_debug - ERROR - JSON: "
-        + json.dumps(
-            {
-                "timestamp": "2026-09-04T12:00:00",
-                "event_type": "RAG_PIPELINE_STEP",
-                "level": "ERROR",
-                "message": secret_prompt,
-                "context": {
-                    "step_name": "vector_retrieval",
-                    "success": False,
-                    "duration_ms": 25.0,
-                    "details": {"original_query": secret_prompt},
-                },
-                "error": {
-                    "type": "RuntimeError",
-                    "message": secret_exception,
-                    "traceback": secret_exception,
-                },
-            }
-        )
-        + "\n"
-    )
-    (log_dir / "error.log").write_text(structured_line, encoding="utf-8")
-    (log_dir / "app.log").write_text(structured_line, encoding="utf-8")
-
-    errors = await ai_debug_router.get_recent_errors(hours=1, current_user={})
-    log_summary = await ai_debug_router.get_log_summary(current_user={})
-
-    fake_rag_module = types.ModuleType("services.rag_service")
-
-    class FakeRAGService:
-        pass
-
-    fake_rag_module.RAGService = FakeRAGService
-    monkeypatch.setitem(sys.modules, "services.rag_service", fake_rag_module)
-    rag_status = await ai_debug_router.get_rag_status(current_user={})
-
-    combined = json.dumps(
-        {"errors": errors, "log_summary": log_summary, "rag_status": rag_status}
-    )
-    assert secret_prompt not in combined
-    assert secret_exception not in combined
-    assert "traceback" not in combined.lower()
-    assert "log_line" not in combined
-
-    recent_error = errors["recent_errors"][0]
-    assert recent_error["event_type"] == "RAG_PIPELINE_STEP"
-    assert recent_error["context"]["step_name"] == "vector_retrieval"
-    assert recent_error["context"]["duration_ms"] == 25.0
-    assert recent_error["error_type"] == "RuntimeError"
-    assert log_summary["log_summary"]["recent_activity"]
-    assert rag_status["recent_rag_activity"]

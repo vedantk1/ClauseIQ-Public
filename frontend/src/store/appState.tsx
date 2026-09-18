@@ -5,31 +5,15 @@
 
 import React, { createContext, useContext, useReducer, ReactNode } from "react";
 import type {
-  User,
-  UserPreferences,
-  AvailableModel,
-  Document,
   Clause,
   RiskSummary,
 } from "@clauseiq/shared-types";
 import { StructuredSummary } from "../context/AnalysisContext";
+import type { DocumentItem } from "@/types/documents";
 
 // State interfaces
-export interface AuthState {
-  user: User | null;
-  isAuthenticated: boolean;
-  isLoading: boolean;
-  preferences: UserPreferences | null;
-  availableModels: AvailableModel[];
-  currentModel: AvailableModel | null;
-  tokens: {
-    accessToken: string | null;
-    refreshToken: string | null;
-  };
-}
-
 export interface AnalysisState {
-  documents: Document[];
+  documents: DocumentItem[];
   currentDocument: {
     id: string | null;
     filename: string;
@@ -47,7 +31,6 @@ export interface AnalysisState {
 }
 
 export interface AppState {
-  auth: AuthState;
   analysis: AnalysisState;
   ui: {
     sidebarOpen: boolean;
@@ -62,27 +45,11 @@ export interface AppState {
 }
 
 // Action types
-export type AuthAction =
-  | { type: "AUTH_SET_LOADING"; payload: boolean }
-  | {
-      type: "AUTH_LOGIN_SUCCESS";
-      payload: {
-        user: User;
-        tokens: { accessToken: string; refreshToken: string };
-      };
-    }
-  | { type: "AUTH_LOGOUT" }
-  | { type: "AUTH_SET_PREFERENCES"; payload: UserPreferences }
-  | { type: "AUTH_SET_AVAILABLE_MODELS"; payload: AvailableModel[] }
-  | { type: "AUTH_SET_CURRENT_MODEL"; payload: AvailableModel | null }
-  | { type: "AUTH_UPDATE_USER"; payload: Partial<User> }
-  | { type: "AUTH_REFRESH_TOKEN"; payload: string };
-
 export type AnalysisAction =
   | { type: "ANALYSIS_SET_LOADING"; payload: boolean }
   | { type: "ANALYSIS_SET_ERROR"; payload: string | null }
-  | { type: "ANALYSIS_SET_DOCUMENTS"; payload: Document[] }
-  | { type: "ANALYSIS_ADD_DOCUMENT"; payload: Document }
+  | { type: "ANALYSIS_SET_DOCUMENTS"; payload: DocumentItem[] }
+  | { type: "ANALYSIS_ADD_DOCUMENT"; payload: DocumentItem }
   | {
       type: "ANALYSIS_SET_CURRENT_DOCUMENT";
       payload: Partial<AnalysisState["currentDocument"]>;
@@ -100,22 +67,9 @@ export type UIAction =
   | { type: "UI_ADD_NOTIFICATION"; payload: { type: string; message: string } }
   | { type: "UI_REMOVE_NOTIFICATION"; payload: string };
 
-export type AppAction = AuthAction | AnalysisAction | UIAction;
+export type AppAction = AnalysisAction | UIAction;
 
 // Initial states
-const initialAuthState: AuthState = {
-  user: null,
-  isAuthenticated: false,
-  isLoading: true,
-  preferences: null,
-  availableModels: [],
-  currentModel: null,
-  tokens: {
-    accessToken: null,
-    refreshToken: null,
-  },
-};
-
 const initialAnalysisState: AnalysisState = {
   documents: [],
   currentDocument: {
@@ -135,7 +89,6 @@ const initialAnalysisState: AnalysisState = {
 };
 
 const initialAppState: AppState = {
-  auth: initialAuthState,
   analysis: initialAnalysisState,
   ui: {
     sidebarOpen: false,
@@ -145,52 +98,6 @@ const initialAppState: AppState = {
 };
 
 // Reducers
-const authReducer = (state: AuthState, action: AuthAction): AuthState => {
-  switch (action.type) {
-    case "AUTH_SET_LOADING":
-      return { ...state, isLoading: action.payload };
-
-    case "AUTH_LOGIN_SUCCESS":
-      return {
-        ...state,
-        user: action.payload.user,
-        isAuthenticated: true,
-        isLoading: false,
-        tokens: action.payload.tokens,
-      };
-
-    case "AUTH_LOGOUT":
-      return {
-        ...initialAuthState,
-        isLoading: false,
-      };
-
-    case "AUTH_SET_PREFERENCES":
-      return { ...state, preferences: action.payload };
-
-    case "AUTH_SET_AVAILABLE_MODELS":
-      return { ...state, availableModels: action.payload };
-
-    case "AUTH_SET_CURRENT_MODEL":
-      return { ...state, currentModel: action.payload };
-
-    case "AUTH_UPDATE_USER":
-      return {
-        ...state,
-        user: state.user ? { ...state.user, ...action.payload } : null,
-      };
-
-    case "AUTH_REFRESH_TOKEN":
-      return {
-        ...state,
-        tokens: { ...state.tokens, accessToken: action.payload },
-      };
-
-    default:
-      return state;
-  }
-};
-
 const analysisReducer = (
   state: AnalysisState,
   action: AnalysisAction,
@@ -282,10 +189,6 @@ const uiReducer = (state: AppState["ui"], action: UIAction): AppState["ui"] => {
 
 const appReducer = (state: AppState, action: AppAction): AppState => {
   // Route actions to appropriate reducers
-  if (action.type.startsWith("AUTH_")) {
-    return { ...state, auth: authReducer(state.auth, action as AuthAction) };
-  }
-
   if (action.type.startsWith("ANALYSIS_")) {
     return {
       ...state,
@@ -332,11 +235,6 @@ export const useAppState = () => {
 };
 
 // Selector hooks for specific state slices
-export const useAuthState = () => {
-  const { state } = useAppState();
-  return state.auth;
-};
-
 export const useAnalysisState = () => {
   const { state } = useAppState();
   return state.analysis;

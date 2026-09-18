@@ -79,31 +79,6 @@ class DatabaseInterface(ABC):
         """Check database health status."""
         pass
 
-    # User operations
-    @abstractmethod
-    async def create_user(self, user_data: Dict[str, Any]) -> str:
-        """Create a new user and return user ID."""
-        pass
-
-    @abstractmethod
-    async def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
-        """Get user by ID."""
-        pass
-
-    @abstractmethod
-    async def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
-        """Get user by email."""
-        pass
-
-    @abstractmethod
-    async def update_user(self, user_id: str, update_data: Dict[str, Any]) -> bool:
-        """Update user data."""
-        pass
-
-    @abstractmethod
-    async def delete_user(self, user_id: str) -> bool:
-        """Delete user."""
-        pass
 
     # Document operations
     @abstractmethod
@@ -112,61 +87,61 @@ class DatabaseInterface(ABC):
         pass
 
     @abstractmethod
-    async def get_document(self, document_id: str, user_id: str) -> Optional[Dict[str, Any]]:
-        """Get document by ID for specific user."""
+    async def get_document(self, document_id: str, workspace_id: str) -> Optional[Dict[str, Any]]:
+        """Get document by ID for a specific workspace."""
         pass
 
     @abstractmethod
     async def list_documents(
         self,
-        user_id: str,
-        limit: int = 50,
+        workspace_id: str,
+        limit: int = 0,
         offset: int = 0,
         filters: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
-        """List documents for user with pagination and filtering."""
+        """List documents for the workspace with pagination and filtering."""
         pass
 
     @abstractmethod
-    async def update_document(self, document_id: str, user_id: str, update_data: Dict[str, Any]) -> bool:
+    async def update_document(self, document_id: str, workspace_id: str, update_data: Dict[str, Any]) -> bool:
         """Update document data."""
         pass
 
     @abstractmethod
-    async def update_document_field(self, document_id: str, user_id: str, field_name: str, field_value: Any) -> bool:
+    async def update_document_field(self, document_id: str, workspace_id: str, field_name: str, field_value: Any) -> bool:
         """Update a specific field in a document."""
         pass
 
     @abstractmethod
-    async def delete_document(self, document_id: str, user_id: str) -> bool:
+    async def delete_document(self, document_id: str, workspace_id: str) -> bool:
         """Delete document."""
         pass
 
     # Atomic operations for race condition prevention
     @abstractmethod
-    async def create_or_get_chat_session(self, document_id: str, user_id: str, session_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    async def create_or_get_chat_session(self, document_id: str, workspace_id: str, session_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Atomically create chat session if it doesn't exist, or return existing session."""
         pass
 
     @abstractmethod
-    async def add_chat_message_atomic(self, document_id: str, user_id: str, message: Dict[str, Any]) -> bool:
+    async def add_chat_message_atomic(self, document_id: str, workspace_id: str, message: Dict[str, Any]) -> bool:
         """Atomically add a message to the chat session."""
         pass
 
     # Analytics operations
     @abstractmethod
-    async def get_user_analytics(self, user_id: str) -> Dict[str, Any]:
+    async def get_workspace_analytics(self, workspace_id: str) -> Dict[str, Any]:
         """Get analytics data for user."""
         pass
 
     # User interaction operations
     @abstractmethod
-    async def get_user_interactions(self, document_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+    async def get_user_interactions(self, document_id: str, workspace_id: str) -> Optional[Dict[str, Any]]:
         """Get user interactions for a document."""
         pass
 
     @abstractmethod
-    async def save_user_interactions(self, document_id: str, user_id: str, interactions: Dict[str, Any]) -> bool:
+    async def save_user_interactions(self, document_id: str, workspace_id: str, interactions: Dict[str, Any]) -> bool:
         """Save user interactions for a document."""
         pass
 

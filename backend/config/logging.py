@@ -68,7 +68,6 @@ class FoundationalLogger:
         root_logger.addHandler(error_file_handler)
 
         # Configure specific loggers
-        cls._configure_auth_logger(log_dir)
         cls._configure_chat_logger(log_dir)
         cls._configure_api_logger(log_dir)
 
@@ -79,29 +78,6 @@ class FoundationalLogger:
         logger.info("Foundational logging configuration complete")
         logger.info("Log level configured: %s", log_level.upper())
         logger.info("Application and error log handlers configured")
-
-    @classmethod
-    def _configure_auth_logger(cls, log_dir: str):
-        """Configure dedicated auth logger."""
-        auth_logger = logging.getLogger("auth")
-        auth_logger.setLevel(logging.DEBUG)
-
-        # Auth-specific file handler
-        auth_log_file = os.path.join(log_dir, "auth.log")
-        auth_file_handler = logging.handlers.RotatingFileHandler(
-            auth_log_file,
-            maxBytes=5*1024*1024,  # 5MB
-            backupCount=3
-        )
-        auth_file_handler.setLevel(logging.DEBUG)
-        auth_formatter = logging.Formatter(
-            '%(asctime)s - AUTH - %(levelname)s - [%(funcName)s:%(lineno)d] - %(message)s'
-        )
-        auth_file_handler.setFormatter(auth_formatter)
-        auth_logger.addHandler(auth_file_handler)
-
-        # Prevent propagation to avoid duplicate logs
-        auth_logger.propagate = False
 
     @classmethod
     def _configure_chat_logger(cls, log_dir: str):

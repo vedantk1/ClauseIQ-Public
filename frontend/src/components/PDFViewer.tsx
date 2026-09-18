@@ -13,6 +13,7 @@ import Card from "./Card";
 import Button from "./Button";
 import DropdownMenu from "./DropdownMenu";
 import config from "@/config/config";
+import { LOCAL_API_HEADERS } from "@/lib/api";
 import "../utils/pdfConsoleFilter";
 import {
   getRiskHighlightColor,
@@ -133,11 +134,12 @@ export default function PDFViewer({
     viewMode: viewMode, // Pass current view mode for different handling
   });
 
-  // PDF URL with authentication — fetch via Authorization header, serve as blob URL (FND-003)
+  // Fetch through the local API boundary; serve the viewer a revocable blob URL.
   const [pdfUrl, setPdfUrl] = useState<string>("");
 
   useEffect(() => {
     let revoke: string | null = null;
+    const controller = new AbortController();
 
     // Reset state when switching documents
     setError(null);
@@ -150,36 +152,31 @@ export default function PDFViewer({
       return;
     }
 
-    const token = localStorage.getItem("access_token");
     const baseUrl = `${config.apiUrl}/api/v1/documents/${documentId}/pdf`;
-
-    if (!token) {
-      setIsLoading(false);
-      setError("Authentication required");
-      return;
-    }
-
-    // Fetch PDF with Authorization header and create blob URL
     fetch(baseUrl, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: LOCAL_API_HEADERS,
+      signal: controller.signal,
     })
       .then((res) => {
         if (!res.ok) throw new Error(`PDF fetch failed: ${res.status}`);
         return res.blob();
       })
       .then((blob) => {
+        if (controller.signal.aborted) return;
         const url = URL.createObjectURL(blob);
         revoke = url;
         setPdfUrl(url);
       })
       .catch(() => {
-        console.error("Failed to fetch PDF via header auth:");
+        if (controller.signal.aborted) return;
+        console.error("Failed to fetch PDF from the local workspace");
         setError("Failed to load PDF");
         setIsLoading(false);
         setPdfUrl("");
       });
 
     return () => {
+      controller.abort();
       if (revoke) URL.revokeObjectURL(revoke);
     };
   }, [documentId]);

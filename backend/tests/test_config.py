@@ -14,11 +14,9 @@ sys.path.insert(0, str(backend_dir))
 from config.environments import (
     DatabaseConfig,
     ServerConfig,
-    SecurityConfig,
     AIConfig,
     QdrantConfig,
     FileUploadConfig,
-    EmailConfig,
     Environment
 )
 
@@ -140,56 +138,6 @@ class TestServerConfig:
             ServerConfig(**invalid_data)
 
 
-class TestSecurityConfig:
-    """Test SecurityConfig validation."""
-
-    def test_security_config_valid_data(self):
-        """Test SecurityConfig with valid JWT secret."""
-        config_data = {
-            "jwt_secret_key": "this_is_a_very_long_secret_key_that_meets_minimum_length_requirement_123"
-        }
-
-        config = SecurityConfig(**config_data)
-
-        assert len(config.jwt_secret_key) >= 32
-        assert config.jwt_algorithm == "HS256"  # default
-        assert config.access_token_expire_minutes == 30  # default
-
-    def test_security_config_short_jwt_secret(self):
-        """Test that short JWT secrets are rejected."""
-        invalid_data = {
-            "jwt_secret_key": "short_key"  # Too short
-        }
-
-        with pytest.raises(ValidationError) as exc_info:
-            SecurityConfig(**invalid_data)
-
-        error_str = str(exc_info.value)
-        assert "at least 32 characters" in error_str
-
-    def test_security_config_token_expiry_validation(self):
-        """Test token expiry validation."""
-        config_data = {
-            "jwt_secret_key": "this_is_a_very_long_secret_key_that_meets_minimum_length_requirement_123",
-            "access_token_expire_minutes": 60,
-            "refresh_token_expire_days": 14
-        }
-
-        config = SecurityConfig(**config_data)
-
-        assert config.access_token_expire_minutes == 60
-        assert config.refresh_token_expire_days == 14
-
-    def test_security_config_invalid_token_expiry(self):
-        """Test that invalid token expiry values are rejected."""
-        invalid_data = {
-            "jwt_secret_key": "this_is_a_very_long_secret_key_that_meets_minimum_length_requirement_123",
-            "access_token_expire_minutes": 0  # Too low
-        }
-
-        with pytest.raises(ValidationError):
-            SecurityConfig(**invalid_data)
-
 
 class TestAIConfig:
     """Test AI model and generation configuration."""
@@ -302,39 +250,6 @@ class TestFileUploadConfig:
         assert ".docx" in config.allowed_file_types
         assert ".txt" in config.allowed_file_types
 
-
-class TestEmailConfig:
-    """Test EmailConfig validation."""
-
-    def test_email_config_defaults(self):
-        """Test EmailConfig with default values."""
-        config = EmailConfig()
-
-        assert config.smtp_host == "smtp.gmail.com"
-        assert config.smtp_port == 587
-        assert config.email_from == "noreply@clauseiq.com"
-        assert config.email_from_name == "ClauseIQ"
-
-    def test_email_config_valid_email(self):
-        """Test EmailConfig with valid email address."""
-        config_data = {
-            "email_from": "support@mycompany.com"
-        }
-
-        config = EmailConfig(**config_data)
-        assert config.email_from == "support@mycompany.com"
-
-    def test_email_config_invalid_email(self):
-        """Test that invalid email addresses are rejected."""
-        invalid_data = {
-            "email_from": "invalid-email-address"  # No @ symbol
-        }
-
-        with pytest.raises(ValidationError) as exc_info:
-            EmailConfig(**invalid_data)
-
-        error_str = str(exc_info.value)
-        assert "Invalid email address format" in error_str
 
 
 class TestEnvironmentEnum:

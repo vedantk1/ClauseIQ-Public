@@ -23,7 +23,7 @@ export const useDocumentsFiltering = ({
 
   const getAvailableContractTypes = () => {
     const types = new Set(
-      documents.map((doc) => doc.contract_type).filter(Boolean)
+      documents.map((doc) => doc.contract_type).filter((type): type is string => !!type)
     );
     return Array.from(types).sort();
   };

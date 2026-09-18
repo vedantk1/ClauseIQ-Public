@@ -19,8 +19,6 @@ from clauseiq_types.common import (
     ContractType,
     Clause as SharedClause,
     RiskSummary,
-    User as SharedUser,
-    UserPreferences,
     AvailableModel,
 )
 
@@ -31,8 +29,6 @@ __all__ = [
     "ContractType",
     "Clause",
     "RiskSummary",
-    "User",
-    "UserPreferences",
     "AvailableModel",
 ]
 

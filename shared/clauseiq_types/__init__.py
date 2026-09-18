@@ -9,7 +9,5 @@ __all__ = [
     'Section',
     'Clause',
     'RiskSummary',
-    'User',
-    'UserPreferences',
     'AvailableModel'
 ]

@@ -4,6 +4,10 @@
 
 import toast from "@/lib/toast";
 
+// A required non-simple header, combined with the backend's local origin/host
+// checks, prevents unrelated browser pages from invoking the local API.
+export const LOCAL_API_HEADERS = { "X-ClauseIQ-Local": "1" } as const;
+
 // API Response types based on backend standardization
 export interface APIResponse<T = unknown> {
   success: boolean;
@@ -28,23 +32,9 @@ export interface PaginationMeta {
 
 class APIClient {
   private baseURL: string;
-  private authTokenProvider?: () => string | null;
-  private refreshTokenProvider?: () => Promise<void>;
 
   constructor(baseURL: string) {
     this.baseURL = baseURL;
-  }
-
-  setAuthTokenProvider(provider: () => string | null) {
-    this.authTokenProvider = provider;
-  }
-
-  setRefreshTokenProvider(provider: () => Promise<void>) {
-    this.refreshTokenProvider = provider;
-  }
-
-  private getAuthToken(): string | null {
-    return this.authTokenProvider ? this.authTokenProvider() : null;
   }
 
   private async request<T>(
@@ -52,22 +42,15 @@ class APIClient {
     options: RequestInit & { timeout?: number } = {},
   ): Promise<APIResponse<T>> {
     const url = `${this.baseURL}${endpoint}`;
-    const token = this.getAuthToken();
-
-
     // Prepare headers
     const headers: Record<string, string> = {
       ...(options.headers as Record<string, string>),
+      ...LOCAL_API_HEADERS,
     };
 
     // Set content type for non-FormData requests
     if (!(options.body instanceof FormData)) {
       headers["Content-Type"] = "application/json";
-    }
-
-    // Add auth token if available
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
     }
 
     // Setup timeout if specified
@@ -95,32 +78,6 @@ class APIClient {
         clearTimeout(timeoutId);
       }
 
-
-      // Handle token refresh for 401 errors
-      if (response.status === 401 && token && this.refreshTokenProvider) {
-        try {
-          await this.refreshTokenProvider();
-          const newToken = this.getAuthToken();
-
-
-          if (newToken) {
-            headers["Authorization"] = `Bearer ${newToken}`;
-
-            const retryResponse = await fetch(url, {
-              ...fetchOptions,
-              headers,
-            });
-
-
-            return this.parseResponse<T>(retryResponse);
-          } else {
-            console.warn("Token refresh completed without a replacement token");
-          }
-        } catch {
-          console.error("Token refresh failed");
-          throw new Error("Session expired. Please login again.");
-        }
-      }
 
       return this.parseResponse<T>(response);
     } catch (error) {
@@ -290,26 +247,10 @@ class APIClient {
   }
 }
 
-// Create and configure the main API client
-// In production with Nginx proxy, use relative URLs to avoid CORS
-// In development, use full URL to backend
+// Local development is the supported runtime. An explicit setting can change
+// the backend port; do not infer a hosted reverse proxy from the frontend URL.
 export const getApiBaseUrl = () => {
-  // If NEXT_PUBLIC_API_URL is set (from build-time env), use it
-  if (process.env.NEXT_PUBLIC_API_URL) {
-    return process.env.NEXT_PUBLIC_API_URL;
-  }
-
-  // Otherwise, detect environment
-  // In browser, check if we're on localhost development or production
-  if (typeof window !== "undefined") {
-    const isDev =
-      window.location.hostname === "localhost" &&
-      window.location.port === "3000";
-    return isDev ? "http://localhost:8000" : "";
-  }
-
-  // Server-side rendering: default to localhost for development
-  return "http://localhost:8000";
+  return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 };
 
 export const apiClient = new APIClient(`${getApiBaseUrl()}/api/v1`);

@@ -35,7 +35,7 @@ explicit, and cost-capped.
 ## Code expectations
 
 - Keep business logic in services rather than route handlers.
-- Preserve authorization and document ownership boundaries.
+- Preserve local-access and document/workspace data boundaries.
 - Use typed interfaces at frontend/backend boundaries.
 - Prefer small modules and configurable policy values.
 - Do not introduce browser-native alert or confirm dialogs.

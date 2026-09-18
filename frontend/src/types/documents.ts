@@ -7,7 +7,7 @@ export interface DocumentItem {
   id: string;
   filename: string;
   upload_date: string;
-  contract_type?: string;
+  contract_type?: string | null;
 }
 
 export type ViewMode = "grid" | "list";

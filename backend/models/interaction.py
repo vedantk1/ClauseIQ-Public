@@ -28,7 +28,7 @@ class NoteRequest(BaseModel):
 class UserInteractionResponse(BaseModel):
     """Response model for user interactions."""
     clause_id: str
-    user_id: str
+    workspace_id: str
     notes: List[Note] = []
     is_flagged: bool = False
     created_at: str

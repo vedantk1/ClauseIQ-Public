@@ -1,61 +1,66 @@
 # Architecture
 
-ClauseIQ is a local-first full-stack application with four runtime components:
+ClauseIQ is a single-person local application. It has one server-selected
+workspace namespace (`local`), not a default user, membership model or account.
 
 | Component | Responsibility |
 | --- | --- |
-| Next.js frontend | Authentication UI, upload, review, chat, analytics, and administration |
-| FastAPI backend | Authorization, document processing, AI orchestration, and API responses |
-| MongoDB | Users, encrypted BYOK credentials, documents, interactions, and configuration |
-| Qdrant | Per-document vector data used by retrieval-augmented chat |
+| Next.js | Upload, review, document library, chat, analytics and Settings |
+| FastAPI | Local request boundary, document processing and AI orchestration |
+| MongoDB / GridFS | Documents, PDFs, interactions, chats, settings and encrypted credentials |
+| Qdrant | Per-document vector data for retrieval-augmented chat |
 
-Shared domain types live in shared/clauseiq_types for Python and TypeScript.
+Shared Python and TypeScript domain types live in shared/clauseiq_types.
 
-## Request flow
+## Document flow
 
-### Document analysis
+1. The local browser submits a PDF with the local-request marker.
+2. The backend validates the file and supplies its own workspace identifier.
+3. Extraction and AI analysis use a request-scoped OpenAI client created with
+   the locally configured key.
+4. Documents, PDFs and embeddings retain document and workspace identifiers.
+5. The frontend renders the PDF alongside the structured review.
+6. Chat checks the requested document, retrieves only its workspace/document
+   vectors and persists messages with that document.
 
-1. An authenticated user submits a PDF.
-2. The backend validates the file and ownership context.
-3. Text is extracted and sent through the analysis pipeline using that user's
-   request-scoped OpenAI client.
-4. Structured document and clause data is stored in MongoDB.
-5. Embeddings are stored in Qdrant under document and user ownership context.
-6. The frontend renders the source PDF beside the structured review.
+Reading saved analysis does not make a new AI request. Deleting a document
+must remove its files, vector chunks, interactions and embedded chat; failures
+must be reported rather than claiming complete deletion.
 
-### Document chat
+## Settings and credentials
 
-1. The backend verifies the user owns the requested document.
-2. The query is embedded using the user's request-scoped OpenAI client.
-3. Relevant chunks are retrieved from Qdrant.
-4. The model receives the query, retrieved context, and bounded conversation
-   history.
-5. Messages are returned through the API and persisted for that user.
+The workspace service separates key handling from document operations.
+Settings expose key presence only, the existing main/gate model catalog,
+optional retention and presentation preferences. No account, SMTP, role,
+database-browser or raw-log administration routes remain.
 
-## Key boundaries
+A random encryption key is generated automatically in the backend's private
+runtime directory on the first key save. Only encrypted API-key material is
+stored in MongoDB. The decrypting key is owner-readable, excluded from Git and
+Docker build contexts, and persisted in a separate volume in full Compose.
+Missing state does not silently generate a replacement during decryption.
 
-- All document, PDF, interaction, report, and chat operations must preserve
-  authenticated ownership checks.
-- OpenAI access is BYOK. User keys are encrypted before persistence and are
-  installed only in request-local client context for AI operations.
-- API-key encryption should use API_KEY_ENCRYPTION_SECRET, distinct from
-  JWT_SECRET_KEY.
-- Administrative access is controlled separately through ADMIN_EMAILS.
-- Public runtime configuration may expose presentation settings only, never
-  secrets or user-specific data.
-- Uploaded documents, database data, vector data, and logs are runtime data and
-  are excluded from version control and Docker build contexts.
+## Local request boundary
 
-## API organization
+The application ports bind to loopback by default. The API validates loopback
+Host names, exact configured browser Origins and the X-ClauseIQ-Local header.
+The header is a browser preflight marker, not a password. See SECURITY.md for
+the trusted-OS-user boundary and limitations.
 
-The backend mounts versioned routes below /api/v1. Routers call services, which
-coordinate database adapters, file storage, AI clients, and vector search.
-Middleware provides response standardization, request logging, rate limiting,
-monitoring, CORS, and security checks.
+## Migration
 
-## Current scope
+Startup preflights MongoDB, GridFS and Qdrant before applying an additive,
+restartable migration. Zero or one legacy owner is supported automatically.
+Multiple owners, ambiguous ownership or conflicting workspace data stop startup
+for an explicit data-selection decision. Existing account rows, ciphertext,
+legacy owner fields, document IDs and relationships are not deleted.
 
-This clean snapshot intentionally has no anonymous sample document, no
-application-funded AI key, no cloud deployment definition, and no continuous
-delivery workflow. The architecture will continue to evolve before any hosted
-or agentic capabilities are introduced.
+Inherited retention is disabled during the first migration; newly opted-in
+retention is preserved on later restarts. A decryptable legacy API key is copied
+into the new credential store. If its old encryption secret is unavailable, the
+library remains usable and Settings requests key re-entry.
+
+## Scope
+
+Next.js, FastAPI, MongoDB and Qdrant are retained. This version does not introduce
+a job queue, new AI models, offline inference, team support or agent orchestration.

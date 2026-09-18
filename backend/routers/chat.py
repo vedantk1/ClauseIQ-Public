@@ -10,8 +10,8 @@ Provides REST endpoints for document chat functionality:
 - Chat system health
 
 SECURITY:
-- All endpoints require authentication
-- User can only access their own documents and chat sessions
+- All API requests pass the local browser boundary
+- Document and session operations remain scoped to the local workspace
 - Proper error handling and validation
 """
 from typing import Dict, Any, Optional
@@ -19,13 +19,14 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel, Field
 
-from auth import get_current_user
+from workspace import get_workspace_id
 from middleware.api_standardization import APIResponse, create_success_response_with_request, create_error_response_with_request
 from middleware.versioning import versioned_response
 from services.chat_service import get_chat_service
 from services.qdrant_vector_service import get_qdrant_vector_service
 from config.logging import get_foundational_logger, log_exception
 from database.service import get_document_service
+from routers.serialization import without_legacy_owner_fields
 
 # 🚀 FOUNDATIONAL LOGGING: Proper chat logger
 logger = get_foundational_logger("chat")
@@ -55,7 +56,7 @@ class SessionResponse(BaseModel):
     """Response for getting/creating THE session."""
     session_id: str
     document_id: str
-    user_id: str
+    workspace_id: str
     created_at: str
     updated_at: str
     message_count: int
@@ -82,7 +83,7 @@ class HealthResponse(BaseModel):
 async def get_or_create_session(
     document_id: str,
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    workspace_id: str = Depends(get_workspace_id)
 ):
     """
     🎯 FOUNDATIONAL: Get or create THE single session for a document.
@@ -93,7 +94,7 @@ async def get_or_create_session(
         logger.info("Chat operation started: operation=get_or_create_session")
 
         chat_service = get_chat_service()
-        result = await chat_service.get_or_create_session(document_id, current_user["id"])
+        result = await chat_service.get_or_create_session(document_id, workspace_id)
 
         if not result["success"]:
             logger.warning(
@@ -120,11 +121,11 @@ async def get_or_create_session(
         response_data = SessionResponse(
             session_id=session["session_id"],
             document_id=session["document_id"],
-            user_id=session["user_id"],
+            workspace_id=session["workspace_id"],
             created_at=session["created_at"],
             updated_at=session["updated_at"],
             message_count=len(session.get("messages", [])),
-            messages=session.get("messages", [])
+            messages=without_legacy_owner_fields(session.get("messages", []))
         )
 
         logger.info("Chat operation completed: operation=get_or_create_session")
@@ -149,34 +150,34 @@ async def send_message(
     document_id: str,
     message_data: SendMessageRequest,
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    workspace_id: str = Depends(get_workspace_id)
 ):
     """
     🎯 FOUNDATIONAL: Send message to THE document session.
 
     No session_id needed - just send to THE session!
-    Requires user to have their OpenAI API key set.
+    Requires an OpenAI API key in workspace settings.
     """
     try:
         logger.info("Chat operation started: operation=send_message")
 
-        # Check if user has API key set
+        # Check if workspace has an API key set
         doc_service = get_document_service()
-        user_api_key = await doc_service.get_user_api_key(current_user["id"])
-        if not user_api_key:
+        workspace_api_key = await doc_service.get_workspace_api_key(workspace_id)
+        if not workspace_api_key:
             raise HTTPException(
                 status_code=400,
                 detail="Please add your OpenAI API key in Settings before using chat."
             )
 
-        # Use the user's API key for all AI operations
-        from services.ai.client_manager import user_openai_client
+        # Use the workspace API key for all AI operations
+        from services.ai.client_manager import workspace_openai_client
 
-        async with user_openai_client(user_api_key):
+        async with workspace_openai_client(workspace_api_key):
             chat_service = get_chat_service()
             result = await chat_service.send_message(
                 document_id=document_id,
-                user_id=current_user["id"],
+                workspace_id=workspace_id,
                 message=message_data.message
             )
 
@@ -233,7 +234,7 @@ async def send_message(
 async def get_chat_history(
     document_id: str,
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    workspace_id: str = Depends(get_workspace_id)
 ):
     """
     🎯 FOUNDATIONAL: Get chat history for THE document session.
@@ -242,7 +243,7 @@ async def get_chat_history(
         logger.info("Chat operation started: operation=get_chat_history")
 
         chat_service = get_chat_service()
-        result = await chat_service.get_session_history(document_id, current_user["id"])
+        result = await chat_service.get_session_history(document_id, workspace_id)
 
         if not result["success"]:
             logger.warning(
@@ -261,7 +262,7 @@ async def get_chat_history(
 
         response_data = ChatHistoryResponse(
             session_id=result["session_id"],
-            messages=result["messages"],
+            messages=without_legacy_owner_fields(result["messages"]),
             created_at=result["created_at"],
             updated_at=result["updated_at"]
         )
@@ -290,7 +291,7 @@ async def get_chat_history(
 async def get_chat_status(
     document_id: str,
     request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    workspace_id: str = Depends(get_workspace_id)
 ):
     """Check if a document is ready for chat."""
     try:
@@ -299,7 +300,7 @@ async def get_chat_status(
         chat_service = get_chat_service()
 
         # Try to get or create session to check document status
-        result = await chat_service.get_or_create_session(document_id, current_user["id"])
+        result = await chat_service.get_or_create_session(document_id, workspace_id)
 
         if result["success"]:
             session = result["session"]
@@ -417,7 +418,7 @@ async def get_health_status(request: Request):
 async def clear_chat_history(
     document_id: str,
     request: Request,
-    current_user: dict = Depends(get_current_user)
+    workspace_id: str = Depends(get_workspace_id)
 ) -> APIResponse[Dict[str, Any]]:
     """
     🗑️ Clear chat history for a document.
@@ -425,12 +426,10 @@ async def clear_chat_history(
     Removes all messages from the chat session while keeping the session structure.
     """
     try:
-        user_id = current_user["id"]
-
         logger.info("Chat operation started: operation=clear_chat_history")
 
         chat_service = get_chat_service()
-        result = await chat_service.clear_chat_history(document_id, user_id)
+        result = await chat_service.clear_chat_history(document_id, workspace_id)
 
         if result["success"]:
             logger.info(

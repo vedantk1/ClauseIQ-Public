@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useMemo, useCallback, Suspense } from "react";
 import { useAnalysis } from "@/context/AnalysisContext";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useAuthRedirect } from "@/hooks/useAuthRedirect";
 import { useUserInteractions } from "@/hooks/useUserInteractions";
 import { useClauseFiltering } from "@/hooks/useClauseFiltering";
 import { useDocumentViewing } from "@/hooks/useDocumentViewing";
@@ -16,21 +15,17 @@ import ClausesContent from "@/components/review/ClausesContent";
 import ChatContent from "@/components/review/ChatContent";
 import { Clause } from "@clauseiq/shared-types";
 import toast from "@/lib/toast";
-import apiClient, { getApiBaseUrl } from "@/lib/api";
+import apiClient, { getApiBaseUrl, LOCAL_API_HEADERS } from "@/lib/api";
 
 function ReviewWorkspaceContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-
-  const { isAuthenticated, isLoading: authLoading } = useAuthRedirect();
 
   const { currentDocument, setSelectedClause, loadDocument } = useAnalysis();
   const { trackDocumentView } = useDocumentViewing();
 
   useEffect(() => {
     const loadDocumentIfNeeded = async () => {
-      if (!isAuthenticated || authLoading) return;
-
       const documentId = searchParams.get("documentId");
 
       // If no document ID in URL, redirect to documents page
@@ -58,8 +53,6 @@ function ReviewWorkspaceContent() {
     loadDocumentIfNeeded();
   }, [
     searchParams,
-    isAuthenticated,
-    authLoading,
     currentDocument.id,
     loadDocument,
     router,
@@ -196,12 +189,6 @@ function ReviewWorkspaceContent() {
 
     setIsDownloadingPdf(true);
     try {
-      // Get auth token from localStorage
-      const accessToken = localStorage.getItem("access_token");
-      if (!accessToken) {
-        throw new Error("Authentication required");
-      }
-
       // Get API base URL from config
       const apiUrl = getApiBaseUrl();
 
@@ -211,7 +198,7 @@ function ReviewWorkspaceContent() {
         {
           method: "GET",
           headers: {
-            Authorization: `Bearer ${accessToken}`,
+            ...LOCAL_API_HEADERS,
           },
         }
       );
@@ -270,12 +257,6 @@ function ReviewWorkspaceContent() {
 
     setIsDownloadingOriginalPdf(true);
     try {
-      // Get auth token from localStorage
-      const accessToken = localStorage.getItem("access_token");
-      if (!accessToken) {
-        throw new Error("Authentication required");
-      }
-
       // Get API base URL from config
       const apiUrl = getApiBaseUrl();
 
@@ -285,7 +266,7 @@ function ReviewWorkspaceContent() {
         {
           method: "GET",
           headers: {
-            Authorization: `Bearer ${accessToken}`,
+            ...LOCAL_API_HEADERS,
           },
         }
       );
@@ -348,15 +329,6 @@ function ReviewWorkspaceContent() {
 
     setIsDeleting(true);
     try {
-      // Get auth token from localStorage
-      const accessToken = localStorage.getItem("access_token");
-      if (!accessToken) {
-        throw new Error("Authentication required");
-      }
-
-      // Configure API client auth
-      apiClient.setAuthTokenProvider(() => accessToken);
-
       // Call delete endpoint
       const response = await apiClient.delete(`/documents/${documentId}`);
 
@@ -483,21 +455,6 @@ function ReviewWorkspaceContent() {
       router,
     ]
   );
-
-  // Show loading while checking authentication
-  if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent-purple mx-auto mb-4"></div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return null;
-  }
 
   // Handler functions for ClauseDetailsPanel
   const handleAddNote = async (clause: { id?: string }, noteText?: string) => {
