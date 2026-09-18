@@ -10,15 +10,17 @@ import React, {
   useCallback,
   useRef,
 } from "react";
-import { useAppState } from "../store/appState";
+import { useAppState, type AnalysisState } from "../store/appState";
 import { apiClient, handleAPIError, handleAPISuccess } from "../lib/api";
 import { loadWorkspaceDocuments } from "@/lib/documentsApi";
+import { hasCompletedAnalysis, pickSourceMetadata } from "@/lib/sourceStatus";
 import type { DocumentItem } from "@/types/documents";
 import type {
   Clause,
   RiskSummary,
   Document,
   ContractType,
+  SourceMetadata,
 } from "@clauseiq/shared-types";
 
 // Type for AI structured summary data
@@ -35,18 +37,7 @@ export interface StructuredSummary {
 interface AnalysisContextType {
   // State from store
   documents: DocumentItem[];
-  currentDocument: {
-    id: string | null;
-    filename: string;
-    clauses: Clause[];
-    summary: string;
-    structuredSummary: StructuredSummary | null;
-    fullText: string;
-    riskSummary: RiskSummary;
-    selectedClause: Clause | null;
-    contract_type?: string;
-    last_viewed?: string | null;
-  };
+  currentDocument: AnalysisState["currentDocument"];
   isLoading: boolean;
   error: string | null;
 
@@ -80,7 +71,7 @@ export const AnalysisProvider: React.FC<{ children: ReactNode }> = ({
       dispatch({ type: "ANALYSIS_SET_ERROR", payload: null });
 
 
-      const response = await apiClient.uploadFile<{
+      const response = await apiClient.uploadFile<SourceMetadata & {
         id: string;
         workspace_id: string;
         filename: string;
@@ -95,6 +86,7 @@ export const AnalysisProvider: React.FC<{ children: ReactNode }> = ({
 
 
       if (response.success && response.data) {
+        const sourceMetadata = pickSourceMetadata(response.data);
         const {
           id,
           workspace_id,
@@ -110,6 +102,7 @@ export const AnalysisProvider: React.FC<{ children: ReactNode }> = ({
 
         // Add to documents list
         const newDocument: Document = {
+          ...sourceMetadata,
           id,
           filename,
           upload_date: new Date().toISOString(),
@@ -130,6 +123,7 @@ export const AnalysisProvider: React.FC<{ children: ReactNode }> = ({
         dispatch({
           type: "ANALYSIS_SET_CURRENT_DOCUMENT",
           payload: {
+            ...sourceMetadata,
             id,
             filename,
             contract_type,
@@ -180,8 +174,8 @@ export const AnalysisProvider: React.FC<{ children: ReactNode }> = ({
 
   const loadDocument = useCallback(
     async (documentId: string): Promise<void> => {
-      // Skip if already loading this document or document already loaded
-      if (analysisState.currentDocument.id === documentId) {
+      // Explicitly reopening an unfinished import refreshes its current status.
+      if (analysisState.currentDocument.id === documentId && hasCompletedAnalysis(analysisState.currentDocument)) {
         return;
       }
 
@@ -198,7 +192,7 @@ export const AnalysisProvider: React.FC<{ children: ReactNode }> = ({
           dispatch({ type: "ANALYSIS_SET_LOADING", payload: true });
 
 
-          const response = await apiClient.get<{
+          const response = await apiClient.get<SourceMetadata & {
             id: string;
             filename: string;
             contract_type?: string;
@@ -211,6 +205,7 @@ export const AnalysisProvider: React.FC<{ children: ReactNode }> = ({
           }>(`/documents/${documentId}`);
 
           if (response.success && response.data) {
+            const sourceMetadata = pickSourceMetadata(response.data);
             const {
               id,
               filename,
@@ -226,11 +221,12 @@ export const AnalysisProvider: React.FC<{ children: ReactNode }> = ({
             dispatch({
               type: "ANALYSIS_SET_CURRENT_DOCUMENT",
               payload: {
+                ...sourceMetadata,
                 id,
                 filename,
                 contract_type,
-                fullText: text,
-                summary: ai_full_summary,
+                fullText: text || "",
+                summary: ai_full_summary || "",
                 structuredSummary: ai_structured_summary || null,
                 clauses: clauses || [],
                 riskSummary: risk_summary || { high: 0, medium: 0, low: 0 },
@@ -264,7 +260,7 @@ export const AnalysisProvider: React.FC<{ children: ReactNode }> = ({
 
       return promise;
     },
-    [analysisState.currentDocument.id, dispatch]
+    [analysisState.currentDocument, dispatch]
   );
 
   const setSelectedClause = useCallback(

@@ -206,14 +206,23 @@ class HTTPExceptionHandler:
 
         error_code = error_code_map.get(exc.status_code, "UNKNOWN_ERROR")
 
+        # This application-owned reference lets callers recover an imported PDF
+        # after analysis fails. Include it in JSON as well as the response header
+        # so browser callers do not depend on CORS header exposure.
+        document_id = next((value for name, value in (exc.headers or {}).items()
+                            if name.lower() == "x-document-id"), None)
+
         error_response = create_error_response(
             code=error_code,
             message=exc.detail,
+            details={"document_id": document_id} if document_id else None,
             correlation_id=correlation_id
         )
 
         # CORS is applied once by the outer configured middleware.
         cors_headers = {"X-Correlation-ID": correlation_id} if correlation_id else {}
+        if document_id:
+            cors_headers["X-Document-ID"] = document_id
 
         return JSONResponse(
             status_code=exc.status_code,

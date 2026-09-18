@@ -108,6 +108,18 @@ class DatabaseInterface(ABC):
         pass
 
     @abstractmethod
+    async def update_document_if(
+        self, document_id: str, workspace_id: str,
+        expected: Dict[str, Any], update_data: Dict[str, Any],
+    ) -> bool:
+        """Update a scoped document only when server-supplied conditions match.
+
+        Return False for a missing document or a stale claim; database failures
+        raise DatabaseError. This operation must never create a document.
+        """
+        pass
+
+    @abstractmethod
     async def update_document_field(self, document_id: str, workspace_id: str, field_name: str, field_value: Any) -> bool:
         """Update a specific field in a document."""
         pass

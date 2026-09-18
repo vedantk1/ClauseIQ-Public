@@ -5,3 +5,4 @@
 
 // Export all types from the manually maintained TypeScript types
 export * from "./clauseiq_types/common";
+export * from "./clauseiq_types/source";

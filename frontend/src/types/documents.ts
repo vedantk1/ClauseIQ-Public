@@ -2,8 +2,9 @@
  * Document-related TypeScript interfaces and types
  * Extracted from documents page for better type safety and reusability
  */
+import type { SourceMetadata } from "@clauseiq/shared-types";
 
-export interface DocumentItem {
+export interface DocumentItem extends SourceMetadata {
   id: string;
   filename: string;
   upload_date: string;

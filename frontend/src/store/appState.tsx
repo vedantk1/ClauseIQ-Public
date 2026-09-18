@@ -7,6 +7,7 @@ import React, { createContext, useContext, useReducer, ReactNode } from "react";
 import type {
   Clause,
   RiskSummary,
+  SourceMetadata,
 } from "@clauseiq/shared-types";
 import { StructuredSummary } from "../context/AnalysisContext";
 import type { DocumentItem } from "@/types/documents";
@@ -14,7 +15,7 @@ import type { DocumentItem } from "@/types/documents";
 // State interfaces
 export interface AnalysisState {
   documents: DocumentItem[];
-  currentDocument: {
+  currentDocument: SourceMetadata & {
     id: string | null;
     filename: string;
     clauses: Clause[];
@@ -98,7 +99,7 @@ const initialAppState: AppState = {
 };
 
 // Reducers
-const analysisReducer = (
+export const analysisReducer = (
   state: AnalysisState,
   action: AnalysisAction,
 ): AnalysisState => {
@@ -122,7 +123,7 @@ const analysisReducer = (
     case "ANALYSIS_SET_CURRENT_DOCUMENT":
       return {
         ...state,
-        currentDocument: { ...state.currentDocument, ...action.payload },
+        currentDocument: { ...initialAnalysisState.currentDocument, ...action.payload },
       };
 
     case "ANALYSIS_UPDATE_CURRENT_DOCUMENT":

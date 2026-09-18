@@ -48,3 +48,27 @@ venv/bin/python tests/manual_workspace_smoke.py --run-isolated-live
 It does not modify the application's library, settings, credentials, or .env
 files, and makes no OpenAI calls. It is excluded from normal Pytest discovery.
 Review the final cleanup report; a failed cleanup names any remaining fixture.
+
+## Source-foundation checks
+
+test_source_extraction.py exercises page inventories, exact line spans, stable
+versioned identities and partial/unavailable/malformed cases using the existing
+synthetic corpus. test_source_import.py checks local-only import, original-first
+persistence, extraction retry, source identity and stale-result fencing.
+test_source_storage.py covers actual adapter contracts and uncertain GridFS pointer
+writes. test_source_analysis.py checks source-before-generation, partial-input
+refusal and preservation after provider/save failures. test_source_error_responses.py
+checks that the application's error standardization retains recovery references.
+
+A smaller real MongoDB/GridFS check is available without Qdrant:
+
+~~~bash
+cd backend
+venv/bin/python tests/manual_source_smoke.py --run-isolated-live
+~~~
+
+It verifies persistence through new connections, exact PDF bytes/page data,
+same-record retries, concurrent/stale claims and unrelated fixture preservation.
+It creates only its own verified-absent fixture database and removes that database
+in finally. Application library/settings/credentials are not read; no provider or
+vector client may be requested. Inspect the cleanup report for leftovers.

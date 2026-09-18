@@ -2,6 +2,7 @@
  * Shared type definitions for ClauseIQ.
  * These types are shared between frontend and backend.
  */
+import type { SourceMetadata } from "./source";
 
 export enum ContractType {
   EMPLOYMENT = "employment",
@@ -156,7 +157,7 @@ export interface UserInteraction {
   updated_at: string;
 }
 
-export interface Document {
+export interface Document extends SourceMetadata {
   id: string;
   filename: string;
   upload_date: string;

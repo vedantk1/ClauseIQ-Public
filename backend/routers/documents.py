@@ -5,12 +5,15 @@ import logging
 from datetime import datetime
 from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, Response
 from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse
 from workspace import get_workspace_id
 from database.service import get_document_service
-from middleware.api_standardization import APIResponse
+from middleware.api_standardization import APIResponse, create_error_response
 from middleware.versioning import versioned_response
 from services.document_service import validate_file
 from services.ai.text_extractor import get_text_extractor
+from services.source_service import SourceService, SourceError, read_pdf_upload
+from models.source import DocumentSourceResponse, ExtractionRequest
 from models.document import (
     DocumentListResponse,
     DocumentDetailResponse
@@ -19,6 +22,54 @@ from models.document import (
 
 router = APIRouter(tags=["documents"])
 logger = logging.getLogger(__name__)
+
+
+def _source_error(error):
+    return JSONResponse(status_code=error.status_code, content=create_error_response(
+        error.code, error.public_message,
+        details={"document_id": error.document_id} if error.document_id else None,
+    ).model_dump())
+
+
+@router.post("/documents/import", response_model=APIResponse[DocumentDetailResponse])
+@versioned_response("1.0")
+async def import_document(file: UploadFile = File(...), workspace_id: str = Depends(get_workspace_id)):
+    """Store the original and extract page sources locally, without AI or a key."""
+    try:
+        content = await read_pdf_upload(file)
+        document = await SourceService(get_document_service()).import_pdf(content, file.filename, workspace_id)
+        return APIResponse(success=True, data=DocumentDetailResponse(**document))
+    except SourceError as error:
+        return _source_error(error)
+    except HTTPException:
+        raise
+    except Exception as error:
+        logger.error("Source import failed: %s", type(error).__name__)
+        raise HTTPException(503, "Source import could not be completed.") from None
+
+
+@router.get("/documents/{document_id}/source", response_model=APIResponse[DocumentSourceResponse])
+@versioned_response("1.0")
+async def get_document_source(document_id: str, workspace_id: str = Depends(get_workspace_id)):
+    document = await get_document_service().get_document_for_workspace(document_id, workspace_id)
+    if not document:
+        raise HTTPException(404, "Document not found")
+    # A legacy document is returned with null metadata, never silently re-extracted.
+    return APIResponse(success=True, data=DocumentSourceResponse(**document))
+
+
+@router.post("/documents/{document_id}/extract", response_model=APIResponse[DocumentSourceResponse])
+@versioned_response("1.0")
+async def extract_stored_document(document_id: str, body: ExtractionRequest,
+                                  workspace_id: str = Depends(get_workspace_id)):
+    try:
+        document = await SourceService(get_document_service()).extract(document_id, workspace_id, restart=body.restart)
+        return APIResponse(success=True, data=DocumentSourceResponse(**document))
+    except SourceError as error:
+        return _source_error(error)
+    except Exception as error:
+        logger.error("Stored source extraction failed: %s", type(error).__name__)
+        raise HTTPException(503, "Source processing state could not be saved.") from None
 
 @router.post("/extract-text/", response_model=APIResponse[dict])
 @versioned_response("1.0")

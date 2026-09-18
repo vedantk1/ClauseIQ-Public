@@ -237,6 +237,7 @@ def test_http_generation_errors_are_explicit_and_do_not_persist_results(monkeypa
         get_workspace_api_key=AsyncMock(return_value="sk-test-placeholder"),
         get_workspace_model=AsyncMock(return_value=MODEL),
         get_document_for_workspace=AsyncMock(return_value=document), update_clause_rewrite=AsyncMock(),
+        update_document_if=AsyncMock(return_value=True),
     )
     monkeypatch.setattr(analysis, "get_document_service", lambda: storage)
     monkeypatch.setattr(chat, "get_document_service", lambda: storage)
@@ -244,7 +245,10 @@ def test_http_generation_errors_are_explicit_and_do_not_persist_results(monkeypa
     async def request_client(_key):
         yield object()
     monkeypatch.setattr(client_manager, "workspace_openai_client", request_client)
-    monkeypatch.setattr(analysis, "get_text_extractor", lambda: SimpleNamespace(extract_text=AsyncMock(return_value="Synthetic contract")))
+    monkeypatch.setattr(analysis, "SourceService", lambda **_: SimpleNamespace(import_pdf=AsyncMock(return_value={
+        "id": "doc-1", "text": "Synthetic contract", "source_revision_id": "source-1",
+        "extraction_status": "complete",
+    })))
     monkeypatch.setattr(analysis, "process_document_with_llm", AsyncMock(side_effect=error))
     monkeypatch.setattr(analysis, "generate_clause_rewrite", AsyncMock(side_effect=error))
     save = AsyncMock()
@@ -262,5 +266,8 @@ def test_http_generation_errors_are_explicit_and_do_not_persist_results(monkeypa
         response = client.post("/chat/doc-1/message", json={"message": "Question"})
     assert response.status_code == error.status_code
     assert response.json()["detail"] == str(error)
+    if route == "analysis":
+        assert response.headers["X-Document-ID"] == "doc-1"
+        assert storage.update_document_if.await_args.args[3]["analysis_status"] == "failed"
     save.assert_not_awaited()
     storage.update_clause_rewrite.assert_not_awaited()

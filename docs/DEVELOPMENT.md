@@ -51,6 +51,21 @@ npm --prefix shared run build
 Optional isolated live storage checks (no OpenAI calls) are documented in
 ../backend/tests/README.md. They create and clean up only their own fixture stores.
 
+For source import/extraction changes, focused checks include:
+
+~~~bash
+cd backend
+venv/bin/python -m pytest tests/test_source_extraction.py tests/test_source_import.py tests/test_source_storage.py tests/test_source_analysis.py tests/test_source_error_responses.py -q
+venv/bin/python tests/manual_source_smoke.py --run-isolated-live
+~~~
+
+The manual source smoke requires the existing development MongoDB only, not
+Qdrant or a provider key. It uses a verified-absent disposable database, checks
+real GridFS bytes/page anchors, retry/fencing and unrelated-data preservation,
+then reports cleanup. Never point it at the application database.
+This source increment is additive; no source backfill/migration or vector rebuild
+is required. Existing analyses are not silently re-extracted or overwritten.
+
 ## Verification cadence
 
 - Routine changes: add or update focused deterministic tests and run the affected

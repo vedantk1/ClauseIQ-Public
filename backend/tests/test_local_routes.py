@@ -303,8 +303,24 @@ def test_account_free_analysis_review_chat_rewrite_report_and_delete(monkeypatch
             key: value for key, value in kwargs.items() if key not in {"file_content", "content_type"}
         })
         document["has_pdf_file"] = True
-        stored[document["id"]] = document
+        document["analysis_status"] = "ready"
+        stored[document["id"]].update(document)
         return True, None
+
+    async def import_pdf(content, filename, workspace_id):
+        stored["doc-imported"] = {
+            "id": "doc-imported", "filename": filename, "workspace_id": workspace_id,
+            "text": clause.text, "source_revision_id": "source-1", "source_status": "stored",
+            "extraction_status": "complete", "analysis_status": "not_started", "has_pdf_file": True,
+        }
+        return stored["doc-imported"]
+
+    async def update_document_if(document_id, workspace_id, expected, values):
+        document = await get_document(document_id, workspace_id)
+        if not document or any(document.get(key) != value for key, value in expected.items()):
+            return False
+        document.update(values)
+        return True
 
     async def pdf_stream(_document_id, workspace_id):
         assert workspace_id == "local"
@@ -329,6 +345,7 @@ def test_account_free_analysis_review_chat_rewrite_report_and_delete(monkeypatch
         get_workspace_api_key=AsyncMock(side_effect=lambda _workspace_id: credential),
         get_workspace_model=AsyncMock(return_value="gpt-5.6-luna"),
         get_document_for_workspace=AsyncMock(side_effect=get_document),
+        update_document_if=AsyncMock(side_effect=update_document_if),
         get_pdf_file_stream=AsyncMock(side_effect=pdf_stream),
         update_clause_rewrite=AsyncMock(side_effect=save_rewrite),
         delete_document_for_workspace=AsyncMock(side_effect=delete_document),
@@ -359,7 +376,7 @@ def test_account_free_analysis_review_chat_rewrite_report_and_delete(monkeypatch
         return {"success": True, "session_id": "session-1", "message": assistant}
 
     monkeypatch.setattr(client_manager, "workspace_openai_client", request_client)
-    monkeypatch.setattr(analysis, "get_text_extractor", lambda: SimpleNamespace(extract_text=AsyncMock(return_value=clause.text)))
+    monkeypatch.setattr(analysis, "SourceService", lambda **_: SimpleNamespace(import_pdf=import_pdf))
     monkeypatch.setattr(analysis, "process_document_with_llm", process)
     monkeypatch.setattr(analysis, "generate_structured_document_summary", AsyncMock(return_value={"overview": "Test summary"}))
     monkeypatch.setattr(analysis, "process_and_save_analyzed_document", save_document)
@@ -480,7 +497,12 @@ async def test_real_analysis_persistence_pipeline_uses_workspace_signatures(monk
     from services.rag_service import RAGService
 
     storage = create_autospec(DocumentService, instance=True)
-    storage.store_pdf_file.return_value = True
+    storage.get_document_for_workspace.return_value = {
+        "id": "doc-1", "filename": "contract.pdf", "text": "Test contract",
+        "source_revision_id": "source-1", "source_status": "stored", "has_pdf_file": True,
+        "extraction_status": "complete", "analysis_status": "processing", "clauses": None,
+    }
+    storage.update_document_if.return_value = True
     rag = create_autospec(RAGService, instance=True)
     rag.process_document_for_rag.return_value = {
         "vector_stored": True, "chunk_count": 1, "chunk_ids": ["chunk-1"],
@@ -495,14 +517,15 @@ async def test_real_analysis_persistence_pipeline_uses_workspace_signatures(monk
     )
 
     assert success and error is None
-    saved, workspace_id = storage.save_document_for_workspace.await_args.args
-    assert workspace_id == saved["workspace_id"] == "local"
+    document_id, workspace_id, expected, saved = storage.update_document_if.await_args_list[0].args
+    assert document_id == "doc-1"
+    assert workspace_id == "local"
+    assert expected["source_revision_id"] == "source-1"
+    assert saved["analysis_status"] == "ready"
     assert "user_id" not in saved
-    assert saved["rag_processed"] is True
+    assert storage.update_document_if.await_args_list[1].args[3]["rag_processed"] is True
     rag.process_document_for_rag.assert_awaited_once_with(
         document_id="doc-1", text="Test contract", filename="contract.pdf", workspace_id="local",
     )
-    storage.store_pdf_file.assert_awaited_once_with(
-        document_id="doc-1", workspace_id="local", file_data=b"%PDF-test",
-        filename="contract.pdf", content_type="application/pdf",
-    )
+    storage.save_document_for_workspace.assert_not_awaited()
+    storage.store_pdf_file.assert_not_awaited()

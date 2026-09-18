@@ -12,8 +12,10 @@ import {
   RefreshCw,
   Trash2,
   Calendar,
+  AlertCircle,
 } from "lucide-react";
 import type { DocumentItem } from "@/types/documents";
+import { getDocumentSourceStatus, hasCompletedAnalysis } from "@/lib/sourceStatus";
 import {
   formatDate,
   formatContractType,
@@ -48,6 +50,15 @@ export const DocumentCard = ({
   onDelete,
   onView,
 }: DocumentCardProps) => {
+  const sourceStatus = getDocumentSourceStatus(doc);
+  const analysisReady = hasCompletedAnalysis(doc);
+  const statusClass = {
+    success: "text-status-success",
+    warning: "text-status-warning",
+    error: "text-status-error",
+  }[sourceStatus.tone];
+  const StatusIcon = analysisReady ? CheckCircle : AlertCircle;
+
   if (viewMode === "grid") {
     return (
       <div
@@ -127,9 +138,9 @@ export const DocumentCard = ({
               <div className="flex items-center justify-between text-sm">
                 <span className="text-text-secondary">Status</span>
                 <div className="flex items-center gap-1">
-                  <CheckCircle className="w-3 h-3 text-status-success" />
-                  <span className="text-status-success font-medium">
-                    Complete
+                  <StatusIcon className={`w-3 h-3 ${statusClass}`} />
+                  <span className={`${statusClass} font-medium`}>
+                    {sourceStatus.label}
                   </span>
                 </div>
               </div>
@@ -152,7 +163,7 @@ export const DocumentCard = ({
                     Loading...
                   </>
                 ) : (
-                  "View Analysis →"
+                  analysisReady ? "View Analysis →" : "View Document →"
                 )}
               </Button>
             )}
@@ -200,8 +211,8 @@ export const DocumentCard = ({
                   <span>{formatDate(doc.upload_date)}</span>
                 </div>
                 <div className="flex items-center gap-1">
-                  <CheckCircle className="w-3 h-3 text-status-success" />
-                  <span className="text-status-success">Complete</span>
+                  <StatusIcon className={`w-3 h-3 ${statusClass}`} />
+                  <span className={statusClass}>{sourceStatus.label}</span>
                 </div>
               </div>
             </div>
@@ -240,7 +251,7 @@ export const DocumentCard = ({
                       Loading...
                     </>
                   ) : (
-                    "View Analysis →"
+                    analysisReady ? "View Analysis →" : "View Document →"
                   )}
                 </Button>
               </>

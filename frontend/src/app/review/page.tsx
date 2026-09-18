@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect, useMemo, useCallback, Suspense } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef, Suspense } from "react";
 import { useAnalysis } from "@/context/AnalysisContext";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useUserInteractions } from "@/hooks/useUserInteractions";
@@ -16,6 +16,7 @@ import ChatContent from "@/components/review/ChatContent";
 import { Clause } from "@clauseiq/shared-types";
 import toast from "@/lib/toast";
 import apiClient, { getApiBaseUrl, LOCAL_API_HEADERS } from "@/lib/api";
+import { getDocumentSourceStatus, hasCompletedAnalysis } from "@/lib/sourceStatus";
 
 function ReviewWorkspaceContent() {
   const router = useRouter();
@@ -23,6 +24,8 @@ function ReviewWorkspaceContent() {
 
   const { currentDocument, setSelectedClause, loadDocument } = useAnalysis();
   const { trackDocumentView } = useDocumentViewing();
+  const requestedDocument = useRef<string | null>(null);
+  const analysisReady = hasCompletedAnalysis(currentDocument);
 
   useEffect(() => {
     const loadDocumentIfNeeded = async () => {
@@ -34,8 +37,9 @@ function ReviewWorkspaceContent() {
         return;
       }
 
-      // If no document is loaded or a different document is loaded, load the requested one
-      if (!currentDocument.id || currentDocument.id !== documentId) {
+      // Refresh unfinished imports once on entry, not on each state update.
+      if (requestedDocument.current !== documentId) {
+        requestedDocument.current = documentId;
         try {
           await loadDocument(documentId);
 
@@ -127,7 +131,7 @@ function ReviewWorkspaceContent() {
     hasNotes,
     getAllNotes,
     getNotesCount,
-  } = useUserInteractions(documentId ?? null);
+  } = useUserInteractions(analysisReady ? documentId ?? null : null);
 
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [isDownloadingOriginalPdf, setIsDownloadingOriginalPdf] =
@@ -525,6 +529,46 @@ function ReviewWorkspaceContent() {
   };
 
   // Copy clause functionality removed.
+
+  if (documentId && !analysisReady) {
+    const sourceStatus = getDocumentSourceStatus(currentDocument);
+    const originalAvailable = currentDocument.source_status === "stored";
+    return (
+      <div className="h-screen bg-bg-primary flex flex-col">
+        <Card className="m-4 p-6 flex-shrink-0">
+          <p className="text-sm text-text-secondary mb-2">{fileName}</p>
+          <h1 className="font-heading text-heading-sm text-text-primary mb-2">
+            {sourceStatus.label}
+          </h1>
+          <p className="text-text-secondary max-w-3xl">{sourceStatus.message}</p>
+          <p className="text-sm text-text-tertiary mt-2">
+            {originalAvailable
+              ? "You can read or download the saved original without running AI."
+              : "The original PDF is not available to open from this record."}
+          </p>
+          <div className="flex flex-wrap gap-3 mt-4">
+            <Button variant="secondary" onClick={() => router.push("/documents")}>
+              Back to documents
+            </Button>
+            {originalAvailable && (
+              <Button
+                variant="secondary"
+                onClick={handleDownloadOriginalPdf}
+                disabled={isDownloadingOriginalPdf}
+              >
+                {isDownloadingOriginalPdf ? "Downloading..." : "Download original PDF"}
+              </Button>
+            )}
+          </div>
+        </Card>
+        {originalAvailable && (
+          <div className="flex-1 min-h-0">
+            <PDFViewer documentId={documentId} fileName={fileName} className="h-full" />
+          </div>
+        )}
+      </div>
+    );
+  }
 
   if (!summary && !fileName && (!clauses || clauses.length === 0)) {
     return (

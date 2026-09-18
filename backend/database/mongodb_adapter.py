@@ -194,6 +194,31 @@ class MongoDBAdapter(DatabaseInterface):
             logger.error("Database document field update failed: %s", type(e).__name__)
             raise DatabaseError("Failed to update document field") from None
 
+    async def update_document_if(
+        self, document_id: str, workspace_id: str,
+        expected: Dict[str, Any], update_data: Dict[str, Any],
+    ) -> bool:
+        """Atomically update one existing document using trusted server conditions.
+
+        Conditions must be constructed by services, never accepted as a client
+        query. Keeping scope in a separate AND clause prevents a condition from
+        replacing the required identity or workspace filter.
+        """
+        try:
+            if any(key.split(".", 1)[0] in {"id", "workspace_id", "_id"}
+                   for key in update_data):
+                raise ValueError("Conditional updates cannot change document identity")
+            updates = {**update_data, "updated_at": datetime.utcnow().isoformat()}
+            result = await self._get_collection("documents").update_one(
+                {"$and": [{"id": document_id, "workspace_id": workspace_id}, dict(expected)]},
+                {"$set": updates},
+                upsert=False,
+            )
+            return result.matched_count > 0
+        except Exception as e:
+            logger.error("Conditional document update failed: %s", type(e).__name__)
+            raise DatabaseError("Failed to conditionally update document") from None
+
     async def delete_document(self, document_id: str, workspace_id: str) -> bool:
         """Delete document."""
         try:

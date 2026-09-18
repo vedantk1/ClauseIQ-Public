@@ -442,11 +442,32 @@ class DocumentService:
             logger.error("Document update failed: %s", type(e).__name__)
             return False
 
+    async def update_document_if(
+        self, document_id: str, workspace_id: str,
+        expected: Dict[str, Any], update_data: Dict[str, Any],
+    ) -> bool:
+        """Apply server-owned claim conditions without hiding database failures."""
+        try:
+            db = await self._get_db()
+            return await db.update_document_if(document_id, workspace_id, expected, update_data)
+        except Exception as e:
+            logger.error("Conditional document update failed: %s", type(e).__name__)
+            raise DatabaseError("Failed to conditionally update document") from None
+
     # PDF File Operations
     async def store_pdf_file(self, document_id: str, workspace_id: str, file_data: bytes,
                            filename: str, content_type: str = "application/pdf") -> bool:
-        """Store PDF file for a document and update document metadata."""
+        """Attach a new PDF to an existing scoped document, preserving prior files.
+
+        An uncertain pointer write is checked before cleanup. If that check also
+        fails, keep the new file: deleting a potentially attached original would
+        turn a recoverable storage problem into document loss.
+        """
         try:
+            db = await self._get_db()
+            if not await db.get_document(document_id, workspace_id):
+                return False
+
             from services.file_storage_service import get_file_storage_service
             file_storage = get_file_storage_service()
 
@@ -468,18 +489,33 @@ class DocumentService:
                 'has_pdf_file': True
             }
 
-            # Update document
-            db = await self._get_db()
-            success = await db.update_document(document_id, workspace_id, pdf_metadata)
+            try:
+                success = await db.update_document(document_id, workspace_id, pdf_metadata)
+            except Exception as e:
+                logger.warning("PDF pointer update outcome is uncertain: %s", type(e).__name__)
+                success = False
 
             if success:
                 logger.info("Stored PDF file successfully")
-            else:
-                # Rollback file storage if document update fails
-                await file_storage.delete_file(file_id, workspace_id)
-                raise Exception("Failed to update document with PDF metadata")
+                return True
 
-            return success
+            try:
+                current = await db.get_document(document_id, workspace_id)
+            except Exception as e:
+                logger.error("PDF pointer verification failed; stored file retained: %s", type(e).__name__)
+                return False
+
+            if current and current.get("pdf_file_id") == file_id:
+                if current.get("has_pdf_file"):
+                    return True
+                logger.error("PDF pointer is attached without complete metadata; stored file retained")
+                return False
+
+            # Only the newly uploaded, confirmed-unattached file is eligible.
+            # Never delete a previous original or the document namespace here.
+            if not await file_storage.delete_file(file_id, workspace_id):
+                logger.error("Unattached PDF rollback is incomplete")
+            return False
 
         except Exception as e:
             logger.error("PDF file storage failed: %s", type(e).__name__)

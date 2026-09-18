@@ -16,9 +16,11 @@ Shared Python and TypeScript domain types live in shared/clauseiq_types.
 
 1. The local browser submits a PDF with the local-request marker.
 2. The backend validates the file and supplies its own workspace identifier.
-3. Extraction and AI analysis use a request-scoped OpenAI client created with
-   the locally configured key.
-4. Documents, PDFs and embeddings retain document and workspace identifiers.
+3. The backend creates a document/source revision and stores the original PDF
+   before local page-aware extraction or AI analysis. Import itself needs no key.
+4. Explicit legacy analysis uses a request-scoped personal OpenAI client. It
+   updates that same document; indexing is separate from saving its analysis.
+   Documents, PDFs and embeddings retain document and workspace identifiers.
 5. The frontend renders the PDF alongside the structured review.
 6. Chat checks the requested document, retrieves only its workspace/document
    vectors and persists messages with that document.
@@ -26,6 +28,45 @@ Shared Python and TypeScript domain types live in shared/clauseiq_types.
 Reading saved analysis does not make a new AI request. Deleting a document
 must remove its files, vector chunks, interactions and embedded chat; failures
 must be reported rather than claiming complete deletion.
+
+## Original sources and extraction
+
+services/source_service.py owns local import and extraction; it never requests
+credentials, generation or embeddings. The original file, content SHA-256 and
+source-revision ID are retained before extraction. Source and extraction status
+are distinct from analysis status; a stored PDF is not a completed review.
+
+services/ai/text_extractor.py extracts in a worker thread from in-memory bytes.
+Each PDF page retains its one-based position, exact extracted text, empty/failed
+state and deterministic line-span IDs. Offsets count Unicode code points from
+the start of the page text and are end-exclusive, not JavaScript UTF-16 indices
+or PDF geometry. IDs incorporate the file hash, extractor/version and location.
+These anchors match extracted text; they do not establish layout fidelity,
+interpretation accuracy or comprehensive review. No OCR is performed.
+
+The page-aware snapshot is immutable once published. Retrying a completed,
+partial or unavailable extraction returns the saved snapshot. Failed/pending
+extractions can be retried against the same original; an explicit restart can
+supersede an interrupted processing attempt. Conditional workspace/document and
+attempt-token updates reject late results. This restarts local extraction only,
+never a paid AI request. A storage-status interruption can be reconciled only
+from a readable original that matches the recorded hash.
+
+Malformed/encrypted PDFs can remain stored with failed extraction; empty or
+unreadable pages remain visible as limitations. The legacy analyze path currently
+requires complete text extraction; it will not silently analyze a partial prefix.
+Generation failure retains the original/source snapshot and records failed
+analysis. New imports have explicit status, while legacy records without source
+metadata stay readable without inventing provenance or migrating their findings.
+The library and review screen distinguish non-ready imports from completed legacy
+analysis. The key-free import API is available now; a separate import/brief UI and
+the new finding workflow are not implemented by this source-foundation increment.
+
+Source metadata and page snapshots live in the existing scoped document record;
+no migration, new database or vector reindex is needed. GridFS pointer writes are
+confirmed before reporting success. On an uncertain outcome, potentially attached
+files are retained rather than deleted. Only a confirmed-unattached new file is
+eligible for rollback; previous originals are preserved.
 
 ## Settings and credentials
 

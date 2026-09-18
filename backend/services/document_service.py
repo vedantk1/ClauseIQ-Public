@@ -165,41 +165,57 @@ async def process_and_save_analyzed_document(
     contract_type: ContractType,
     workspace_id: str,
     ai_structured_summary: Optional[Dict[str, Any]],
-    file_content: bytes,
+    file_content: Optional[bytes] = None,
     content_type: str = "application/pdf",
     analysis_generation: Optional[Dict[str, Any]] = None,
 ) -> Tuple[bool, Optional[str]]:
-    """
-    Process RAG, save document metadata and PDF file.
+    """Attach analysis to a fresh, confirmed source, then optionally index it.
 
-    This consolidates the complex save flow into a single method.
-
-    Args:
-        doc_id: Document ID
-        filename: Original filename
-        extracted_text: Extracted text content
-        clauses: List of analyzed clauses
-        contract_type: Detected contract type
-        workspace_id: User ID
-        ai_structured_summary: AI-generated summary
-        file_content: Raw PDF file bytes
-        content_type: Content type (default: application/pdf)
-
-    Returns:
-        Tuple of (success, error_message)
+    Source import owns the bytes and document identity. The legacy byte/MIME
+    arguments remain accepted for call compatibility but never store or replace
+    a file. A conditional update prevents overwriting existing analysis.
     """
     from database.service import get_document_service
     from services.rag_service import get_rag_service
 
     service = get_document_service()
 
-    # Build document data
-    document_data = build_document_data(
-        doc_id, filename, extracted_text, clauses,
-        contract_type, workspace_id, ai_structured_summary, analysis_generation
-    )
+    # Save generated work before any optional embeddings/vector dependency.
+    try:
+        imported = await service.get_document_for_workspace(doc_id, workspace_id)
+        if (
+            not imported
+            or not imported.get("source_revision_id")
+            or imported.get("source_status") != "stored"
+            or imported.get("has_pdf_file") is not True
+            or imported.get("extraction_status") != "complete"
+            or imported.get("analysis_status") != "processing"
+            or imported.get("clauses") is not None
+            or imported.get("text") != extracted_text
+        ):
+            return False, "A confirmed stored original is required before saving analysis"
+        document_data = {
+            "ai_structured_summary": ai_structured_summary,
+            "analysis_generation": analysis_generation,
+            "clauses": [clause.model_dump() for clause in clauses],
+            "risk_summary": calculate_risk_summary(clauses),
+            "contract_type": contract_type.value if contract_type else None,
+            "analysis_status": "ready", "analysis_error": None,
+            "rag_processed": False, "ready_for_chat": False,
+        }
+        saved = await service.update_document_if(
+            doc_id, workspace_id,
+            {"source_revision_id": imported["source_revision_id"], "source_status": "stored",
+             "has_pdf_file": True, "extraction_status": "complete", "analysis_status": "processing",
+             "clauses": None},
+            document_data,
+        )
+        if not saved:
+            return False, "Failed to save document"
+    except Exception as save_error:
+        logger.error("Document analysis save failed: %s", type(save_error).__name__)
+        return False, "Failed to save document"
 
-    # Process RAG before saving document
     try:
         rag_service = get_rag_service()
         logger.info("Starting RAG processing")
@@ -207,21 +223,28 @@ async def process_and_save_analyzed_document(
         rag_data = await rag_service.process_document_for_rag(
             document_id=doc_id,
             text=extracted_text,
-            filename=filename,
+            filename=imported["filename"],
             workspace_id=workspace_id
         )
 
-        # Update document with RAG metadata
+        # Indexing is optional; failure never erases the already saved analysis.
         if rag_data:
-            document_data["rag_processed"] = True
-            document_data["vector_stored"] = rag_data.get("vector_stored", False)
-            document_data["chunk_count"] = rag_data.get("chunk_count", 0)
-            document_data["chunk_ids"] = rag_data.get("chunk_ids", [])
-            document_data["embedding_model"] = rag_data.get("embedding_model")
-            document_data["rag_processed_at"] = rag_data.get("processed_at")
-            document_data["storage_service"] = rag_data.get("storage_service")
-            # Document is ready for chat when RAG processing succeeds
-            document_data["ready_for_chat"] = True
+            rag_metadata = {
+                "rag_processed": True,
+                "vector_stored": rag_data.get("vector_stored", False),
+                "chunk_count": rag_data.get("chunk_count", 0),
+                "chunk_ids": rag_data.get("chunk_ids", []),
+                "embedding_model": rag_data.get("embedding_model"),
+                "rag_processed_at": rag_data.get("processed_at"),
+                "storage_service": rag_data.get("storage_service"),
+                "ready_for_chat": bool(rag_data.get("vector_stored", False)),
+            }
+            if not await service.update_document_if(
+                doc_id, workspace_id,
+                {"source_revision_id": imported["source_revision_id"], "analysis_status": "ready"},
+                rag_metadata,
+            ):
+                logger.warning("RAG metadata could not be saved")
             logger.info("Document processed for RAG with %s chunks", rag_data.get("chunk_count", 0))
         else:
             logger.warning("RAG processing returned no data")
@@ -229,39 +252,4 @@ async def process_and_save_analyzed_document(
     except Exception as rag_error:
         # RAG processing failure should not break document analysis
         logger.warning("RAG processing failed: %s", type(rag_error).__name__)
-        document_data["rag_processed"] = False
-
-    # Save to storage with RAG metadata included
-    logger.info("Saving document to database")
-    try:
-        # First save document metadata
-        await service.save_document_for_workspace(document_data, workspace_id)
-        logger.info("Document saved successfully to database")
-
-        # Then store the PDF file (atomic operation)
-        try:
-            logger.info("Storing PDF file")
-            pdf_stored = await service.store_pdf_file(
-                document_id=doc_id,
-                workspace_id=workspace_id,
-                file_data=file_content,
-                filename=filename,
-                content_type=content_type
-            )
-
-            if pdf_stored:
-                logger.info("PDF file stored successfully")
-            else:
-                logger.warning("Failed to store PDF file")
-                # Don't fail the entire upload if PDF storage fails
-
-        except Exception as pdf_error:
-            logger.error("PDF storage failed: %s", type(pdf_error).__name__)
-            # Don't fail the entire upload if PDF storage fails
-            # The document analysis was successful, PDF storage is supplementary
-
-        return True, None
-
-    except Exception as save_error:
-        logger.error("Document save failed: %s", type(save_error).__name__)
-        return False, "Failed to save document"
+    return True, None

@@ -19,7 +19,7 @@ when present, an allowed local Origin. In Swagger, select Authorize and enter
 | Prefix | Purpose |
 | --- | --- |
 | /api/v1/workspace | Key status, key save/removal and ordinary Settings |
-| /api/v1/documents | List, fetch, PDF access and delete |
+| /api/v1/documents | Local source import/extraction, list, fetch, PDF access and delete |
 | /api/v1/analysis | Upload/analysis, stored clauses, notes, flags and rewrites |
 | /api/v1/chat | Document sessions, messages, history and status |
 | /api/v1/analytics | Workspace dashboard |
@@ -30,6 +30,49 @@ when present, an allowed local Origin. In Swagger, select Authorize and enter
 Account, admin and AI-debug routes are removed. The server supplies workspace_id;
 request data cannot change the workspace. Document IDs remain required for
 document-specific operations.
+
+## Source import and extraction
+
+- POST /api/v1/documents/import accepts multipart file, persists the original and
+  attempts local extraction. No key, model or vector request is made. Success
+  means the original was imported, not that AI review succeeded; inspect statuses.
+- GET /api/v1/documents/{document_id}/source returns source metadata and the saved
+  source_extraction snapshot. Legacy records have null source metadata; this read
+  never invents anchors or starts extraction.
+- POST /api/v1/documents/{document_id}/extract accepts `{}` to retry pending/failed
+  local extraction. Use `{"restart": true}` deliberately to supersede an interrupted
+  processing attempt. Saved snapshots are returned unchanged. No AI is retried.
+
+New document detail/list responses include optional source_revision_id,
+source_sha256, source_status (storing/stored/storage_failed), extraction_status
+(pending/processing/complete/partial/unavailable/failed), extraction_error (safe
+code), and analysis_status (not_started/processing/ready/failed). Missing/null
+metadata identifies historical records, not proof of a failed or new review.
+
+The source snapshot contains content_sha256, extraction_version, status, page_count,
+pages, warnings and compatibility text. Each page has a one-based page_number,
+exact extracted text, extracted/empty/failed status, warnings and line spans.
+Each span has id, text, start and end; offsets are page-relative Unicode code-point
+positions, end-exclusive. In JavaScript use code-point indexing, not raw string
+slice offsets. References do not represent PDF highlight rectangles.
+
+Source errors use safe codes and, when known, error.details.document_id so the
+stored record can be inspected. Storage failure is not successful import. Failed
+text extraction can be a successful import with extraction_status=failed and an
+available original PDF. Extraction conflicts return 409. Actual byte length is
+limited by the smaller of the configured upload cap and the supported GridFS
+service cap; declared upload size alone is not trusted.
+
+POST /api/v1/analysis/analyze/ remains the current upload-and-analyze entry point.
+It checks the personal key, imports the source before generation, requires complete
+extraction, and saves analysis back to the same document. Provider errors preserve
+their safe status/message and include X-Document-ID and error.details.document_id
+when a source was imported.
+Non-ready new records return REVIEW_NOT_READY from the stored-clauses endpoint;
+they are not represented as successfully reviewed documents with zero concerns.
+There is no new paid retry endpoint in this increment. Reading sources, retrying
+local extraction, downloading originals and reading old reviews never spend AI
+tokens. The existing upload UI remains combined until the new brief flow lands.
 
 ## Workspace settings
 

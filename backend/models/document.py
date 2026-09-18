@@ -4,9 +4,10 @@ Document-related models.
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from .common import Clause, RiskSummary
+from .source import SourceMetadata
 
 
-class DocumentListItem(BaseModel):
+class DocumentListItem(SourceMetadata):
     id: str
     filename: str
     upload_date: str
@@ -22,7 +23,7 @@ class DocumentListResponse(BaseModel):
     documents: List[DocumentListItem]
 
 
-class DocumentDetailResponse(BaseModel):
+class DocumentDetailResponse(SourceMetadata):
     id: str
     filename: str
     upload_date: str
@@ -45,7 +46,7 @@ class DocumentDetailResponse(BaseModel):
     last_viewed: Optional[str] = None
 
 
-class AnalyzeDocumentResponse(BaseModel):
+class AnalyzeDocumentResponse(SourceMetadata):
     id: str
     workspace_id: str
     filename: str

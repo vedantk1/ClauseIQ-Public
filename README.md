@@ -49,6 +49,13 @@ enable automatic deletion in Settings. There is no document-count cap; individua
 upload size and request limits still apply. Existing saved reviews, PDFs, notes
 and reports remain usable without an AI key.
 
+The backend also supports key-free PDF import with page-level source extraction.
+The current upload screen still starts analysis, but it now preserves the original
+before generation; extraction or AI failures do not discard an already stored PDF.
+Imported/not-ready records are labelled separately from completed analysis.
+See docs/API_REFERENCE.md for the source API. The redesigned review workflow is
+not yet implemented.
+
 ## Validation
 
 For routine development, run the tests and type/lint checks affected by the change.

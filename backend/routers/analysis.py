@@ -1,7 +1,6 @@
 """
 Document analysis routes.
 """
-import uuid
 import logging
 from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, Request
 from pydantic import BaseModel
@@ -15,7 +14,7 @@ from services.document_service import (
     calculate_risk_summary,
     process_and_save_analyzed_document
 )
-from services.ai.text_extractor import get_text_extractor
+from services.source_service import SourceError, SourceService, read_pdf_upload
 # PHASE 3 MIGRATION: Main AI functions still from ai_service for stability
 from services.ai_service import generate_structured_document_summary, generate_clause_rewrite
 from services.ai.generation import AIRequestError, generation_metadata
@@ -27,6 +26,19 @@ from clauseiq_types.common import RiskLevel, Clause, RiskSummary, ContractType
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["analysis"])
+
+
+async def _mark_analysis_failed(service, document_id: str, workspace_id: str, code: str):
+    """Preserve the original and never downgrade an already saved analysis."""
+    if not document_id or service is None:
+        return
+    try:
+        await service.update_document_if(
+            document_id, workspace_id, {"analysis_status": "processing"},
+            {"analysis_status": "failed", "analysis_error": code},
+        )
+    except Exception as error:
+        logger.warning("Analysis failure status could not be saved: %s", type(error).__name__)
 
 
 async def _require_document(service, document_id: str, workspace_id: str):
@@ -52,6 +64,8 @@ async def analyze_document(
 ):
     """Analyze document and extract clauses with AI summaries."""
     correlation_id = getattr(request.state, 'correlation_id', None)
+    doc_id = None
+    service = None
 
     try:
         validate_file(file)
@@ -66,26 +80,29 @@ async def analyze_document(
                 correlation_id=correlation_id
             )
 
-        # Read file content
-        content = await file.read()
-
-        # Use TextExtractor service for extraction
-        text_extractor = get_text_extractor()
-        try:
-            extracted_text = await text_extractor.extract_text(content, file.filename)
-        except ValueError:
+        # Confirm durable source bytes and extraction before any paid operation.
+        content = await read_pdf_upload(file)
+        imported = await SourceService(document_service=service).import_pdf(
+            content, file.filename, workspace_id
+        )
+        doc_id = imported["id"]
+        if imported.get("extraction_status") != "complete":
             return create_error_response(
                 code="PDF_EXTRACTION_FAILED",
                 message="Failed to extract text from PDF",
+                details={"document_id": doc_id, "extraction_status": imported.get("extraction_status")},
                 correlation_id=correlation_id
             )
-        except Exception as extraction_error:
-            logger.error("PDF text extraction failed: %s", type(extraction_error).__name__)
-            return create_error_response(
-                code="PDF_EXTRACTION_FAILED",
-                message="Failed to extract text from PDF",
-                correlation_id=correlation_id
-            )
+        extracted_text = imported["text"]
+        claimed = await service.update_document_if(
+            doc_id, workspace_id,
+            {"source_revision_id": imported["source_revision_id"], "source_status": "stored",
+             "has_pdf_file": True, "extraction_status": "complete", "analysis_status": "not_started",
+             "clauses": None},
+            {"analysis_status": "processing", "analysis_error": None},
+        )
+        if not claimed:
+            raise SourceError("ANALYSIS_STATE_CONFLICT", "The document state changed. Reload the stored document.", 409, doc_id)
 
         # Get workspace model
         workspace_model = await service.get_workspace_model(workspace_id)
@@ -107,11 +124,7 @@ async def analyze_document(
                 extracted_text, file.filename, workspace_model, contract_type
             )
 
-            # Generate document ID
-            doc_id = str(uuid.uuid4())
-
-            # Process RAG and save document (consolidated business logic)
-            # RAG uses embeddings which also require OpenAI
+            # Save to the imported record before optional RAG embeddings.
             success, error = await process_and_save_analyzed_document(
                 doc_id=doc_id,
                 filename=file.filename,
@@ -120,15 +133,15 @@ async def analyze_document(
                 contract_type=contract_type,
                 workspace_id=workspace_id,
                 ai_structured_summary=ai_structured_summary,
-                file_content=content,
-                content_type=file.content_type or "application/pdf",
                 analysis_generation=analysis_generation,
             )
 
         if not success:
+            await _mark_analysis_failed(service, doc_id, workspace_id, "DOCUMENT_SAVE_FAILED")
             return create_error_response(
                 code="DOCUMENT_SAVE_FAILED",
                 message=error or "Failed to save document",
+                details={"document_id": doc_id},
                 correlation_id=correlation_id
             )
 
@@ -148,6 +161,12 @@ async def analyze_document(
             "risk_summary": risk_summary,
             "full_text": extracted_text,
             "contract_type": contract_type.value if contract_type else None,
+            "source_revision_id": imported["source_revision_id"],
+            "source_sha256": imported.get("source_sha256"),
+            "source_status": imported["source_status"],
+            "extraction_status": imported["extraction_status"],
+            "extraction_error": imported.get("extraction_error"),
+            "analysis_status": "ready",
             "message": "Document analyzed successfully"
         }
 
@@ -157,14 +176,27 @@ async def analyze_document(
         )
 
     except AIRequestError as error:
-        raise HTTPException(status_code=error.status_code, detail=error.public_message) from None
+        await _mark_analysis_failed(service, doc_id, workspace_id, "AI_REQUEST_FAILED")
+        raise HTTPException(
+            status_code=error.status_code, detail=error.public_message,
+            headers={"X-Document-ID": doc_id} if doc_id else None,
+        ) from None
+    except SourceError as error:
+        await _mark_analysis_failed(service, doc_id, workspace_id, error.code)
+        raise HTTPException(
+            status_code=error.status_code, detail=error.public_message,
+            headers={"X-Document-ID": error.document_id} if error.document_id else None,
+        ) from None
     except HTTPException:
+        await _mark_analysis_failed(service, doc_id, workspace_id, "DOCUMENT_ANALYSIS_FAILED")
         raise
     except Exception as e:
+        await _mark_analysis_failed(service, doc_id, workspace_id, "DOCUMENT_ANALYSIS_FAILED")
         logger.error("Document analysis failed: %s", type(e).__name__)
         return create_error_response(
             code="DOCUMENT_ANALYSIS_FAILED",
             message="An error occurred while analyzing the document",
+            details={"document_id": doc_id} if doc_id else None,
             correlation_id=correlation_id
         )
 
@@ -191,6 +223,16 @@ async def get_document_clauses(
                 correlation_id=correlation_id
             )
 
+        # Imported/failed sources are not successful empty legacy analyses.
+        if document.get("analysis_status") not in {None, "ready"}:
+            return create_error_response(
+                code="REVIEW_NOT_READY",
+                message="This document does not have a completed analysis.",
+                details={"document_id": document_id, "analysis_status": document.get("analysis_status"),
+                         "extraction_status": document.get("extraction_status")},
+                correlation_id=correlation_id,
+            )
+
         # Viewing saved analysis never starts a new provider request.
         analyzed_clauses = document.get("clauses") or []
         risk_summary = document.get("risk_summary") or {
@@ -202,7 +244,9 @@ async def get_document_clauses(
             "clauses": analyzed_clauses,
             "total_clauses": len(analyzed_clauses),
             "risk_summary": risk_summary,
-            "document_id": document_id
+            "document_id": document_id,
+            "analysis_status": document.get("analysis_status"),
+            "extraction_status": document.get("extraction_status"),
         }
 
         return create_success_response(
