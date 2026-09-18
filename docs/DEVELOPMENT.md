@@ -70,11 +70,14 @@ Optional isolated live storage checks (no OpenAI calls) are documented in
 
 ### Synthetic PDF fixtures
 
-tests/fixtures/pdfs contains small, explicitly synthetic PDFs, their readable
-source/manifest, and a deterministic generator. They cover ordinary extraction,
-multi-page cross-references and conflicting terms, untrusted embedded instructions,
-and image-only input. They are not real agreements or legally validated examples,
-and their presence does not select a target contract family for the product.
+tests/fixtures/pdfs contains explicitly synthetic PDFs spanning 1, 2, 5, 12 and
+25 pages, their readable sources/manifest, and a deterministic generator. Keep
+the small cases for fast diagnosis; use the longer agreements for late-page
+extraction, distant cross-references, schedules and document-wide checks. Length
+alone does not establish realistic difficulty or AI coverage. The corpus also
+includes conflicting terms, untrusted embedded instructions and image-only input.
+These are not real agreements or legally validated examples, and their presence
+does not select a target contract family for the product.
 
 From the repository root:
 

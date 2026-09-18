@@ -26,7 +26,17 @@ LABEL = ParagraphStyle("fixture-label", fontName="Helvetica-Bold", fontSize=11, 
 
 
 def load_manifest() -> dict:
-    return json.loads((FIXTURE_DIR / "manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads((FIXTURE_DIR / "manifest.json").read_text(encoding="utf-8"))
+    # Longer agreements have separate readable sources instead of one huge file.
+    for name in manifest.get("fixture_sources", []):
+        if Path(name).name != name or not name.endswith(".json"):
+            raise ValueError("Fixture source must be a JSON filename in sources")
+        fixture = json.loads((FIXTURE_DIR / "sources" / name).read_text(encoding="utf-8"))
+        manifest["fixtures"].append(fixture)
+    names = [fixture["filename"] for fixture in manifest["fixtures"]]
+    if len(names) != len(set(names)):
+        raise ValueError("Fixture output filenames must be unique")
+    return manifest
 
 
 def paragraph(canvas: Canvas, text: str, top: float, style=BODY) -> float:

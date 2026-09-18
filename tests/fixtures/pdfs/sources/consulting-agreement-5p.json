@@ -1,0 +1,148 @@
+{
+  "filename": "consulting-agreement-5p.pdf",
+  "title": "Synthetic consulting agreement",
+  "kind": "text",
+  "purpose": "Five-page consulting engagement with distinct commercial, delivery, ownership, responsibility and schedule terms; supports medium-length extraction and distant-reference checks without prescribing legal conclusions.",
+  "expected_page_count": 5,
+  "min_body_words_per_page": 220,
+  "cross_references": [
+    {
+      "from_page": 1,
+      "to_page": 5,
+      "source_anchor": "Schedule A on page 5",
+      "target_anchor": "A1. Delivery and payment milestones"
+    },
+    {
+      "from_page": 2,
+      "to_page": 4,
+      "source_anchor": "clause 10 on page 4",
+      "target_anchor": "10. Ending the engagement"
+    },
+    {
+      "from_page": 5,
+      "to_page": 2,
+      "source_anchor": "clause 4 on page 2",
+      "target_anchor": "4. Review and acceptance"
+    }
+  ],
+  "pages": [
+    {
+      "heading": "Engagement and commercial basis",
+      "sections": [
+        {
+          "heading": "1. Appointment and scope",
+          "text": "Example Customer appoints Example Supplier to examine a fictional purchasing workflow and prepare an improvement proposal. The engagement begins on 1 April 2026 and is intended to finish on 30 June 2026. Services comprise a process map, an options report and a handover session, as described in Schedule A on page 5. Services exclude implementation, software procurement, employee assessment and advice about legal compliance. Example Supplier must explain the assumptions behind each recommendation and distinguish observations from estimates. Example Customer remains responsible for deciding whether and how to adopt any recommendation."
+        },
+        {
+          "heading": "2. Cooperation and delivery dependencies",
+          "text": "Example Customer will provide the invented workflow records and consolidated comments reasonably needed for the agreed work. Neither party will provide real customer records, account credentials or personal information for this fictional engagement. Example Supplier must notify Example Customer if an input is missing, unsuitable or inconsistent and describe the effect on the next milestone. A delay does not automatically extend every delivery date. The parties must record the specific affected activity, a revised date and any agreed additional charge. Until that record is agreed, unaffected work should continue where reasonably practical."
+        },
+        {
+          "heading": "3. Charges and invoicing",
+          "text": "The fixed project charge is GBP 4,800, allocated across the milestones in Schedule A. Each milestone may be invoiced only when the corresponding deliverable has been accepted under clause 4. Payment is due within 21 days after receipt of a correctly itemised invoice. A disputed amount must be identified with reasons before the payment date; undisputed amounts remain payable. Travel, additional workshops and third-party subscriptions are excluded from the charge and require advance written approval. No purchase order, draft estimate or informal conversation changes these payment conditions without the change record required by clause 5."
+        }
+      ],
+      "text_anchors": [
+        "Schedule A on page 5",
+        "fixed project charge is GBP 4,800",
+        "within 21 days"
+      ]
+    },
+    {
+      "heading": "Delivery review and change control",
+      "sections": [
+        {
+          "heading": "4. Review and acceptance",
+          "text": "Example Customer has seven business days after receiving a complete deliverable to accept it or provide one consolidated list of material departures from the relevant Schedule A description. A preference outside that description is a change request, not a rejection. Silence does not count as acceptance. Example Supplier will correct a properly identified departure without an additional charge and resubmit the affected material within five business days, unless the parties agree another correction period. The review period then applies to the corrected portions only. Acceptance does not prevent a later claim concerning an undisclosed defect within the agreed scope."
+        },
+        {
+          "heading": "5. Changes to the agreed work",
+          "text": "Either party may propose a change using a written description of the requested result, reasons and desired timing. Example Supplier must identify the effect on charges, dependencies, acceptance criteria and delivery dates before starting additional work. A change takes effect only when both parties record their agreement to those points. Existing work continues under the current scope unless the change record expressly pauses it. If a proposal is not accepted, neither party is obliged to perform or purchase the proposed addition. Repeated comments on a draft do not by themselves authorise an expanded engagement or a higher invoice."
+        },
+        {
+          "heading": "6. Delays and unresolved delivery issues",
+          "text": "A party expecting a material delay must promptly explain its cause, likely duration and proposed recovery steps. The parties will first consider sequencing unaffected tasks, reducing an optional dependency or agreeing a revised milestone. Extra recovery effort is not separately chargeable unless approved under clause 5. If a delivery issue remains unresolved after two correction attempts, the parties may agree a reduced deliverable and corresponding price adjustment. Neither adjustment happens automatically. If agreement cannot be reached, the termination process in clause 10 on page 4 remains available, including its treatment of accepted work and incomplete deliverables."
+        }
+      ],
+      "text_anchors": [
+        "4. Review and acceptance",
+        "Silence does not count as acceptance",
+        "clause 10 on page 4"
+      ]
+    },
+    {
+      "heading": "Work product and protected information",
+      "sections": [
+        {
+          "heading": "7. Ownership and reusable material",
+          "text": "Example Customer retains ownership of material it supplies. On payment of the applicable milestone charge, Example Supplier assigns its rights in the bespoke process map and options report created specifically for this engagement to Example Customer. Example Supplier retains its pre-existing methods, generic templates and reusable analytical techniques, including improvements that do not reveal Example Customer's confidential information. To the extent such material is embedded in an accepted deliverable, Example Customer receives a continuing, non-exclusive licence to use and modify it for internal purposes. This licence does not permit separate resale of a template or representation that Example Supplier endorses later modifications."
+        },
+        {
+          "heading": "8. Confidentiality and permitted sharing",
+          "text": "Each party must protect non-public information disclosed for the engagement with reasonable care and use it only to perform or receive the services. Information independently developed, already lawfully known or made public without a breach is excluded. A party may share protected information with advisers or personnel who need it for the engagement and are bound by equivalent duties. Required disclosure should be limited to the required portion, with advance notice where permitted. These obligations continue for three years after the engagement ends. Neither party may use the other's name, project materials or results in publicity without specific written permission."
+        },
+        {
+          "heading": "9. Material handling and return",
+          "text": "Example Supplier must keep supplied material separate from unrelated work and must not upload it to an external analysis service without Example Customer's prior written approval. Within ten business days after the final handover or earlier termination, each party must return or delete the other's supplied material on request. One restricted archival copy may be retained solely to document performance and resolve disputes. Routine backup copies may remain until overwritten under the ordinary backup cycle, but must not be restored for general business use. Retained copies remain protected under clause 8, and the retaining party must describe the exception when confirming completion."
+        }
+      ],
+      "text_anchors": [
+        "continuing, non-exclusive licence",
+        "three years after the engagement ends",
+        "One restricted archival copy"
+      ]
+    },
+    {
+      "heading": "Ending the work and allocating responsibility",
+      "sections": [
+        {
+          "heading": "10. Ending the engagement",
+          "text": "Either party may end the engagement for convenience by giving 15 days of written notice. Either party may also give notice describing a material breach and allow ten business days for correction before ending the affected services. On termination, Example Customer must pay accepted milestone charges and previously approved expenses, but no charge for an unaccepted milestone becomes payable automatically. The parties may agree a proportionate amount for usable work in progress. Example Supplier must provide that work with its completion status and known limitations. Clauses concerning payment, ownership, confidentiality, material handling and responsibility continue to the extent needed to give them effect."
+        },
+        {
+          "heading": "11. Performance standard and limitations",
+          "text": "Example Supplier will perform the services with reasonable care and skill and use the information supplied for the agreed engagement. The options report provides a decision aid, not a guarantee of savings, commercial results or successful implementation. Example Supplier must identify material uncertainty rather than present an unsupported estimate as a verified fact. Example Customer is responsible for checking whether a recommendation suits its circumstances before acting on it. Example Supplier must not knowingly incorporate third-party material without permission sufficient for the agreed use. A claim about an identified delivery defect must describe the affected output and the requested remedy."
+        },
+        {
+          "heading": "12. Liability and disagreement process",
+          "text": "Each party's aggregate liability arising from the engagement is limited to GBP 9,600. That limit does not reduce charges properly payable under clause 3 or apply to deliberate misuse of the other party's confidential information. Neither party is responsible for the other's lost anticipated savings or indirect commercial loss. Before starting a formal dispute process, the parties will exchange a written account of the issue and allow 20 business days for discussions. Undisputed obligations should continue during those discussions where practical. Any settlement, variation or waiver must identify the relevant issue in writing; a temporary decision not to enforce a term is not a permanent change."
+        }
+      ],
+      "text_anchors": [
+        "10. Ending the engagement",
+        "limited to GBP 9,600",
+        "15 days of written notice"
+      ]
+    },
+    {
+      "heading": "Schedule A - milestones and handover",
+      "sections": [
+        {
+          "heading": "A1. Delivery and payment milestones",
+          "text": "The following milestones divide the fixed project charge stated in clause 3. Dates assume that the initial invented workflow records are available by 3 April 2026. Example Supplier must submit each deliverable in an editable format together with a readable copy. The process map must describe the current sequence and identify missing inputs. The options report must compare three feasible approaches, their dependencies and estimated effort. The handover package must explain how to maintain the accepted outputs. Submission alone does not authorise an invoice: review and acceptance remain governed by clause 4 on page 2."
+        }
+      ],
+      "table": [
+        ["Deliverable", "Submission date", "Milestone fee"],
+        ["Process map", "24 April 2026", "GBP 1,200"],
+        ["Options report", "29 May 2026", "GBP 2,400"],
+        ["Handover package", "19 June 2026", "GBP 1,200"]
+      ],
+      "after_table": [
+        {
+          "heading": "A2. Handover materials and final session",
+          "text": "The handover package includes the final process map, accepted options report, outstanding assumptions register and a short maintenance guide. Example Supplier will provide one remote session lasting up to 90 minutes before 30 June 2026. Example Customer must consolidate follow-up questions within five business days after that session. One written response to those questions is included; further workshops require a change under clause 5. The session is not automatically recorded, and either party may decline a proposed recording without changing the delivery obligation."
+        },
+        {
+          "heading": "A3. Document order and remaining work",
+          "text": "This schedule defines outputs and allocates charges; it does not replace the payment, ownership or termination conditions in the main agreement. A later agreed change record takes priority only for the points it expressly changes. If a conflict is identified, the parties must document a resolution before relying on a different scope or deadline. At the final session they will also record incomplete actions, the responsible party and any separately agreed completion date. Unresolved items do not silently extend the engagement or create a continuing support subscription."
+        }
+      ],
+      "text_anchors": [
+        "A1. Delivery and payment milestones",
+        "clause 4 on page 2",
+        "GBP 2,400"
+      ]
+    }
+  ]
+}

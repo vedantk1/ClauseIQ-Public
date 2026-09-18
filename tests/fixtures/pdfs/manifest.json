@@ -1,6 +1,11 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "notice": "SYNTHETIC TEST FIXTURE - invented content, not a real agreement or legal advice.",
+  "fixture_sources": [
+    "consulting-agreement-5p.json",
+    "software-license-12p.json",
+    "managed-services-25p.json"
+  ],
   "fixtures": [
     {
       "filename": "mutual-nda.pdf",
