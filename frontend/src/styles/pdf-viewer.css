@@ -1,127 +1,79 @@
-/* ClauseIQ Professional PDF Viewer Styling - Minimal & Surgical Approach */
-/* 🔧 Cross-browser fix for PDF container height and scrolling */
-
-/* 🔧 Root container must establish height context */
+/* Only the surrounding canvas follows the app theme; source paper stays white. */
 .pdf-viewer-container {
-  height: 100% !important;
-  display: flex !important;
-  flex-direction: column !important;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
 }
 
-/* 🔧 Remove all default spacing from PDF.js containers and fix height chain */
-.pdf-viewer-container .rpv-core__viewer {
-  padding: 0 !important;
-  margin: 0 !important;
-  min-height: 0 !important; /* 🎯 Override min-height: inherit to eliminate unwanted vertical space */
-  height: 100% !important;
-  display: flex !important;
-  flex-direction: column !important;
-}
-
-.pdf-viewer-container .rpv-core__viewer-container {
-  padding: 0 !important;
-  margin: 0 !important;
-  height: 100% !important;
-  display: flex !important;
-  flex-direction: column !important;
-  flex: 1 !important;
-  min-height: 0 !important;
-}
-
-.pdf-viewer-container .rpv-core__doc {
-  padding: 0 !important;
-  margin: 0 !important;
-  height: 100% !important;
-  display: flex !important;
-  flex-direction: column !important;
-  flex: 1 !important;
-  min-height: 0 !important;
-}
-
-/* 🔧 Fix min-height inheritance that causes unwanted vertical space */
-.pdf-viewer-container .rpv-core__inner-container {
-  min-height: 0 !important; /* Override min-height: inherit from library */
-  height: 100% !important;
-  display: flex !important;
-  flex-direction: column !important;
-  flex: 1 !important;
-}
-
-/* 🔧 CRITICAL: The inner-pages container needs explicit height and overflow for Chromium */
-.pdf-viewer-container .rpv-core__inner-pages {
-  text-align: center; /* Centers child elements */
-  background: var(--bg-primary); /* Theme-aware surrounding canvas */
-  padding: 0 20px !important; /* Only horizontal padding, no top/bottom padding */
-  margin: 0 !important; /* Remove any default margins */
-  padding-top: 0 !important;
-  margin-top: 0 !important;
-  /* 🎯 Cross-browser height fix - CRITICAL for Chromium */
-  height: 100% !important;
-  max-height: 100% !important;
-  overflow-y: auto !important;
-  overflow-x: hidden !important;
-  flex: 1 !important;
-  min-height: 0 !important;
-}
-
-/* Keep the original document's paper surface independent of the app theme. */
-.pdf-viewer-container .rpv-core__page-layer {
-  background-color: #fff !important;
-}
-
-/* Do not invert or tint the source document when switching app themes. */
-.pdf-viewer-container .rpv-core__canvas-layer canvas {
-  background-color: #fff !important;
-}
-
-/* 🎯 Ensure individual pages are inline-block for centering */
-.pdf-viewer-container .rpv-core__inner-page {
-  display: inline-block; /* Allows centering with text-align */
-  text-align: left; /* Reset text alignment for content */
-  margin-bottom: 16px;
-}
-
-/* 📜 Professional scrollbar with theme support */
-.pdf-viewer-container .rpv-core__inner-pages::-webkit-scrollbar {
-  width: 8px;
-}
-
-.pdf-viewer-container .rpv-core__inner-pages::-webkit-scrollbar-track {
+.pdfjs-renderer {
+  position: relative;
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
   background: var(--bg-primary);
-  border-radius: 4px;
 }
 
-.pdf-viewer-container .rpv-core__inner-pages::-webkit-scrollbar-thumb {
+/* PDF.js measures this exact absolutely positioned scrolling container. */
+.pdfjs-scroll-container {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  overflow-anchor: none;
+  scroll-behavior: auto;
+  scrollbar-color: var(--border-muted) var(--bg-primary);
+  scrollbar-width: thin;
+  color-scheme: dark;
+}
+
+.pdfjs-scroll-container:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: -2px;
+}
+
+.pdfjs-renderer .pdfViewer {
+  --page-margin: 12px auto;
+  --page-border: 0 solid transparent;
+  --page-bg-color: #fff;
+  padding: 0 12px 12px;
+  min-width: min-content;
+}
+
+.pdfjs-renderer .pdfViewer .page {
+  background: #fff;
+  color-scheme: light;
+  box-shadow: 0 1px 6px rgb(0 0 0 / 20%);
+}
+
+/* Short pages keep the same reading origin when the surrounding pane resizes. */
+.pdfjs-renderer .pdfViewer .spread .page {
+  vertical-align: top;
+}
+
+.pdfjs-renderer .textLayer .highlight {
+  background-color: var(--pdf-highlight-color, rgb(250 204 21 / 35%));
+  border-radius: 2px;
+}
+
+.pdfjs-renderer .textLayer .highlight.selected {
+  background-color: var(--pdf-highlight-color, rgb(250 204 21 / 55%));
+  outline: 2px solid var(--pdf-highlight-border, #a16207);
+  outline-offset: 1px;
+}
+
+.pdfjs-scroll-container::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.pdfjs-scroll-container::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+.pdfjs-scroll-container::-webkit-scrollbar-thumb {
   background: var(--border-muted);
   border-radius: 4px;
-}
-
-.pdf-viewer-container .rpv-core__inner-pages::-webkit-scrollbar-thumb:hover {
-  background: var(--text-secondary);
-}
-
-/* 🔍 PDF Search Highlights - Ensure visibility */
-.pdf-viewer-container .rpv-search__highlight {
-  position: relative !important;
-  z-index: 10 !important;
-  display: inline !important;
-  opacity: 1 !important;
-  visibility: visible !important;
-  pointer-events: auto !important;
-}
-
-/* 🔍 Current search highlight */
-.pdf-viewer-container .rpv-search__highlight--current {
-  z-index: 11 !important;
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.2) !important;
-}
-
-/* 🔍 Ensure text layer is above canvas but below highlights */
-.pdf-viewer-container .rpv-core__text-layer {
-  z-index: 5 !important;
-}
-
-/* 🔍 Ensure annotation layer doesn't interfere */
-.pdf-viewer-container .rpv-core__annotation-layer {
-  z-index: 8 !important;
 }

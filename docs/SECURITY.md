@@ -73,13 +73,14 @@ credential if exposed; removing a file or Git commit is not enough.
 ## Known limitations
 
 - The repository has no CI security gates or supported production environment.
-- The current React PDF Viewer dependency still has the PDF.js advisory
-  GHSA-wgrm-67xf-hhpq. The application keeps isEvalSupported: false; replacing
-  or upgrading the viewer is still needed to remove the advisory. Upstream React
-  PDF Viewer is archived; its 3.12 peer range does not support forcing a current
-  PDF.js version under it. The new page-navigation adapter does not remediate the
-  dependency audit. See the [Mozilla advisory](https://github.com/mozilla/pdf.js/security/advisories/GHSA-wgrm-67xf-hhpq)
-  and [viewer package](https://github.com/react-pdf-viewer/react-pdf-viewer/blob/v3.12.0/packages/core/package.json).
+- PDF rendering uses pinned Mozilla PDF.js 6.3.289, replacing React PDF Viewer
+  and its vulnerable PDF.js 3 dependency. `isEvalSupported: false` remains defense
+  in depth; PDF scripting and editing are disabled. Source documents are still
+  untrusted input, not safe simply because one historical advisory was removed.
+  Worker, fonts, character maps, image/colour decoders and annotation assets are
+  served from the same origin, version-matched to the installed library. No PDF
+  content or credential is sent to a viewer CDN. Review dependency audits on
+  subsequent upgrades. See the [Mozilla advisory](https://github.com/mozilla/pdf.js/security/advisories/GHSA-wgrm-67xf-hhpq).
 - Review workspace fixtures are authored synthetic examples, restricted to the
   exact reviewed PDF hash. They are not generated results or evidence of model
   quality. Source content and editable personal work are rendered as text, never

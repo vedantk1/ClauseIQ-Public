@@ -90,7 +90,7 @@ function findElement(element, predicate) {
   return null;
 }
 
-function viewerHarness() {
+function viewerHarness({ fetchPdf } = {}) {
   const slots = [];
   let cursor = 0;
   let effects = [];
@@ -99,7 +99,7 @@ function viewerHarness() {
     ...React,
     useState(initial) {
       const index = cursor++;
-      slots[index] ??= { value: initial };
+      slots[index] ??= { value: typeof initial === "function" ? initial() : initial };
       return [slots[index].value, (next) => { slots[index].value = typeof next === "function" ? next(slots[index].value) : next; }];
     },
     useRef(current) {
@@ -124,34 +124,42 @@ function viewerHarness() {
     },
   };
   const jumps = [];
-  const zooms = [];
   const requests = [];
-  const highlights = [];
-  const Viewer = () => null;
+  const searches = [];
+  const createdUrls = [];
+  const revokedUrls = [];
+  const matches = [];
+  const PdfJsRenderer = () => null;
   const Button = () => null;
   const empty = () => null;
-  const navigation = { jumpToPage: (index) => jumps.push(index), GoToPreviousPage: empty, GoToNextPage: empty, CurrentPageLabel: empty };
-  const search = { highlight: async () => [], clearHighlights() {}, jumpToMatch() {}, jumpToNextMatch() {}, jumpToPreviousMatch() {} };
+  const controller = {
+    jumpToPage: (index) => jumps.push(index),
+    search: (query) => searches.push(query),
+    nextMatch: () => matches.push("next"),
+    previousMatch: () => matches.push("previous"),
+  };
   const imports = {
     react: hooks,
-    "@react-pdf-viewer/core": { Worker: empty, Viewer, ScrollMode: { Page: "page", Vertical: "vertical" } },
-    "@react-pdf-viewer/zoom": { zoomPlugin: () => ({ zoomTo: scale => zooms.push(scale) }) },
-    "@react-pdf-viewer/page-navigation": { pageNavigationPlugin: () => navigation },
-    "@react-pdf-viewer/search": { searchPlugin: () => search },
+    "./pdf/PdfJsRenderer": PdfJsRenderer,
     "./Card": empty, "./Button": Button, "./DropdownMenu": empty,
     "@/config/config": { apiUrl: "http://127.0.0.1:8000" },
     "@/lib/api": { LOCAL_API_HEADERS: { "X-ClauseIQ-Local": "1" } },
     "@/utils/pdfHighlightUtils": { getRiskHighlightColor: () => "transparent", getRiskBorderColor: () => "transparent" },
-    "@/hooks/usePDFHighlighting": { usePDFHighlighting: () => ({ executeHighlighting: async (clause) => { highlights.push(clause); }, highlightResult: null }) },
     "@/lib/pdfPageNavigation": helpers,
   };
   const exports = {};
   vm.runInNewContext(compile("../src/components/PDFViewer.tsx"), {
-    exports, console, AbortController,
-    URL: { createObjectURL: () => "blob:synthetic", revokeObjectURL() {} },
-    fetch: async (url, options) => { requests.push({ url, options }); return { ok: true, blob: async () => ({}) }; },
+    exports, console: { error() {}, warn() {} }, AbortController,
+    URL: {
+      createObjectURL() { const url = `blob:synthetic-${createdUrls.length + 1}`; createdUrls.push(url); return url; },
+      revokeObjectURL: (url) => revokedUrls.push(url),
+    },
+    fetch: async (url, options) => {
+      requests.push({ url, options });
+      return fetchPdf ? fetchPdf(url, options) : { ok: true, blob: async () => ({}) };
+    },
     require(name) {
-      if (name.endsWith(".css") || name === "../utils/pdfConsoleFilter") return {};
+      if (name.endsWith(".css")) return {};
       assert.ok(name in imports, `Unexpected dependency: ${name}`);
       return imports[name];
     },
@@ -159,12 +167,16 @@ function viewerHarness() {
   let props;
   let tree;
   return {
-    jumps, zooms, requests, highlights,
+    jumps, requests, searches, createdUrls, revokedUrls, matches, controller,
     render(nextProps = props) { props = nextProps; cursor = 0; tree = exports.default(props); return tree; },
     async flush() { const pending = effects; effects = []; pending.forEach((effect) => effect()); for (let i = 0; i < 6; i += 1) await Promise.resolve(); },
-    viewer() { return findElement(tree, (item) => item.type === Viewer)?.props; },
+    viewer() { return findElement(tree, (item) => item.type === PdfJsRenderer)?.props; },
+    text() { return JSON.stringify(tree); },
+    unmount() { slots.forEach((slot) => slot.cleanup?.()); },
     toggleMode() { findElement(tree, (item) => item.type === Button && item.props.title?.startsWith("Switch to")).props.onClick(); },
     zoomIn() { findElement(tree, (item) => item.type === Button && item.props.title === "Zoom in").props.onClick(); },
+    click(title) { findElement(tree, (item) => item.type === Button && item.props.title === title).props.onClick(); },
+    clickText(text) { findElement(tree, (item) => item.type === Button && item.props.children === text).props.onClick(); },
   };
 }
 
@@ -183,71 +195,184 @@ test("component waits for load, uses latest target, fences old callbacks and pre
   harness.render({ ...props, navigationRequest: { requestId: 2, pageNumber: 25 } });
   const first = harness.viewer();
   assert.ok(first);
-  assert.equal(first.defaultScale, 1);
-  assert.equal(first.enableSmoothScroll, false); // No stale pixel-offset animation across a resize.
+  assert.equal(first.scale, 1);
+  assert.equal(first.viewMode, "continuous");
   assert.deepEqual(harness.jumps, []);
-  const doc = { numPages: 25 };
-  first.onDocumentLoad({ doc });
+  first.onReady(harness.controller, 25);
   assert.deepEqual(harness.jumps, [24]);
-  assert.deepEqual(harness.zooms, []); // No concurrent initial zoom can invalidate this jump's measurements.
   await harness.flush();
-  first.onPageChange({ currentPage: 0, doc });
-  first.onPageChange({ currentPage: 24, doc });
+  first.onPageChange(0);
+  first.onPageChange(24);
   assert.deepEqual(pages, [25]);
-  assert.equal(first.transformGetDocumentParams({ isEvalSupported: true }).isEvalSupported, false);
-  assert.equal(first.plugins.length, 2); // No legacy search/highlight plugin for source evidence.
-  assert.ok(harness.highlights.every((clause) => clause === null));
+  assert.ok(harness.searches.every((query) => !query)); // Source evidence must not become a text search.
   assert.equal(harness.requests[0].options.headers["X-ClauseIQ-Local"], "1");
 
   harness.zoomIn();
   harness.render();
-  assert.deepEqual(harness.zooms, [1.2]);
+  assert.equal(harness.viewer().scale, 1.2);
   harness.toggleMode();
   harness.render();
   await harness.flush();
   const single = harness.viewer();
   assert.equal(single.initialPage, 24);
-  assert.equal(single.defaultScale, 1.2);
-  assert.equal(single.enableSmoothScroll, false);
-  single.onDocumentLoad({ doc: { numPages: 25 } });
-  assert.deepEqual(harness.zooms, [1.2]); // Remounts also start at the selected scale without a load-time resize.
-  first.onPageChange({ currentPage: 2, doc }); // Callback from the previous mode.
+  assert.equal(single.scale, 1.2);
+  assert.equal(single.viewMode, "single");
+  single.onReady(harness.controller, 25);
+  first.onPageChange(2); // Callback from the previous mode.
+  first.onError("Old renderer error");
   assert.deepEqual(pages, [25]);
+  harness.render();
+  assert.ok(harness.viewer(), "An obsolete renderer must not replace the active viewer with an error");
+  assert.equal(harness.requests.length, 1, "Scale and mode changes reuse the fetched source");
 
   harness.render({ ...props, sourceRevisionId: "revision-2", navigationRequest: { requestId: 3, pageNumber: 30 } });
-  first.onDocumentLoad({ doc }); // Callback from the previous source.
+  first.onReady(harness.controller, 25); // Callback from the previous source.
   assert.deepEqual(harness.jumps, [24]);
   await harness.flush();
   harness.render();
   await harness.flush();
   const replacement = harness.viewer();
   assert.equal(replacement.initialPage, 0);
-  replacement.onDocumentLoad({ doc: { numPages: 25 } });
+  replacement.onReady(harness.controller, 25);
   assert.equal(errors.length, 1);
   assert.match(errors[0], /outside this PDF/);
   assert.deepEqual(harness.jumps, [24]);
 });
 
-test("legacy viewer retains its existing load-time zoom behavior", async () => {
+test("legacy viewer uses exact clause search without automatic fuzzy substitutes", async () => {
   const harness = viewerHarness();
-  harness.render({ documentId: "legacy-doc" });
+  const completions = [];
+  const clause = { id: "legacy-clause", text: "Exact source clause text" };
+  harness.render({ documentId: "legacy-doc", highlightClause: clause, onHighlightComplete: (result) => completions.push(result) });
   await harness.flush();
   harness.render();
   const viewer = harness.viewer();
-  assert.equal(viewer.defaultScale, undefined);
-  assert.equal(viewer.enableSmoothScroll, true);
-  viewer.onDocumentLoad({ doc: { numPages: 25 } });
-  assert.deepEqual(harness.zooms, [1]);
+  assert.equal(viewer.scale, 1);
+  viewer.onReady(harness.controller, 25);
+  harness.render();
+  await harness.flush();
+  assert.ok(harness.searches.includes(clause.text));
+  assert.ok(harness.searches.every((query) => !query || query === clause.text));
+  viewer.onSearchChange({ current: 0, total: 0, pending: false });
+  harness.render();
+  await harness.flush();
+  assert.equal(completions.at(-1)?.found, false);
   assert.deepEqual(harness.jumps, []);
 });
 
-test("explicit physical-page navigation disables animation even before source metadata is available", async () => {
+test("explicit physical-page navigation does not search even before source metadata is available", async () => {
   const harness = viewerHarness();
-  harness.render({ documentId: "source-doc", navigationRequest: { requestId: 1, pageNumber: 25 } });
+  harness.render({
+    documentId: "source-doc", navigationRequest: { requestId: 1, pageNumber: 25 },
+    highlightClause: { id: "legacy-clause", text: "Must not become the source-page target" },
+    highlightText: "Must not become a fallback target either",
+  });
   await harness.flush();
   harness.render();
   const viewer = harness.viewer();
-  assert.equal(viewer.enableSmoothScroll, false);
-  viewer.onDocumentLoad({ doc: { numPages: 25 } });
+  viewer.onReady(harness.controller, 25);
+  harness.render();
+  await harness.flush();
   assert.deepEqual(harness.jumps, [24]);
+  assert.ok(harness.searches.every((query) => !query));
+});
+
+test("authenticated PDF fetch is cancelled and blob URLs are revoked when a source changes or unmounts", async () => {
+  const harness = viewerHarness();
+  harness.render({ documentId: "doc-1", sourceRevisionId: "revision-1" });
+  await harness.flush();
+  harness.render();
+  assert.equal(harness.viewer().fileUrl, "blob:synthetic-1");
+  assert.equal(harness.requests[0].url, "http://127.0.0.1:8000/api/v1/documents/doc-1/pdf");
+  assert.equal(harness.requests[0].options.headers["X-ClauseIQ-Local"], "1");
+  harness.render({ documentId: "doc-1", sourceRevisionId: "revision-2" });
+  assert.equal(harness.viewer(), undefined, "Old source must not render under the next revision");
+  await harness.flush();
+  harness.render();
+  assert.equal(harness.requests[0].options.signal.aborted, true);
+  assert.deepEqual(harness.revokedUrls, ["blob:synthetic-1"]);
+  assert.equal(harness.viewer().fileUrl, "blob:synthetic-2");
+  harness.unmount();
+  assert.equal(harness.requests[1].options.signal.aborted, true);
+  assert.deepEqual(harness.revokedUrls, ["blob:synthetic-1", "blob:synthetic-2"]);
+});
+
+test("a late source response cannot create a blob URL after cancellation", async () => {
+  let finishFirst;
+  const firstResponse = new Promise((resolve) => { finishFirst = resolve; });
+  const harness = viewerHarness({ fetchPdf: (url) => url.includes("doc-1/")
+    ? firstResponse : { ok: true, blob: async () => ({}) } });
+  harness.render({ documentId: "doc-1" });
+  await harness.flush();
+  harness.render({ documentId: "doc-2" });
+  await harness.flush();
+  finishFirst({ ok: true, blob: async () => ({}) });
+  await harness.flush();
+  harness.render();
+  assert.deepEqual(harness.createdUrls, ["blob:synthetic-1"]);
+  assert.equal(harness.viewer().fileUrl, "blob:synthetic-1");
+});
+
+test("PDF fetch failures expose a safe message without raw server or network detail", async () => {
+  const harness = viewerHarness({ fetchPdf: () => { throw new Error("sensitive internal response"); } });
+  harness.render({ documentId: "doc-1" });
+  await harness.flush();
+  harness.render();
+  assert.equal(harness.viewer(), undefined);
+  assert.match(harness.text(), /[Ff]ailed to load PDF/);
+  assert.doesNotMatch(harness.text(), /sensitive internal response/);
+});
+
+test("retry keeps the reading position but ignores callbacks from the failed renderer", async () => {
+  const harness = viewerHarness();
+  const pages = [];
+  harness.render({ documentId: "doc-1", onPageChange: (page) => pages.push(page) });
+  await harness.flush();
+  harness.render();
+  const failed = harness.viewer();
+  failed.onReady(harness.controller, 25);
+  failed.onPageChange(8);
+  failed.onError("Unable to render this PDF");
+  harness.render();
+  harness.clickText("Retry PDF");
+  harness.render();
+  await harness.flush();
+  harness.render();
+  const replacement = harness.viewer();
+  assert.equal(replacement.initialPage, 8);
+  replacement.onReady(harness.controller, 25);
+  failed.onPageChange(2);
+  failed.onReady(harness.controller, 2);
+  failed.onError("Late error from the failed renderer");
+  harness.render();
+  assert.deepEqual(pages, [9]);
+  assert.ok(harness.viewer(), "An obsolete render attempt must not replace a successful retry with an error");
+  assert.equal(harness.viewer().initialPage, 8);
+});
+
+test("page and zoom controls stay bounded and do not refetch the source", async () => {
+  const harness = viewerHarness();
+  harness.render({ documentId: "doc-1" });
+  await harness.flush();
+  harness.render();
+  const viewer = harness.viewer();
+  viewer.onReady(harness.controller, 3);
+  viewer.onPageChange(0);
+  harness.render();
+  harness.click("Previous page");
+  assert.deepEqual(harness.jumps, []);
+  harness.click("Next page");
+  assert.deepEqual(harness.jumps, [1]);
+  viewer.onPageChange(2);
+  harness.render();
+  harness.click("Next page");
+  assert.deepEqual(harness.jumps, [1]);
+  for (let index = 0; index < 20; index += 1) { harness.zoomIn(); harness.render(); }
+  assert.equal(harness.viewer().scale, 3);
+  for (let index = 0; index < 20; index += 1) { harness.click("Zoom out"); harness.render(); }
+  assert.equal(harness.viewer().scale, 0.5);
+  harness.click("Reset zoom");
+  harness.render();
+  assert.equal(harness.viewer().scale, 1);
+  assert.equal(harness.requests.length, 1);
 });

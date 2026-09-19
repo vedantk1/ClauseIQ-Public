@@ -52,6 +52,7 @@ dist/
 build/
 .turbo/
 *.tsbuildinfo
+/frontend/public/pdfjs/
 next-env.d.ts
 coverage/
 .nyc_output/

@@ -50,13 +50,12 @@ ClauseIQ is licensed under the root MIT LICENSE. Keep its copyright and permissi
 notice when redistributing the project. Third-party dependencies retain their own
 licenses; the project license does not replace those terms.
 
-The installed `@react-pdf-viewer` 3.12.0 packages declare a commercial license,
-not MIT. Their upstream LICENSE.md states that a commercial license must be
-purchased. No viewer license entitlement or open-source exemption has been
-verified for this project. Dependency code and generated bundles are not tracked;
-publishing ClauseIQ's source does not grant rights to those packages. Resolve the
-viewer licensing or replace the dependency before representing the complete
-application stack as freely reusable under open-source licenses.
+PDF rendering uses `pdfjs-dist` under Apache-2.0; the previous commercial viewer
+packages have been removed. Its worker and support assets are copied from the
+locked installation into ignored frontend/public/pdfjs for local serving and
+builds, with the upstream LICENSE and resource notices retained. Do not commit
+those generated files or dependency trees. Bundled distributions must preserve
+applicable dependency licenses and notices.
 
 ## Git workflow
 

@@ -390,14 +390,24 @@ The source PDF uses a bounded, internally scrolling viewport so a long agreement
 does not expand the entire workspace. Source-navigation mode initializes the
 renderer at the selected scale before applying its physical-page request; it does
 not issue a competing load-time zoom. This avoids measuring a page jump against
-an obsolete scale. Legacy viewer zoom behavior remains separate.
+an obsolete scale. The same scale remains selected when changing view mode.
 
-The current React PDF Viewer renderer remains isolated behind PDFViewer for this
-increment, with isEvalSupported:false preserved. Its upstream is archived and its
-declared PDF.js peer range does not support a blind modern PDF.js override.
-Replacement is a separate bounded dependency milestone, not completed by this
-adapter; see SECURITY.md. New geometry-based highlighting must be validated
-against the original before it can be described as exact.
+PDFViewer owns local-header fetch, revocable blob URLs and the source-navigation
+session. PdfJsRenderer is a client-loaded adapter for Mozilla PDF.js 6.3.289's
+viewer, link service and find controller. It owns rendering, selectable text,
+read-only annotations, single/continuous mode, zoom and worker teardown. Callbacks
+from replaced source/mode/retry sessions cannot overwrite the active position.
+Legacy clause highlighting searches the supplied text using PDF.js's normalized
+text-search rules and reports match counts; it does not guess substitute phrases,
+poll unrelated DOM nodes or claim geometrically verified evidence. The workspace's
+physical source-page path remains separate and does not invoke text search.
+
+The commercial React PDF Viewer plugins, obsolete DOM-polling hook and global
+console interception have been removed. PDF.js retains isEvalSupported:false;
+document scripting and editing are disabled. Version-matched worker, character
+maps, fonts and decoders are copied to ignored frontend/public/pdfjs by the
+frontend predev/prebuild script and served locally, including upstream licensing.
+No CDN runtime is required. See SECURITY.md for the untrusted-document boundary.
 
 ## Settings and credentials
 

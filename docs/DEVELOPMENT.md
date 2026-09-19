@@ -28,6 +28,14 @@ MongoDB and Qdrant must both be available for workspace migration preflight.
 Use matching compatible Qdrant server/client versions; an existing older Docker
 image may need a separately reviewed upgrade before updating stored vectors.
 
+The frontend predev/prebuild hooks prepare the pinned Mozilla PDF.js worker,
+fonts, character maps, decoders and annotation assets under public/pdfjs. These
+generated files are ignored and served locally, not downloaded from a CDN when
+a PDF opens. After updating dependencies with a server already running, run
+`node frontend/scripts/prepare-pdf-assets.mjs` once from the root. Use the npm
+dev/build commands rather than invoking Next.js directly so fresh installations
+also prepare these assets. The Docker build follows the same npm hook.
+
 ## Commands
 
 | Command | Purpose |

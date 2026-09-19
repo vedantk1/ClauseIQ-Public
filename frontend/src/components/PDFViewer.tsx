@@ -1,34 +1,15 @@
 "use client";
-import React, { useState, useMemo, useEffect, useRef } from "react";
-import { Worker, Viewer, ScrollMode } from "@react-pdf-viewer/core";
-import { zoomPlugin } from "@react-pdf-viewer/zoom";
-import { pageNavigationPlugin } from "@react-pdf-viewer/page-navigation";
-import { searchPlugin } from "@react-pdf-viewer/search";
-import "@react-pdf-viewer/core/lib/styles/index.css";
-import "@react-pdf-viewer/page-navigation/lib/styles/index.css";
-import "@react-pdf-viewer/search/lib/styles/index.css";
-import "../styles/pdf-viewer.css";
 
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import Card from "./Card";
 import Button from "./Button";
 import DropdownMenu from "./DropdownMenu";
+import PdfJsRenderer, { type PdfJsController, type PdfSearchState } from "./pdf/PdfJsRenderer";
 import config from "@/config/config";
 import { LOCAL_API_HEADERS } from "@/lib/api";
-import "../utils/pdfConsoleFilter";
-import {
-  getRiskHighlightColor,
-  getRiskBorderColor,
-  type HighlightResult,
-} from "@/utils/pdfHighlightUtils";
-import { usePDFHighlighting } from "@/hooks/usePDFHighlighting";
+import { getRiskHighlightColor, getRiskBorderColor, type HighlightResult } from "@/utils/pdfHighlightUtils";
 import type { Clause } from "@clauseiq/shared-types";
-import {
-  PdfPageNavigationSession,
-  pdfSourceKey,
-  securePdfDocumentOptions,
-  type PdfNavigationRequest,
-  type PdfNavigationResult,
-} from "@/lib/pdfPageNavigation";
+import { PdfPageNavigationSession, pdfSourceKey, type PdfNavigationRequest, type PdfNavigationResult } from "@/lib/pdfPageNavigation";
 
 interface PDFViewerProps {
   documentId: string;
@@ -38,12 +19,9 @@ interface PDFViewerProps {
   navigationRequest?: PdfNavigationRequest;
   onPageChange?: (pageNumber: number) => void;
   onNavigationError?: (message: string) => void;
-  // Text to highlight in the PDF (legacy prop for backward compatibility)
   highlightText?: string;
-  // Enhanced clause highlighting
   highlightClause?: Clause | null;
   onHighlightComplete?: (result: HighlightResult) => void;
-  // Optional dropdown menu props
   dropdownMenuItems?: Array<{
     label: string;
     icon?: React.ReactNode;
@@ -53,569 +31,196 @@ interface PDFViewerProps {
   }>;
 }
 
+/** Local fetch and source-page policy stay independent of the rendering library. */
 export default function PDFViewer({
-  documentId,
-  fileName = "Document",
-  className = "",
-  sourceRevisionId,
-  navigationRequest,
-  onPageChange,
-  onNavigationError,
-  highlightText,
-  highlightClause,
-  onHighlightComplete,
-  dropdownMenuItems,
+  documentId, fileName = "Document", className = "", sourceRevisionId,
+  navigationRequest, onPageChange, onNavigationError, highlightText,
+  highlightClause, onHighlightComplete, dropdownMenuItems,
 }: PDFViewerProps) {
-  const [scale, setScale] = useState(1.0);
+  const [scale, setScale] = useState(1);
+  const [viewMode, setViewMode] = useState<"single" | "continuous">("continuous");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [numPages, setNumPages] = useState<number | null>(null);
-  const [viewMode, setViewMode] = useState<"single" | "continuous">(
-    "continuous",
-  );
+  const [numPages, setNumPages] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pdfUrl, setPdfUrl] = useState("");
+  const [loadedSourceKey, setLoadedSourceKey] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
+  const [readyVersion, setReadyVersion] = useState(0);
+  const [search, setSearch] = useState<PdfSearchState>({ current: 0, total: 0, pending: false });
   const sourceKey = pdfSourceKey(documentId, sourceRevisionId);
-  const navigationSessionRef = useRef<PdfPageNavigationSession | null>(null);
-  if (navigationSessionRef.current?.sourceKey !== sourceKey || navigationSessionRef.current?.viewMode !== viewMode) {
-    navigationSessionRef.current = new PdfPageNavigationSession(sourceKey, viewMode, navigationSessionRef.current);
+  const sessionRef = useRef<PdfPageNavigationSession | null>(null);
+  const attemptRef = useRef(retry);
+  if (sessionRef.current?.sourceKey !== sourceKey || sessionRef.current?.viewMode !== viewMode || attemptRef.current !== retry) {
+    sessionRef.current = new PdfPageNavigationSession(sourceKey, viewMode, sessionRef.current);
+    attemptRef.current = retry;
   }
-  const navigationSession = navigationSessionRef.current;
-  const loadedDocumentRef = useRef<object | null>(null);
-  const onPageChangeRef = useRef(onPageChange);
-  onPageChangeRef.current = onPageChange;
-  const onNavigationErrorRef = useRef(onNavigationError);
-  onNavigationErrorRef.current = onNavigationError;
-  const navigationRequestRef = useRef(navigationRequest);
-  navigationRequestRef.current = navigationRequest;
-  // Source evidence uses validated page navigation, never heuristic text search.
+  const session = sessionRef.current;
+  const controllerRef = useRef<{ session: PdfPageNavigationSession; controller: PdfJsController } | null>(null);
+  const callbacks = useRef({ onPageChange, onNavigationError, onHighlightComplete, navigationRequest });
+  callbacks.current = { onPageChange, onNavigationError, onHighlightComplete, navigationRequest };
   const sourceNavigation = sourceRevisionId != null || navigationRequest != null;
-  const activeHighlightClause = sourceNavigation ? null : highlightClause;
+  // Evidence references are physical pages, not heuristic text-search targets.
+  const searchQuery = sourceNavigation ? "" : (highlightClause?.text || highlightText || "").trim();
 
-  // Keep highlight styling responsive without recreating the search plugin each render.
-  const riskLevelRef = useRef<Clause["risk_level"] | undefined>(undefined);
-  useEffect(() => {
-    riskLevelRef.current = activeHighlightClause?.risk_level;
-  }, [activeHighlightClause?.risk_level]);
-
-  const onHighlightKeyword = React.useCallback(
-    (props: { highlightEle: HTMLElement }) => {
-      const riskLevel = riskLevelRef.current;
-      props.highlightEle.style.backgroundColor = getRiskHighlightColor(riskLevel);
-      props.highlightEle.style.border = `2px solid ${getRiskBorderColor(riskLevel)}`;
-      props.highlightEle.style.borderRadius = "3px";
-      props.highlightEle.style.padding = "1px 2px";
-      props.highlightEle.style.boxShadow = "0 1px 3px rgba(0, 0, 0, 0.1)";
-    },
-    [],
-  );
-
-  // Plugin factories from react-pdf-viewer are hooks internally; call them directly (not inside useMemo callbacks).
-  const zoomPluginInstance = zoomPlugin();
-  const { zoomTo } = zoomPluginInstance;
-
-  const pageNavigationPluginInstance = pageNavigationPlugin();
-  const { GoToPreviousPage, GoToNextPage, CurrentPageLabel, jumpToPage } =
-    pageNavigationPluginInstance;
-
-  const applyNavigation = React.useCallback((result: PdfNavigationResult) => {
-    if (navigationSessionRef.current !== navigationSession || !result) return;
+  const applyNavigation = useCallback((result: PdfNavigationResult) => {
+    if (sessionRef.current !== session || !result) return;
     if ("error" in result) {
-      onNavigationErrorRef.current?.(result.error);
+      callbacks.current.onNavigationError?.(result.error);
       return;
     }
+    const active = controllerRef.current;
+    if (active?.session !== session) return;
     try {
-      jumpToPage(result.pageIndex);
+      active.controller.jumpToPage(result.pageIndex);
     } catch {
-      navigationSession.navigationFailed();
-      onNavigationErrorRef.current?.("The requested PDF page could not be opened. The extracted excerpt is still available.");
+      session.navigationFailed();
+      callbacks.current.onNavigationError?.("The requested PDF page could not be opened. The extracted excerpt is still available.");
     }
-  }, [jumpToPage, navigationSession]);
+  }, [session]);
 
   useEffect(() => {
-    if (navigationRequest) applyNavigation(navigationSession.request(navigationRequest));
-    else navigationSession.clearRequest();
-  }, [navigationRequest, navigationSession, applyNavigation]);
-
-  const searchPluginInstance = searchPlugin({ onHighlightKeyword });
-  const {
-    highlight,
-    clearHighlights,
-    jumpToMatch,
-    jumpToNextMatch,
-    jumpToPreviousMatch,
-  } = searchPluginInstance;
-
-  const viewerPlugins = useMemo(
-    () => sourceNavigation
-      ? [zoomPluginInstance, pageNavigationPluginInstance]
-      : [zoomPluginInstance, pageNavigationPluginInstance, searchPluginInstance],
-    [zoomPluginInstance, pageNavigationPluginInstance, searchPluginInstance, sourceNavigation],
-  );
-
-  // Enhanced highlighting using custom hook
-  const highlighting = usePDFHighlighting({
-    highlightFunction: React.useCallback(
-      async (terms) => {
-
-        try {
-          const result = await highlight(terms);
-
-          return result;
-        } catch (error) {
-          console.error("PDF search plugin highlight failed");
-          throw error;
-        }
-      },
-      [highlight],
-    ),
-    clearHighlights: React.useCallback(() => {
-      clearHighlights();
-    }, [clearHighlights]),
-    jumpToMatch: React.useCallback(
-      (index: number) => {
-        jumpToMatch(index);
-      },
-      [jumpToMatch],
-    ),
-    jumpToNextMatch: React.useCallback(() => {
-      jumpToNextMatch();
-    }, [jumpToNextMatch]),
-    jumpToPreviousMatch: React.useCallback(() => {
-      jumpToPreviousMatch();
-    }, [jumpToPreviousMatch]),
-    debounceMs: 500,
-    viewMode: viewMode, // Pass current view mode for different handling
-  });
-
-  // Fetch through the local API boundary; serve the viewer a revocable blob URL.
-  const [pdfUrl, setPdfUrl] = useState<string>("");
-  const [loadedSourceKey, setLoadedSourceKey] = useState<string | null>(null);
+    if (navigationRequest) applyNavigation(session.request(navigationRequest));
+    else session.clearRequest();
+  }, [navigationRequest, session, applyNavigation]);
 
   useEffect(() => {
-    let revoke: string | null = null;
-    const controller = new AbortController();
-
-    // Reset state when switching documents
+    const abort = new AbortController();
+    let objectUrl: string | null = null;
+    controllerRef.current = null;
     setError(null);
     setIsLoading(true);
     setPdfUrl("");
     setLoadedSourceKey(null);
-    loadedDocumentRef.current = null;
-
+    setNumPages(0);
+    setCurrentPage(1);
+    setSearch({ current: 0, total: 0, pending: false });
     if (!documentId) {
-      setIsLoading(false);
       setError("Missing document ID");
+      setIsLoading(false);
       return;
     }
-
-    const baseUrl = `${config.apiUrl}/api/v1/documents/${documentId}/pdf`;
-    fetch(baseUrl, {
-      headers: LOCAL_API_HEADERS,
-      signal: controller.signal,
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error(`PDF fetch failed: ${res.status}`);
-        return res.blob();
-      })
-      .then((blob) => {
-        if (controller.signal.aborted) return;
-        const url = URL.createObjectURL(blob);
-        revoke = url;
-        setLoadedSourceKey(sourceKey);
-        setPdfUrl(url);
-      })
-      .catch(() => {
-        if (controller.signal.aborted) return;
-        console.error("Failed to fetch PDF from the local workspace");
-        setError("Failed to load PDF");
-        setIsLoading(false);
-        setPdfUrl("");
-      });
-
+    fetch(`${config.apiUrl}/api/v1/documents/${encodeURIComponent(documentId)}/pdf`, {
+      headers: LOCAL_API_HEADERS, signal: abort.signal,
+    }).then(response => {
+      if (!response.ok) throw new Error("PDF request failed");
+      return response.blob();
+    }).then(blob => {
+      if (abort.signal.aborted) return;
+      objectUrl = URL.createObjectURL(blob);
+      setLoadedSourceKey(sourceKey);
+      setPdfUrl(objectUrl);
+    }).catch(() => {
+      if (abort.signal.aborted) return;
+      setError("Failed to load PDF. Your saved review and extracted text are unchanged.");
+      setIsLoading(false);
+    });
     return () => {
-      controller.abort();
-      if (revoke) URL.revokeObjectURL(revoke);
+      abort.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [documentId, sourceKey]);
+  }, [documentId, sourceKey, retry]);
 
-  // Toggle view mode function
-  const toggleViewMode = () => {
-    setViewMode((prev) => (prev === "single" ? "continuous" : "single"));
-  };
-
-  // Handle document load
-  const handleDocumentLoad = (e: { doc: { numPages: number } }) => {
-    if (navigationSessionRef.current !== navigationSession || loadedSourceKey !== sourceKey) return;
-    loadedDocumentRef.current = e.doc;
-    setNumPages(e.doc.numPages);
+  const handleReady = (controller: PdfJsController, pageCount: number) => {
+    if (sessionRef.current !== session || loadedSourceKey !== sourceKey) return;
+    controllerRef.current = { session, controller };
+    setNumPages(pageCount);
+    setCurrentPage(session.pageNumber);
     setIsLoading(false);
     setError(null);
-
-    // Source navigation starts at an explicit scale. Changing it here races the
-    // queued page jump against measurements from the viewer's previous scale.
-    if (!sourceNavigation) zoomTo(scale);
-    // A load callback may precede the latest request's passive effect.
-    if (navigationRequestRef.current) applyNavigation(navigationSession.request(navigationRequestRef.current));
-    else navigationSession.clearRequest();
-    applyNavigation(navigationSession.loaded(e.doc.numPages));
+    // A renderer can become ready before the latest request's passive effect.
+    if (callbacks.current.navigationRequest) applyNavigation(session.request(callbacks.current.navigationRequest));
+    else session.clearRequest();
+    applyNavigation(session.loaded(pageCount));
+    setReadyVersion(version => version + 1);
   };
 
-  const handlePageChange = (e: { currentPage: number; doc: object }) => {
-    if (navigationSessionRef.current !== navigationSession || loadedDocumentRef.current !== e.doc) return;
-    const pageNumber = navigationSession.pageChanged(e.currentPage);
-    if (pageNumber != null) onPageChangeRef.current?.(pageNumber);
-  };
-
-  const { executeHighlighting } = highlighting;
-
-  // Enhanced clause highlighting effect
-  const executeHighlightingRef = useRef(executeHighlighting);
-  const highlightClauseRef = useRef<Clause | null>(activeHighlightClause ?? null);
-  const highlightClauseKey = activeHighlightClause?.id ?? null;
-
-  useEffect(() => {
-    executeHighlightingRef.current = executeHighlighting;
-  }, [executeHighlighting]);
-
-  useEffect(() => {
-    highlightClauseRef.current = activeHighlightClause ?? null;
-  }, [activeHighlightClause]);
-
-  useEffect(() => {
-    void executeHighlightingRef
-      .current(highlightClauseRef.current)
-      .catch(() => {
-        console.error("Error in clause highlighting:");
-      });
-  }, [highlightClauseKey]);
-
-  // Notify parent component when highlighting completes
-  React.useEffect(() => {
-    try {
-      if (!sourceNavigation && highlighting.highlightResult) {
-        onHighlightComplete?.(highlighting.highlightResult);
-      }
-    } catch {
-      console.error("Error in highlight completion callback:");
+  const handlePageChange = (pageIndex: number) => {
+    if (sessionRef.current !== session || controllerRef.current?.session !== session) return;
+    const page = session.pageChanged(pageIndex);
+    if (page != null) {
+      setCurrentPage(page);
+      callbacks.current.onPageChange?.(page);
     }
-  }, [highlighting.highlightResult, onHighlightComplete, sourceNavigation]);
-
-  // Legacy highlighting support (backward compatibility)
-  React.useEffect(() => {
-    if (!sourceNavigation && highlightText && !isLoading && !highlightClause) {
-      // Small delay to ensure PDF is fully loaded
-      const timer = setTimeout(() => {
-        try {
-          // Try exact text first
-          highlight(highlightText);
-        } catch {
-          console.warn("Failed to highlight exact text, trying keywords...");
-          // Fallback: extract first and last few words
-          const words = highlightText.trim().split(/\s+/);
-          if (words.length > 6) {
-            const keywords = [...words.slice(0, 3), ...words.slice(-3)];
-            highlight(keywords);
-          } else {
-            highlight(words);
-          }
-        }
-      }, 1000);
-
-      return () => clearTimeout(timer);
-    }
-  }, [highlightText, isLoading, highlight, highlightClause, sourceNavigation]);
-
-  // This effect is now handled by the custom hook
-
-  // Debug: Monitor state changes
-  // Zoom controls
-  const zoomIn = () => {
-    const newScale = Math.min(scale + 0.2, 3.0);
-    setScale(newScale);
-    zoomTo(newScale);
   };
 
-  const zoomOut = () => {
-    const newScale = Math.max(scale - 0.2, 0.5);
-    setScale(newScale);
-    zoomTo(newScale);
+  useEffect(() => {
+    const active = controllerRef.current;
+    if (sourceNavigation || active?.session !== session) return;
+    setSearch({ current: 0, total: 0, pending: Boolean(searchQuery) });
+    active.controller.search(searchQuery);
+  }, [searchQuery, sourceNavigation, session, readyVersion]);
+
+  const handleSearchChange = (next: PdfSearchState) => {
+    if (sourceNavigation || sessionRef.current !== session || !searchQuery) return;
+    setSearch(next);
+    if (!next.pending) callbacks.current.onHighlightComplete?.({
+      found: next.total > 0, strategy: "pdf_text_search", searchTerms: searchQuery, matchCount: next.total,
+    });
   };
 
-  const resetZoom = () => {
-    setScale(1.0);
-    zoomTo(1.0);
+  const movePage = (delta: number) => {
+    const target = currentPage + delta;
+    if (target < 1 || target > numPages || controllerRef.current?.session !== session) return;
+    session.navigationFailed();
+    controllerRef.current.controller.jumpToPage(target - 1);
   };
 
-  // Navigation functions are now provided by the hook
-
-  // Show error state if there's an error
-  if (error) {
-    return (
-      <Card
-        className={`flex flex-col shadow-lg rounded-lg border border-accent-rose/20 ${className}`}
-      >
-        <div className="flex items-center justify-center h-full p-8">
-          <div className="text-center">
-            <div className="text-accent-rose text-lg font-semibold mb-2">
-              Failed to Load PDF
-            </div>
-            <div className="text-text-secondary text-sm mb-4">{error}</div>
-            <Button
-              onClick={() => window.location.reload()}
-              size="sm"
-              variant="secondary"
-            >
-              Retry
-            </Button>
-          </div>
-        </div>
-      </Card>
-    );
-  }
+  if (error) return (
+    <Card className={`h-full flex flex-col ${className}`}>
+      <div role="alert" className="p-6 text-center">
+        <h3 className="text-lg font-semibold text-text-primary">Failed to load PDF</h3>
+        <p className="my-3 text-text-secondary">{error}</p>
+        <Button variant="secondary" onClick={() => setRetry(value => value + 1)}>Retry PDF</Button>
+      </div>
+    </Card>
+  );
 
   return (
-    <Card
-      className={`h-full flex flex-col shadow-lg border border-border-muted !p-0 ${className}`}
-      rounded={false}
-    >
-      {/* Header with controls - ClauseIQ Professional Styling */}
-      <div className="flex items-center justify-between p-4 border-b border-border-muted bg-gradient-to-r from-bg-surface to-bg-elevated">
-        <div className="flex items-center gap-3">
-          <h3 className="text-lg font-semibold text-text-primary">
-            {fileName}
-          </h3>
-          {numPages && (
-            <span className="text-sm text-text-secondary bg-bg-elevated px-2 py-1 rounded-md">
-              {numPages} pages
-            </span>
-          )}
-        </div>
-
-        {/* Controls Section - View Mode Toggle, Page Navigation & Zoom */}
-        <div className="flex items-center gap-4">
-          {/* View Mode Toggle */}
-          <div className="flex items-center gap-2">
-            <Button
-              onClick={toggleViewMode}
-              size="sm"
-              variant="secondary"
-              title={
-                viewMode === "single"
-                  ? "Switch to continuous view"
-                  : "Switch to single-page view"
-              }
-            >
-              {viewMode === "single" ? "Single" : "Scroll"}
-            </Button>
-          </div>
-
-          {/* Page Navigation - Only show in single mode */}
-          {viewMode === "single" && numPages && (
-            <div className="flex items-center gap-2 border-l border-border-muted pl-4">
-              <GoToPreviousPage>
-                {(props) => (
-                  <Button
-                    onClick={props.onClick}
-                    size="sm"
-                    variant="secondary"
-                    disabled={props.isDisabled}
-                    title="Previous page"
-                  >
-                    ←
-                  </Button>
-                )}
-              </GoToPreviousPage>
-
-              <CurrentPageLabel>
-                {(props) => (
-                  <span className="text-sm text-text-secondary min-w-16 text-center font-medium">
-                    {props.currentPage + 1} / {props.numberOfPages}
-                  </span>
-                )}
-              </CurrentPageLabel>
-
-              <GoToNextPage>
-                {(props) => (
-                  <Button
-                    onClick={props.onClick}
-                    size="sm"
-                    variant="secondary"
-                    disabled={props.isDisabled}
-                    title="Next page"
-                  >
-                    →
-                  </Button>
-                )}
-              </GoToNextPage>
-            </div>
-          )}
-
-          {/* Highlighting Status & Navigation */}
-          {!sourceNavigation && (highlighting.isHighlighting || highlighting.highlightResult) && (
-            <div className="flex items-center gap-2 border-l border-border-muted pl-4">
-              {highlighting.isHighlighting && (
-                <div className="flex items-center gap-2">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-accent-purple"></div>
-                  <span className="text-sm text-text-secondary">
-                    Searching...
-                  </span>
-                </div>
-              )}
-
-              {highlighting.highlightResult && !highlighting.isHighlighting && (
-                <div className="flex items-center gap-2">
-                  {highlighting.highlightResult.found ? (
-                    <>
-                      <div className="flex items-center gap-1">
-                        <div
-                          className="w-3 h-3 rounded-full border-2"
-                          style={{
-                            backgroundColor: getRiskHighlightColor(
-                              highlightClause?.risk_level,
-                            ),
-                            borderColor: getRiskBorderColor(
-                              highlightClause?.risk_level,
-                            ),
-                          }}
-                        ></div>
-                        <span className="text-sm text-text-secondary">
-                          Found ({highlighting.highlightResult.strategy})
-                        </span>
-                      </div>
-
-                      {highlighting.totalMatches > 1 && (
-                        <div className="flex items-center gap-1">
-                          <Button
-                            onClick={highlighting.goToPreviousMatch}
-                            size="sm"
-                            variant="secondary"
-                            title="Previous match"
-                          >
-                            ↑
-                          </Button>
-                          <span className="text-xs text-text-secondary min-w-8 text-center">
-                            {highlighting.currentMatchIndex + 1}/
-                            {highlighting.totalMatches}
-                          </span>
-                          <Button
-                            onClick={highlighting.goToNextMatch}
-                            size="sm"
-                            variant="secondary"
-                            title="Next match"
-                          >
-                            ↓
-                          </Button>
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="flex items-center gap-1">
-                      <div className="w-3 h-3 rounded-full bg-gray-300 border-2 border-gray-400"></div>
-                      <span className="text-sm text-text-secondary">
-                        Not found
-                      </span>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Zoom Controls */}
-          <div className="flex items-center gap-2 border-l border-border-muted pl-4">
-            <Button
-              onClick={zoomOut}
-              size="sm"
-              variant="secondary"
-              disabled={scale <= 0.5}
-              title="Zoom out"
-            >
-              -
-            </Button>
-            <span className="text-sm text-text-secondary min-w-12 text-center font-medium">
-              {Math.round(scale * 100)}%
-            </span>
-            <Button
-              onClick={zoomIn}
-              size="sm"
-              variant="secondary"
-              disabled={scale >= 3.0}
-              title="Zoom in"
-            >
-              +
-            </Button>
-            <Button onClick={resetZoom} size="sm" variant="secondary" title="Reset zoom">
-              Reset
-            </Button>
-          </div>
-
-          {/* Document Actions Menu */}
-          {dropdownMenuItems && dropdownMenuItems.length > 0 && (
-            <div className="flex items-center border-l border-border-muted pl-4">
-              <DropdownMenu
-                align="right"
-                triggerVariant="default"
-                trigger={
-                  <svg
-                    className="w-4 h-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
-                    />
-                  </svg>
-                }
-                items={dropdownMenuItems}
-              />
-            </div>
-          )}
+    <Card className={`h-full flex flex-col border border-border-muted !p-0 ${className}`} rounded={false}>
+      <div className="flex flex-wrap items-center justify-between gap-3 p-3 border-b border-border-muted bg-bg-surface">
+        <h3 className="min-w-0 truncate font-semibold text-text-primary" title={fileName}>{fileName}</h3>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="secondary" onClick={() => setViewMode(mode => mode === "single" ? "continuous" : "single")}
+            title={viewMode === "single" ? "Switch to continuous view" : "Switch to single-page view"}>
+            {viewMode === "single" ? "Single" : "Scroll"}
+          </Button>
+          <Button size="sm" variant="secondary" title="Previous page" aria-label="Previous page"
+            disabled={isLoading || currentPage <= 1} onClick={() => movePage(-1)}>←</Button>
+          <span className="text-sm text-text-secondary tabular-nums" aria-live="polite">{numPages ? `${currentPage} / ${numPages}` : "—"}</span>
+          <Button size="sm" variant="secondary" title="Next page" aria-label="Next page"
+            disabled={isLoading || currentPage >= numPages} onClick={() => movePage(1)}>→</Button>
+          <Button size="sm" variant="secondary" title="Zoom out" aria-label="Zoom out"
+            disabled={scale <= 0.5} onClick={() => setScale(value => Math.max(0.5, Math.round((value - 0.2) * 10) / 10))}>−</Button>
+          <span className="text-sm text-text-secondary tabular-nums">{Math.round(scale * 100)}%</span>
+          <Button size="sm" variant="secondary" title="Zoom in" aria-label="Zoom in"
+            disabled={scale >= 3} onClick={() => setScale(value => Math.min(3, Math.round((value + 0.2) * 10) / 10))}>+</Button>
+          <Button size="sm" variant="secondary" title="Reset zoom" onClick={() => setScale(1)}>Reset</Button>
+          {dropdownMenuItems?.length ? <DropdownMenu align="right" triggerVariant="default" trigger={<span aria-label="Document actions">⋯</span>} items={dropdownMenuItems} /> : null}
         </div>
       </div>
-
-      {/* Continuous scroll PDF viewer */}
-      {/* NOTE: overflow-hidden on outer container, scrolling handled by rpv-core__inner-pages for cross-browser consistency */}
-      <div
-        className="flex-1 bg-bg-surface relative min-h-0 overflow-hidden"
-        style={{ height: "calc(100vh - 70px)" }}
-      >
-        {isLoading && (
-          <div className="absolute inset-0 bg-bg-surface flex items-center justify-center z-10">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent-purple mx-auto mb-2"></div>
-              <div className="text-sm text-text-secondary font-medium">
-                Loading PDF...
-              </div>
-            </div>
-          </div>
-        )}
-        <Worker workerUrl="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js">
-          <div style={{ height: "100%" }} className="pdf-viewer-container">
-            {pdfUrl && loadedSourceKey === sourceKey ? (
-              <Viewer
-                fileUrl={pdfUrl}
-                // A physical source-page jump must not keep animating toward an
-                // offset measured before a viewport resize. Legacy search keeps
-                // its existing scrolling behavior.
-                enableSmoothScroll={!sourceNavigation}
-                defaultScale={sourceNavigation ? scale : undefined}
-                // PDF.js mitigation for GHSA-wgrm-67xf-hhpq while the viewer remains on PDF.js 3.
-                transformGetDocumentParams={securePdfDocumentOptions}
-                onDocumentLoad={handleDocumentLoad}
-                onPageChange={handlePageChange}
-                plugins={viewerPlugins}
-                scrollMode={
-                  viewMode === "single" ? ScrollMode.Page : ScrollMode.Vertical
-                }
-                initialPage={navigationSession.pageNumber - 1}
-                key={`pdf-viewer-${sourceKey}-${viewMode}`}
-              />
-            ) : null}
-          </div>
-        </Worker>
+      {!sourceNavigation && searchQuery && (
+        <div className="flex items-center gap-2 px-3 py-2 text-sm text-text-secondary" role="status">
+          {search.pending ? "Searching PDF text…" : search.total ? `Text match ${search.current} of ${search.total}` : "No text match found"}
+          {search.total > 1 && <>
+            <Button size="sm" variant="secondary" title="Previous match" onClick={() => controllerRef.current?.controller.previousMatch()}>↑</Button>
+            <Button size="sm" variant="secondary" title="Next match" onClick={() => controllerRef.current?.controller.nextMatch()}>↓</Button>
+          </>}
+        </div>
+      )}
+      <div className="flex-1 relative min-h-0 overflow-hidden bg-bg-primary" style={{
+        "--pdf-highlight-color": getRiskHighlightColor(highlightClause?.risk_level),
+        "--pdf-highlight-border": getRiskBorderColor(highlightClause?.risk_level),
+      } as React.CSSProperties}>
+        {isLoading && <div className="absolute inset-0 grid place-items-center z-10 bg-bg-surface text-text-secondary" role="status">Loading PDF…</div>}
+        {pdfUrl && loadedSourceKey === sourceKey && <PdfJsRenderer key={`${sourceKey}-${viewMode}-${retry}`}
+          fileUrl={pdfUrl} scale={scale} viewMode={viewMode} initialPage={session.pageNumber - 1}
+          onReady={handleReady} onPageChange={handlePageChange} onSearchChange={handleSearchChange}
+          onError={message => {
+            if (sessionRef.current !== session) return;
+            setError(message);
+            setIsLoading(false);
+          }} />}
       </div>
     </Card>
   );

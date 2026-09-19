@@ -90,7 +90,7 @@ export class PdfPageNavigationSession {
   }
 }
 
-/** Keep the documented PDF.js 3 advisory mitigation even if callers enable eval. */
+/** Defense in depth: PDF-supplied values must not enable dynamic code generation. */
 export function securePdfDocumentOptions<T extends object>(options: T): T & { isEvalSupported: false } {
   return { ...options, isEvalSupported: false };
 }

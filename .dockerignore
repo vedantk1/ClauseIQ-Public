@@ -44,6 +44,7 @@ venv
 **/build
 **/.turbo
 **/*.tsbuildinfo
+frontend/public/pdfjs
 **/coverage
 **/.nyc_output
 test-results

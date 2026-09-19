@@ -134,7 +134,6 @@ Choose models deliberately; there is no automatic provider fallback.
 ClauseIQ is licensed under the [MIT License](LICENSE). Third-party dependencies
 remain subject to their own licenses.
 
-The current `@react-pdf-viewer` dependencies declare a
-[commercial license](https://github.com/react-pdf-viewer/react-pdf-viewer/blob/master/LICENSE.md).
-This repository does not grant that license; review the viewer's terms before use.
-Replacing the viewer or resolving its licensing remains an open dependency issue.
+PDF rendering uses Mozilla PDF.js (Apache-2.0). The worker and supporting assets
+are generated from the locked dependency before development/build and served
+locally; opening a saved PDF does not contact a viewer CDN.
