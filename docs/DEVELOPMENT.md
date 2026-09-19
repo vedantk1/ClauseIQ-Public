@@ -26,6 +26,8 @@ The root opens Library; new agreements use /import and the review workspace.
 The retired /legacy-analysis uploader redirects to /import, and /analytics to
 /documents. Existing /review links and stored earlier analyses remain supported.
 MongoDB and Qdrant must both be available for workspace migration preflight.
+Leave `QDRANT_API_KEY` blank for the unkeyed local service. Blank or whitespace-only
+values are treated as absent so the client uses local HTTP, not key-triggered HTTPS.
 Use matching compatible Qdrant server/client versions; an existing older Docker
 image may need a separately reviewed upgrade before updating stored vectors.
 

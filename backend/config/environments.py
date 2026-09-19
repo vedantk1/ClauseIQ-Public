@@ -81,6 +81,12 @@ class QdrantConfig(BaseModel):
     collection_name: str = Field(default="clauseiq-vectors", description="Qdrant collection name")
     api_key: Optional[str] = Field(default=None, description="Qdrant API key (optional, for cloud)")
 
+    @field_validator("api_key")
+    @classmethod
+    def normalize_empty_api_key(cls, value):
+        # The SDK treats any non-None key, including "", as a request for TLS.
+        return None if value is not None and not value.strip() else value
+
 
 class FileUploadConfig(BaseModel):
     """File upload configuration with validation."""
@@ -139,6 +145,11 @@ class EnvironmentConfig(BaseSettings):
     qdrant_grpc_port: int = Field(default=6334, description="Qdrant gRPC port")
     qdrant_collection: str = Field(default="clauseiq-vectors", description="Qdrant collection name")
     qdrant_api_key: Optional[str] = Field(default=None, description="Qdrant API key (optional)")
+
+    @field_validator("qdrant_api_key")
+    @classmethod
+    def normalize_empty_qdrant_api_key(cls, value):
+        return None if value is not None and not value.strip() else value
 
     # File Upload
     max_file_size_mb: int = Field(default=10, description="Maximum file size in MB")
