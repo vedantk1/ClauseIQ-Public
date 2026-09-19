@@ -42,7 +42,21 @@ not require live AI, credentials or private source documents.
 4. Confirm environment examples contain placeholders only.
 5. Confirm no deployment workflow or cloud identifier is present.
 6. Confirm the intended public Git author identity.
-7. Decide and add a license, or deliberately keep the repository unlicensed.
+7. Confirm LICENSE and package license metadata consistently identify MIT.
+
+## Licensing
+
+ClauseIQ is licensed under the root MIT LICENSE. Keep its copyright and permission
+notice when redistributing the project. Third-party dependencies retain their own
+licenses; the project license does not replace those terms.
+
+The installed `@react-pdf-viewer` 3.12.0 packages declare a commercial license,
+not MIT. Their upstream LICENSE.md states that a commercial license must be
+purchased. No viewer license entitlement or open-source exemption has been
+verified for this project. Dependency code and generated bundles are not tracked;
+publishing ClauseIQ's source does not grant rights to those packages. Resolve the
+viewer licensing or replace the dependency before representing the complete
+application stack as freely reusable under open-source licenses.
 
 ## Git workflow
 

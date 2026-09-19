@@ -131,5 +131,10 @@ default for review and query preparation. Old Mini/Nano selections resolve to
 Terra; other explicit choices and historical run attribution are preserved.
 Choose models deliberately; there is no automatic provider fallback.
 
-No open-source license has been selected. Until one is added, the repository is
-UNLICENSED and no permission to copy, modify or redistribute the code is granted.
+ClauseIQ is licensed under the [MIT License](LICENSE). Third-party dependencies
+remain subject to their own licenses.
+
+The current `@react-pdf-viewer` dependencies declare a
+[commercial license](https://github.com/react-pdf-viewer/react-pdf-viewer/blob/master/LICENSE.md).
+This repository does not grant that license; review the viewer's terms before use.
+Replacing the viewer or resolving its licensing remains an open dependency issue.
