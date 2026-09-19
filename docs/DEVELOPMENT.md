@@ -22,6 +22,8 @@ npm run dev
 ~~~
 
 Open http://localhost:3000. Servers use development mode and loopback bindings.
+The root opens Library. More → Earlier analysis upload preserves the older paid
+flow at /legacy-analysis; existing /review links remain supported.
 MongoDB and Qdrant must both be available for workspace migration preflight.
 Use matching compatible Qdrant server/client versions; an existing older Docker
 image may need a separately reviewed upgrade before updating stored vectors.
@@ -107,6 +109,136 @@ generation is outside the normal save retry queue: unknown outcomes are reconcil
 by GET, and any deliberate resend retains its original request ID/model/revision.
 No automatic review occurs on import, navigation, brief changes or reload.
 
+## Findings presentation checks
+
+For the shared entry/Settings shell, existing-run Overview, confirmed My review
+and independent source/metadata read recovery, run:
+
+~~~bash
+node --test frontend/tests/journeyShell.test.mjs frontend/tests/workspaceShell.test.mjs frontend/tests/workspaceSummaries.test.mjs frontend/tests/reviewWorkspace.test.mjs frontend/tests/workspaceReads.test.mjs frontend/tests/sourceReadNotice.test.mjs frontend/tests/local-api.test.mjs
+~~~
+
+These cover saved settings, explicit legacy dispatch, question/draft separation,
+exact source-return navigation, independent failures, one in-flight read per
+resource, cancellation/deadlines and safe diagnostics. Read retries are bounded
+GETs only; they never dispatch AI, restart extraction or reset the write controller.
+Do not treat deterministic failure simulation as diagnosis of an observed browser
+transport error. A combined unpaid browser checkpoint should exercise Library →
+workspace → My review → source → return, plus Settings and the legacy entry,
+without changing saved settings or starting paid actions.
+
+Reliability regressions in these tests also cover a controller remount while its
+previous PUT is still pending, a bounded wait without write replay, document
+isolation, and readable content-free transport diagnostics. The workspace-state
+GET is bounded as well as source/metadata reads. PDF navigation tests cover
+non-animated physical page targeting; they do not certify all viewport-resize
+behavior, particularly zoomed-out single-page mode. Keep historical browser
+observations separate from mechanisms demonstrated by deterministic tests.
+
+The Findings layout retains all navigation items and shows the selected quotation
+above compact reference selectors. Excerpt/passage labels do not certify a complete
+clause. Optional surrounding extracted text is display-only and stays separate
+from the unchanged saved citation. Unchanged, confirmed saved questions use quiet
+status; edited wording restores the save action. Ask only opens a separate pane
+until the person explicitly sends through the existing paid controls.
+
+Focused checks, from the repository root:
+
+~~~bash
+node --test frontend/tests/evidencePresentation.test.mjs frontend/tests/evidenceSelection.test.mjs frontend/tests/findingReview.test.mjs frontend/tests/reviewWorkspace.test.mjs frontend/tests/themePalette.test.mjs
+npm --prefix frontend run typecheck
+npm --prefix frontend run lint
+~~~
+
+Renderer/handler/state tests check exact Unicode context, clipped/page boundaries,
+ambiguous and malformed anchors, all references and finding navigation, independent
+Ask/drafts, explicit save states and preservation of quote identity. Theme tests
+check token contrast, not a complete accessibility assessment. A scoped existing
+synthetic-record layout check can supplement these; batch broader keyboard,
+responsive, theme and PDF navigation checks with the other entry-flow changes.
+No paid AI request or regeneration is needed to validate these presentation changes.
+
+## Import and review-setup checks
+
+The /import screen supports one selected or dropped PDF with a configured size
+limit and an explicit, key-free import. A workspace without runs opens review
+setup; existing runs keep their Overview and original context. The setup describes
+source readiness and missing pages without claiming a completed review. Original
+access and brief saving need no key; Start review keeps the existing paid-action,
+Settings, source and save-conflict gates.
+
+Focused frontend checks, from the repository root:
+
+~~~bash
+node --test frontend/tests/importFlow.test.mjs frontend/tests/reviewSetup.test.mjs frontend/tests/reviewWorkspace.test.mjs frontend/tests/sourceStatus.test.mjs frontend/tests/workspaceShell.test.mjs
+npm --prefix frontend run typecheck
+npm --prefix frontend run lint
+~~~
+
+These deterministic renderer, handler and state tests cover file validation,
+duplicate-submit locking, saved-record/uncertain-result recovery, in-app navigation
+confirmation and suppression of stale completion redirects. Setup tests cover
+source states, exact missing-page limitations, save-before-generation and conflict
+preservation, explicit model/key/payment gates and existing-run presentation.
+They do not exercise a real file dialog, drag event, focus flow or provider.
+In-app import links are guarded; browser back and tab close are not intercepted.
+Shared dialogs keep Tab/Shift+Tab inside the topmost open dialog and restore focus
+to the opener on close when it remains available. Escape respects the dialog's
+dismissal setting, and nested dialogs share one body-scroll lock. Regression
+coverage lives in frontend/tests/modalFocus.test.mjs; it does not replace live
+keyboard or assistive-technology checks.
+At batched walkthroughs, check file picking and dropping, both themes,
+keyboard/modal focus, narrow layouts and saved brief return/reload. Keep it unpaid:
+do not click Start review. No storage or provider contract changed in this UI slice.
+
+## Library and resume checks
+
+The /documents Library uses the compact GET /documents/ summary, not one full
+workspace request per agreement. Its inspector follows the visible selection;
+Continue reviewing is independent of filters and chooses an eligible latest run
+by recorded review activity. The resume link restores the saved view, finding and
+evidence locally; it does not enqueue a save or dispatch AI. Import links continue
+to /import and legacy upload remains at / until a separate entry-flow change.
+
+Focused checks:
+
+~~~bash
+(cd backend && venv/bin/python -m pytest tests/test_document_library.py -q)
+npm --prefix frontend test
+npm --prefix frontend run typecheck
+npm --prefix frontend run lint
+~~~
+
+Run these commands from the repository root. The backend tests use synthetic
+projected records and mock reads; they check scoping, status selection, privacy,
+malformed metadata and legacy compatibility. Frontend tests cover rendered
+states, selection, explicit navigation, resume restoration and unknown counts.
+The Library's select-all shortcut does not intercept native text selection in
+editable controls. At narrow widths, Continue reviewing puts its action below
+the filename/metadata rather than squeezing the title beside the button. Focused
+regressions are in libraryKeyboard.test.mjs and libraryResponsive.test.mjs; the
+responsive tests check CSS contracts, not a browser layout engine.
+At batched walkthroughs, include multiple records, long filenames, both
+themes, keyboard navigation and deletion confirmations. No AI key is required.
+
+## Finding-scoped Ask checks
+
+Finding-scoped Ask uses deterministic mocked checks during development:
+
+~~~bash
+cd backend
+venv/bin/python -m pytest tests/test_review_ask_contract.py tests/test_review_ask.py tests/test_review_ask_lifecycle.py -q
+venv/bin/python tests/manual_review_ask_smoke.py --run-isolated-live
+~~~
+
+The Ask smoke uses a verified-absent disposable MongoDB/GridFS database and mocked
+AI/credentials. It checks durable answers and independent drafts, fresh-connection
+restore, replay, concurrent edits, interruption and deletion fencing. It must
+report cleanup with no leftovers; never point it at the application database.
+Run frontend workspace tests/type checking for the matching UI/controller changes.
+No command above dispatches paid requests. Actual answer quality belongs to a
+separately approved source-reviewed synthetic checkpoint, not a passing mock test.
+
 ## Verification cadence
 
 - Routine changes: add or update focused deterministic tests and run the affected
@@ -125,6 +257,27 @@ No automatic review occurs on import, navigation, brief changes or reload.
   failures. Mocked AI tests do not establish real model quality or actual cost.
 
 ### Synthetic PDF fixtures
+
+At a batched functional checkpoint, exercise the local-only path separately from
+paid quality evaluation:
+
+1. Import the 25-page managed-services fixture through /import and load its
+   explicitly labelled example. Confirm import itself does not start AI.
+2. Change and save the brief; confirm existing findings and Ask retain their
+   original run context instead of silently adopting the new perspective.
+3. Follow related evidence on physical pages 22 and 25, including after reload.
+   Check the visible page, not only the page label, and that the PDF scrolls
+   within a bounded pane. Exact quotation matching is not semantic verification.
+4. Save a question, mark a finding Revisit, and enter a separate Ask draft without
+   sending it. Reload and resume; confirm all three remain distinct and intact.
+5. Import a short fixture without an authored example. Confirm it remains an
+   unreviewed source instead of acquiring unrelated fixture findings.
+6. Delete only records created for the check, using the in-app confirmation for
+   at least one deletion. Keep repository fixture files and existing data intact.
+
+Do not click Start review or Send question to AI during this unpaid walkthrough.
+Provider answers, paid failures and live output quality require their own approved
+budget and source-reviewed cases; mocked tests cover their routine regressions.
 
 tests/fixtures/pdfs contains explicitly synthetic PDFs spanning 1, 2, 5, 12 and
 25 pages, their readable sources/manifest, and a deterministic generator. Keep
@@ -175,6 +328,8 @@ these in the backend environment or backend/.env as needed:
 | AI_EXTRACTION_MAX_COMPLETION_TOKENS | 16000 |
 | AI_REVIEW_MAX_COMPLETION_TOKENS | 16000 |
 | AI_REVIEW_TIMEOUT_SECONDS | 120 (maximum 180) |
+| AI_REVIEW_ASK_TIMEOUT_SECONDS | 120 (maximum 180) |
+| REVIEW_ASK_MAX_STORAGE_BYTES | 2097152 (maximum 8388608) |
 | AI_SUMMARY_MAX_COMPLETION_TOKENS | 4000 |
 | AI_REWRITE_MAX_COMPLETION_TOKENS | 6000 |
 | AI_QUERY_GATE_MAX_COMPLETION_TOKENS | 1024 |
@@ -190,6 +345,21 @@ included in its input guard. Its SDK retries are disabled and its total provider
 wait is bounded by AI_REVIEW_TIMEOUT_SECONDS, including connection time.
 Oversized prompts are rejected, not silently truncated. Partial-output failures
 do not trigger an automatic larger or more expensive retry.
+
+Finding-scoped Ask uses AI_CHAT_MAX_COMPLETION_TOKENS and the selected review
+model's default reasoning effort. Its complete source/context/history and output
+schema count against AI_MAX_INPUT_TOKENS. AI_REVIEW_ASK_TIMEOUT_SECONDS bounds the
+whole provider wait; SDK retries are disabled. A fresh question can deliberately
+exclude conversation history while keeping the source and original review brief.
+At most six recent usable same-finding answers enter a request; the UI and stored
+history provenance disclose this boundary.
+
+Ask saves at most 100 attempts per document. Each resolved answer/limitations
+envelope is limited to 256 KiB; REVIEW_ASK_MAX_STORAGE_BYTES bounds the BSON Ask
+history (default 2 MiB, capped at 8 MiB). Preflight reserves result/metadata
+headroom and refuses documents projected beyond 12 MiB rather than approaching
+MongoDB's document limit. Previous work is never removed to make room. These are
+local capacity guards, not a guarantee of model accuracy or an account spending cap.
 
 The existing OpenAI Python SDK remains pinned: deterministic tests exercise its
 actual Chat Completions serialization through a local mock transport for every
@@ -236,6 +406,50 @@ evidence elsewhere in the output does not repair unsupported claims in a finding
 Do not require fixed titles, wording or finding counts, and do not substitute
 keyword matches for semantic assessment. Source-anchor tests and a ready result
 establish provenance/structural acceptance, not a passed quality evaluation.
+
+### Development-only support and coverage checker
+
+The checker is a separate evaluation tool, not part of Start review. It diagnoses
+fixed authored synthetic candidates without regenerating or repairing them.
+It does not certify legal correctness. The ten cases include six negative
+mutations and four positive controls; their reference labels never enter the
+model request. See backend/fixtures/review_checks/README.md for calibration rules.
+
+From backend, offline checks and a metadata-only dry run are:
+
+~~~bash
+venv/bin/python -m pytest tests/test_review_checker_preparation.py tests/test_review_checker_engine.py tests/test_review_checker_cases.py tests/test_review_checker_guard.py -q
+venv/bin/python tests/manual_review_checker.py --case convenience-wrong-finding
+venv/bin/python tests/manual_review_checker.py --case acceptance-focused-concise
+~~~
+
+Dry runs load only allowlisted synthetic fixtures and print bounded request/binding
+metadata. They do not read the saved key, connect to the database/provider or write
+reports. No generic document or captured-report path is accepted. The checker
+uses Terra with medium reasoning, independent of the saved app model choice.
+AI_REVIEW_MAX_COMPLETION_TOKENS is read for the experiment's output budget but
+must not exceed its 16,000-token hard ceiling or fall below its target-inventory
+reserve. AI_MAX_INPUT_TOKENS applies to complete input including output schema;
+nothing is truncated. Inputs have at most 100 diagnostic targets. Response JSON
+is limited to 1,000,000 UTF-8 bytes. AI_REVIEW_CHECK_TIMEOUT_SECONDS defaults to
+120 and is clamped at 180 seconds; nonpositive values are rejected.
+
+A live run needs separate approval, current pricing review, --run-paid, a finite
+--cap-usd, an unused --report-name and explicit --previous-reserved-usd accounting
+for earlier attempts in that budget. Run attempts serially and retain full
+reservations for unknown outcomes; this is not an account-wide spending ledger.
+The harness reserves the full conservative request ceiling before credential
+access, permits one exact request to the official endpoint, disables retries and
+refuses reused report names or symlink report paths. There is no fallback or
+second grading call. Reports contain parsed diagnostics, usage, versions and
+source/candidate/brief bindings; raw provider response text is not retained by
+this checker harness. Normal app data and Settings are not written.
+
+Completed is a structural outcome, not a passed quality evaluation. Manually
+assess detected issues, misses and false alarms against the unchanged source and
+frozen case labels. Record semantic calibration separately; a syntactically valid
+report or empty issue list cannot establish checker reliability. The held-out
+source is not part of this initial allowlist and has not been calibrated.
 
 ### Workspace migration
 

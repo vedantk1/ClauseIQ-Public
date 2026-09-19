@@ -1,8 +1,8 @@
 # ClauseIQ
 
 ClauseIQ is a personal contract-review application that runs on your computer.
-Upload a PDF, inspect structured clause and risk analysis, add notes, request
-rewrite suggestions, and ask document-grounded questions.
+Import a PDF, understand it through an evidence-linked review, inspect the source,
+keep questions and personal markers, and ask finding-grounded follow-ups.
 
 The application opens directly into one local workspace. There are no accounts,
 passwords, email verification, or admin roles. AI features use the OpenAI API
@@ -49,8 +49,26 @@ enable automatic deletion in Settings. There is no document-count cap; individua
 upload size and request limits still apply. Existing saved reviews, PDFs, notes
 and reports remain usable without an AI key.
 
-The Documents library offers Import without AI: preserve the original, inspect
-page-level source text and save a review brief in the new workspace preview.
+Appearance offers Black and Graphite dark themes through the navigation theme
+switch. The choice is saved in this browser; light mode is no longer offered.
+
+The app opens into the Library at /documents, which combines an agreement list, selected-agreement details
+and Continue reviewing for the latest eligible saved review activity. Review
+status is separate from source extraction and earlier analysis; examples remain
+labelled. Resume restores the latest run's saved view without starting AI. Search,
+sorting, contract-type filters and confirmed deletion remain available. Earlier
+analysis upload at /legacy-analysis, analytics and About remain accessible through
+More. Library, Import, Settings and the workspace share the same navigation.
+Settings groups personal AI access, model choices, document retention and notifications.
+
+The Library offers Import agreement without AI: choose or drop one PDF, confirm
+the import, then open review setup. Setup shows source readiness and missing-text
+limitations beside a short, optional review brief. Read the original or save the
+brief and return later without a key. Starting an AI review is a separate explicit
+action using the model and key configured in Settings. Existing runs keep their
+overview and original review context. Their Overview leads with the saved agreement
+summary and source coverage; editing the brief and starting another run are secondary,
+explicit actions. Recovery controls and consequential warnings remain available.
 The existing AI analysis flow remains available separately and saves the original
 before generation. Extraction or AI failures do not discard an already stored PDF.
 Imported/not-ready records are labelled separately from completed analysis.
@@ -60,10 +78,21 @@ local persistence. Save a brief, then explicitly Start review using the model
 selected in Settings. One bounded generation request produces an evidence-linked
 overview and findings; changing the brief never reruns AI or changes older runs.
 Source quotes are checked against stored extraction, not proof of legal accuracy.
+Findings show all navigation items and put the selected quote first. Saved excerpts
+are labelled as potentially partial; separately disclosed surrounding source text
+helps inspect context without changing the quotation or claiming a complete clause.
 Incomplete extraction, invalid output and interrupted requests remain visible.
 Draft recovery, explicit saved questions, personal markers and resume position
-remain separate. Contextual Ask is not connected yet. Importing, reading and
-saving personal work make no provider calls. An optional authored synthetic
+remain separate. My review collects only confirmed questions from the selected run,
+with finding context, source links and reversible personal markers; drafts and AI
+answers are not promoted into it. Finding-scoped Ask uses the selected review's original perspective
+and extracted source, with its own recoverable draft and saved answer history.
+Sending is an explicit paid action; opening answers or saving drafts is not.
+Answers include source links, model attribution and any input limitations.
+Quote matching establishes location, not correctness. Importing, reading and
+saving personal work make no provider calls. Source and filename reads recover
+independently: explicit read retries preserve drafts and do not re-extract or run AI.
+An optional authored synthetic
 example remains available only for the unchanged
 tests/fixtures/pdfs/managed-services-25p.pdf and is labelled separately from AI output.
 See docs/API_REFERENCE.md for source and review-workspace APIs.
@@ -95,7 +124,7 @@ and their reproducible sources are in tests/fixtures/pdfs.
 
 ## Project status and licensing
 
-Active local development is the priority. There is no supported hosted production
+Experimental project under active development. There is no supported hosted production
 environment, deployment workflow or CI pipeline. Settings offers GPT-5.6 Luna,
 Terra and Sol, with GPT-5 retained for legacy selections. Terra is the
 default for review and query preparation. Old Mini/Nano selections resolve to

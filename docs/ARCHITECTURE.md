@@ -29,6 +29,35 @@ Reading saved analysis does not make a new AI request. Deleting a document
 must remove its files, vector chunks, interactions and embedded chat; failures
 must be reported rather than claiming complete deletion.
 
+### Library read model
+
+The Library uses a dedicated workspace-scoped metadata projection, separate from
+the full-document listing retained for legacy analytics and internal operations.
+database/library_summary.py projects only list fields, physical page count and
+compact saved-run/question metadata in Mongo. Source/review/evidence text, personal
+question wording, storage pointers and credentials are not returned by this query.
+The service performs one list read, not one workspace fetch per document.
+
+Review status follows the final saved run, as the workspace does; it never selects
+an older success to hide a newer failure. Fixture provenance remains distinct from
+AI output and legacy analysis_status remains unchanged. Resume eligibility and
+the selected run's saved-question count are conservative display metadata, not
+review completeness or evidence validation. Inconsistent projected state becomes
+unavailable; full workspace validation still happens on opening. Existing view,
+run and saved-question timestamps provide activity ordering without introducing
+new writes, data migrations or automatic AI calls.
+
+The frontend / route redirects to /documents. The Library uses a shared navigation
+header with a selectable
+agreement list, details inspector and a Continue reviewing shortcut. Presentation
+and pure state/destination helpers live in components/documents; the route retains
+existing fetch/filter/selection/deletion hooks and in-app confirmation modals.
+Continue chooses the latest eligible recorded activity across the library,
+independent of search filters. Its resume=1 workspace link restores the latest
+run's saved view/finding/evidence locally after loading, once per opening, without
+enqueueing a write. Regular Open workspace still starts at Overview. No source,
+prompt or saved-review data is copied from design mockups into the app.
+
 ## Original sources and extraction
 
 services/source_service.py owns local import and extraction; it never requests
@@ -59,7 +88,7 @@ Generation failure retains the original/source snapshot and records failed
 analysis. New imports have explicit status, while legacy records without source
 metadata stay readable without inventing provenance or migrating their findings.
 The library and review screen distinguish non-ready imports from completed legacy
-analysis. The key-free import UI opens a separate review workspace preview;
+analysis. The key-free import UI opens setup in the separate review workspace;
 the existing analysis screen remains available without converting old clauses.
 
 Source metadata and page snapshots live in the existing scoped document record;
@@ -75,6 +104,25 @@ screen. services/review_workspace_service.py stores a review_workspace object in
 the existing document, using the same workspace/document boundary. Deleting that
 document also deletes its review state; there is no new collection, migration or
 legacy-note conversion. GET returns an empty default without writing anything.
+
+The Import screen reuses the Library shell and theme tokens. Client-side checks
+accept one non-empty PDF within the configured size limit; the server still
+validates its bytes. Import is explicit, with an immediate duplicate-submit lock.
+A failed response with a document ID links to the existing saved-record screen;
+an uncertain response directs the person to check the Library before trying again.
+Neither path automatically reuploads or retries extraction. In-app navigation
+offers a confirmation while a file is selected or import is pending; a late result
+cannot redirect after leaving. Browser back and tab close are not intercepted.
+
+Only a workspace with no review run opens the new review-setup presentation.
+It places original access, source readiness and missing-page limitations beside
+the optional brief and the existing explicit paid generation controls. Setup
+blocks generation for loading, mismatched, unstored or unusable source snapshots;
+usable partial text retains its limitations. Existing runs, including failed and
+processing runs, retain their overview and recovery controls. This presentation
+uses the existing save/conflict and generation controllers, not another paid
+pipeline or persistence path. Legacy upload/analysis remains available at
+/legacy-analysis through More; existing /review links and stored results are preserved.
 
 The workspace keeps the current brief, immutable review runs and personal work
 separate. Runs snapshot their source revision and context; editing the brief
@@ -97,7 +145,84 @@ The fixture definition ships in backend/fixtures/reviews, is bound to the unchan
 persisted page spans. Arbitrary files never receive these example findings.
 The fixed Example Customer scenario is labelled and does not overwrite the
 person's brief. No generation, embeddings, credential reads or paid retries are
-part of the fixture path. Contextual Ask remains a later increment.
+part of the fixture path. Explicit Ask about a fixture finding is a separate,
+real paid action and is labelled as AI output, not part of that authored example.
+
+### Workspace presentation
+
+Library, Import, Settings and workspace reuse components/shell/AppHeader.tsx.
+Workspace destinations continue through its unsaved-work guard; Import retains
+its own selected-file/pending-import guard. Settings groups existing credential,
+model, opt-in retention and notification controls without changing save semantics.
+
+For an existing run, AgreementOverview leads with the saved agreement summary,
+evidence and source/run coverage, alongside compact personal activity. The brief
+and another explicit generation sit in a secondary disclosure, opened for pending
+edits or recovery. Global changed-context, incomplete/failed-run and save-recovery
+warnings remain outside it. MyReview presents only confirmed questions belonging
+to the selected run, their finding context and matched source links, plus separate
+Revisit and Reviewed by me lists. Drafts and provider answers remain separate.
+Opening a source reference preserves its exact finding/reference selection and
+returns to My review without generating or accepting anything.
+
+lib/workspaceReads.ts handles source and filename metadata independently from
+the persistent review controller. Each read has a 20-second deadline, explicit
+retry and stale-response fencing. Retry does not reset drafts, write state,
+restart extraction or call a provider. Caller cancellation is quiet; timeout and
+other read failures retain distinct UI states and content-free diagnostic fields
+(resource category, status, duration and connectivity), without URLs, document
+identifiers, source text or raw errors. Source failures disable matched-reference
+actions until a successful read; they do not remove saved review output.
+The workspace-state GET uses the same 20-second read deadline. Diagnostics are
+serialized allowlisted JSON and distinguish failure before headers from failure
+during response-body handling, so log collectors do not lose the fields.
+
+Ordinary writes already dispatched by a retiring controller are tracked by transport
+and document in the current JavaScript runtime. A replacement controller waits for
+those writes before reading its starting revision; otherwise it could read stale
+state just before the old PUT commits. The wait has its own 20-second deadline and
+fails explicitly rather than replaying the write or bypassing it with a stale GET.
+This protects same-runtime remounts, not hard reloads, separate tabs or every module
+replacement. Genuine external conflicts still require an explicit choice.
+
+The frontend workspace uses a compact header with the selected run's original
+perspective, labelled run kind/status and confirmed-save feedback. Normal
+provenance is disclosed on demand; changed-context, incomplete/failed-run and
+save-recovery warnings remain visible. The Findings view separates navigation,
+the full finding plus personal question editor, and a companion pane. All findings
+remain in the scrollable navigation, without a first-five gate. The selected exact
+quotation precedes compact reference selectors; every reference remains accessible
+and source matching still gates the separate original-page action. Reading text
+uses a larger, more relaxed hierarchy while retaining Inter and both dark themes.
+An unchanged, confirmed saved question shows quiet status instead of a disabled
+update button; pending writes and conflicts never acquire that saved-state claim.
+Editing restores the action and retains the previously saved wording. Opening
+Ask swaps the companion pane without dispatching a provider request. The Send
+action, independent Ask drafts and saved personal questions retain their existing
+controller contracts. Layout styles are scoped to the workspace and consume the
+shared Black/Graphite theme tokens; no provider or persistence schema changes
+are required for this presentation layer.
+
+Physical source-page navigation disables the viewer's smooth-scroll animation;
+an animated jump would keep writing a pixel offset measured before a resize.
+Legacy analysis keeps its existing behavior. This removes that animation race,
+not every resize issue: zoomed-out single-page layout can still change its page
+offsets with viewport height and is not certified to preserve the reading position.
+
+### Appearance
+
+The browser offers two dark palettes: Black (default) and Graphite. The named
+theme switch is available in the main navigation and workspace header. There is
+no light or system-following mode. Both use the same layout, fonts and interaction
+states; original PDF pages retain their source colours.
+
+Theme choice is browser-local, separate from server Settings and document data.
+The retained clauseiq-theme storage key migrates legacy dark to Graphite and
+legacy light, missing or invalid values to Black. Initialization applies the
+stored palette before hydration; the provider keeps the DOM and app state in
+sync. Unavailable browser storage does not prevent switching in the current
+session. Global CSS owns palette values, and workspace CSS aliases those tokens
+rather than maintaining an independent theme definition.
 
 ### Explicit review generation
 
@@ -163,17 +288,109 @@ that uncertainty without replaying paid work. Interruption does not cancel or
 refund a provider request, and exactly-once billing is not promised. There is no
 background worker or automatic restart recovery in this increment.
 
+### Finding-scoped Ask
+
+services/ai/review_ask.py prepares one bounded Chat Completions request using the
+selected finding, its immutable run context and all extracted source passages.
+Previous generated findings/answers and document content are untrusted input;
+the source, not previous AI prose, supplies factual support. No retrieval, tools,
+external research, automatic repair or checker stage is added. Over-budget input
+is rejected without truncating source or silently switching models.
+
+The structured answer contains paragraphs with canonical passage evidence and
+limitations. Clarification/uncertainty can be expressed without pretending a
+citation proves missing information. Material factual statements are instructed
+to include their own support and relevant qualifications. The shared exact
+passage resolver checks references, not semantic accuracy; invalid/oversized
+output is withheld, with known usage retained. Partial extraction remains visible
+as incomplete. Refusals, timeouts and incomplete provider output never trigger
+another call automatically.
+
+services/review_ask_service.py stores Ask attempts separately from generated runs
+and personal saved questions, in review_workspace.ask_turns. Each attempt retains
+document/run/finding/source identity, its question, supplied-history IDs, model,
+prompt/schema/extraction versions, coverage, usage, duration and outcome. New
+personal ask_drafts are independent of saved-question drafts and are never sent
+by an autosave. Existing records default to empty Ask state; no migration is needed.
+
+Ask uses up to six recent usable answers from the same run/finding, starting at
+the most recent successful fresh question. History exclusion/shortening is
+disclosed. Choosing a fresh question excludes past conversation, not the source
+or original review context, and does not delete earlier answers. There is no
+cross-document, cross-run or cross-finding conversation sharing.
+
+An explicit send checks the displayed Settings model and workspace revision,
+then persists a processing claim before provider dispatch. Replaying the same
+request identity cannot charge again; conflicting payloads are rejected. At most
+one Ask attempt per document is processing. Read-only refresh reconciles uncertain
+outcomes; explicit interruption fences late output without cancelling/refunding
+provider work. Finalization preserves concurrent drafts/markers and rejects changed
+source or run/finding identity. Deleting the document removes its embedded Ask
+state and late responses cannot recreate it. The existing legacy document-chat
+path is unchanged.
+
+Ask has separate record/result/storage bounds and a conservative BSON document
+headroom check before dispatch. These prevent new Ask history from growing without
+bound; reaching a cap preserves previous work and stops further sends. They do not
+retroactively migrate or certify the size of historical documents.
+
+### Development-only review diagnostics
+
+backend/evaluations/review_checker is isolated evaluation tooling, not an
+application stage. Routers and production services do not import it. Start review
+still makes one generation call; this checker adds no app latency, database state,
+UI badge, repair loop or automatic paid request.
+
+Preparation binds an immutable candidate and its saved brief to exact source and
+extraction digests. All available source passages are supplied once. Original
+evidence must map to exact canonical passages; no better citation is substituted.
+The input inventory includes overview text, finding fields, evidence labels and
+coverage limitations. Oversized or inconsistent inputs are rejected, not truncated.
+
+A separately invoked Terra request reports exact field excerpts, source passage
+references and priority gaps. The parser requires a complete target inventory,
+strict schema and exact Unicode offsets/IDs. It never edits the candidate.
+Completed means the diagnostic contract was satisfied, not that the review is
+correct. Partial source or unassessable targets remain incomplete; malformed
+output withholds diagnostics and retains known usage. Reference validation cannot
+prove that a selected passage actually supports the model's explanation.
+
+Authored synthetic calibration cases and false-alarm controls live separately in
+backend/fixtures/review_checks. Their expectations never enter the checker input.
+Offline tests establish input/transport/parser boundaries only. Model detection,
+misses and false alarms still require separately approved source-reviewed live
+calibration; product integration is not implied by this tooling.
+
 ### Evidence display and PDF adapter
 
-The preview checks source revision, page-local anchor order and the exact Unicode
+The workspace checks source revision, page-local anchor order and the exact Unicode
 code-point slice before presenting evidence as matched. For end_span_id ranges,
 it verifies the inclusive anchor sequence and all original text between the first
 and last anchor. Missing, reversed, cross-page or inconsistent ranges are not
 repaired. An omitted/null end_span_id retains the legacy exact single-span contract;
-older saved runs and authored fixtures need no migration. It shows surrounding
-extracted text and requests the corresponding physical PDF page through a small renderer adapter.
+older saved runs and authored fixtures need no migration. The presentation helper
+also rejects duplicate physical pages, ambiguous anchors and overlapping legacy
+single-span anchors before showing a matched claim, context or an original-page
+action. It never repairs an old quotation or upgrades it into a broader citation.
+
+Single-span excerpts and selected ranges are explicitly labelled as potentially
+starting or ending mid-clause. The original quote is shown unchanged. An optional,
+separately labelled disclosure displays up to 360 Unicode code points before and
+after it on the same exact source page, with the saved quote marked in extracted
+text. Explicit boundary notices identify clipped context; a nested full-page
+disclosure is available when clipped. This is neither a clause-boundary heuristic
+nor a claim that all qualifications are on that page. Context is never appended
+to the saved evidence, used to rewrite a finding or sent to AI by opening it.
+Overview and Ask evidence lists and the Document source pane use the same helper.
+The separate original action requests the physical PDF page through the renderer adapter.
 It never passes evidence to the legacy fuzzy highlighter or invents rectangles.
 Quote matching does not verify interpretation, layout fidelity or completeness.
+
+The source PDF uses a bounded, internally scrolling viewport so a long agreement
+does not expand the entire workspace. Source-navigation mode initializes the
+renderer at the selected scale before applying its physical-page request; it does
+not issue a competing load-time zoom. This avoids measuring a page jump against
+an obsolete scale. Legacy viewer zoom behavior remains separate.
 
 The current React PDF Viewer renderer remains isolated behind PDFViewer for this
 increment, with isEvalSupported:false preserved. Its upstream is archived and its

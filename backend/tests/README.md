@@ -112,3 +112,44 @@ paid-call approval and explicit flags, uses Terra with a known synthetic fixture
 reserves a conservative request ceiling plus explicitly supplied prior reservations,
 and refuses a reused report name. See docs/DEVELOPMENT.md for the fixed text-only
 bound and manual accounting boundary; it does not read account billing.
+
+## Finding-scoped Ask
+
+test_review_ask_contract.py checks independent Ask drafts, strict explicit-send
+requests, backwards-compatible defaults and persisted attempt invariants.
+test_review_ask.py checks full-source/context/history preparation, strict answer
+shape, exact evidence, input/output limits, refusals, timeout and retained usage
+with no automatic retry. test_review_ask_lifecycle.py checks scoped processing
+claims, payload-bound replay, concurrent personal edits, interruption, storage
+headroom and source/run/deletion fencing. Frontend tests cover explicit send,
+separate draft recovery, uncertain outcomes and answer-source navigation.
+
+~~~bash
+cd backend
+venv/bin/python -m pytest tests/test_review_ask_contract.py tests/test_review_ask.py tests/test_review_ask_lifecycle.py -q
+venv/bin/python tests/manual_review_ask_smoke.py --run-isolated-live
+~~~
+
+The manual smoke uses existing local MongoDB and only its own verified-absent
+synthetic database/GridFS files. It restores answers through a fresh connection,
+checks concurrency and unknown/interrupted outcomes, and verifies scoped deletion.
+Credentials/provider calls are mocked and application data is never read. Inspect
+its final cleanup report. None of these checks establishes real answer quality.
+
+## Development-only checker contracts
+
+The test_review_checker_preparation, test_review_checker_engine,
+test_review_checker_cases and test_review_checker_guard suites cover exact
+source/candidate binding, full-source preparation, bounded target inventory,
+strict diagnostic schemas, Unicode excerpt references, parser/provider failures,
+one-dispatch budget safeguards and the separation of calibration labels from
+model input. Provider tests use local mocks and never spend API credit.
+Production imports are checked to keep this tooling outside application routes
+and services. These tests do not establish semantic checker quality.
+
+manual_review_checker.py is excluded from Pytest. Unlike the generation harness,
+it defaults to a no-key/no-network/no-report dry run and sends an authored
+candidate only when explicitly invoked with approved paid flags. It never
+regenerates that candidate or retains raw provider output. See
+docs/DEVELOPMENT.md for commands, ceilings and manual spend accounting, and
+backend/fixtures/review_checks/README.md for the frozen calibration corpus.

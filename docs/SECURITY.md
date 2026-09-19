@@ -25,6 +25,14 @@ Minimal liveness and generated API documentation do not expose workspace content
 Application API responses are not browser-cacheable. Admin database/log and AI
 debug routes have been removed.
 
+The in-memory rate limiter keeps independent per-client operation buckets:
+60 default requests, 10 local PDF uploads/imports and 20 AI requests per minute.
+Review generation, finding Ask, legacy analysis/rewrite and chat messages share
+the AI bucket across all documents; changing a document or request ID does not
+reset it. Reads, personal edits, fixtures and recovery/interruption use the
+default bucket and do not consume upload or AI capacity. These process-local
+limits are safeguards, not an authentication boundary or an API spending cap.
+
 ## Credentials
 
 Enter an OpenAI key in Settings. The browser sends it only to the local backend
@@ -89,6 +97,16 @@ credential if exposed; removing a file or Git commit is not enough.
   A persisted request ID prevents automatic duplicate generation on replay; provider
   retries are disabled. An interrupted/lost response can still incur a charge.
   Marking an attempt interrupted fences local output but does not cancel OpenAI.
+- Finding-scoped Ask uses the same local boundary and request-scoped personal key.
+  Only an explicit send contacts the provider; Ask draft autosaves and saved-answer
+  reads are key-free. Source, run/finding identity and the original review context
+  are server-selected. Generated findings/history remain untrusted context, not
+  authoritative contract text. No external tools or autonomous actions are exposed.
+  Exact answer references do not establish semantic correctness. Ask request IDs
+  are persisted before dispatch, automatic retries are disabled, and interruption
+  or source deletion fences late results without promising cancellation/refunds.
+  Per-result/history/storage bounds and document headroom checks reject excessive
+  growth. Ask content and raw provider failures must not enter runtime logs.
 - Multi-store migration/deletion is restartable but not a distributed transaction.
   Back up legacy data before migration and investigate reported cleanup errors.
 - Future agent tools require their own threat model, allowlists, resource limits

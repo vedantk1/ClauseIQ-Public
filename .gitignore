@@ -20,6 +20,7 @@
 .claude/
 .cursor/
 .playwright-cli/
+.playwright-mcp/
 .local-only/
 documentation/AI_AGENT_HANDOVER_REPORT.md
 documentation/HANDOVER_CHECKLIST.md

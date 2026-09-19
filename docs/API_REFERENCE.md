@@ -31,6 +31,35 @@ Account, admin and AI-debug routes are removed. The server supplies workspace_id
 request data cannot change the workspace. Document IDs remain required for
 document-specific operations.
 
+## Library listing
+
+GET /api/v1/documents/ returns the document metadata list without loading source
+text, full review output, evidence, saved-question wording or credentials. One
+workspace-scoped Mongo projection supplies each row; there are no per-document
+workspace requests or automatic AI operations.
+
+In addition to retained source and legacy analysis metadata, rows include:
+
+- page_count: the saved extraction's physical page count, or null when unknown.
+- review_summary: kind (fixture/ai/null), status
+  (not_started/ready/incomplete/processing/failed/interrupted/unavailable),
+  saved_question_count, last_activity_at (UTC ISO timestamp or null), and can_resume.
+
+The summary selects the final saved run in array order, matching the workspace's
+default selection. A failed or processing newer attempt never silently falls back
+to an older ready run. Missing status is compatible only with historical fixture
+snapshots. Saved-question counts belong to that selected run, not all past runs.
+Only ready/incomplete runs with consistent projected metadata offer resume;
+malformed or mismatched summary metadata returns unavailable. This is a display
+summary, not evidence validation or a claim of review completeness. The workspace
+still validates its full saved state when opened.
+
+Activity derives from existing last_viewed, run creation/completion and saved
+question timestamps; upload/update timestamps do not fabricate review activity.
+Listing does not write timestamps or migrate records. Legacy records without a
+source revision retain their original analysis metadata and earlier review route;
+the new workspace summary does not reinterpret them.
+
 ## Source import and extraction
 
 - POST /api/v1/documents/import accepts multipart file, persists the original and
@@ -79,14 +108,14 @@ key-free source endpoint and opens the separate workspace preview.
 
 All routes below retain the local boundary and server-selected workspace.
 GET, PUT and fixture operations do not read an AI key or call a provider;
-generation is a separate explicit action. A stored source revision is required;
+generation and Ask are separate explicit actions. A stored source revision is required;
 legacy analyses are left unchanged and require a separate PDF import.
 
 - GET /api/v1/documents/{document_id}/review-workspace returns document_id,
-  source_revision_id, revision, brief, runs, personal and fixture_available. It is
+  source_revision_id, revision, brief, runs, personal, ask_turns and fixture_available. It is
   read-only; an untouched workspace has revision 0 and no runs/personal work.
 - PUT the same path accepts expected_revision and one operation. Supported types
-  are set_brief (brief), set_draft/save_question (run_id, finding_id, text),
+  are set_brief (brief), set_draft/set_ask_draft/save_question (run_id, finding_id, text),
   set_marker (run_id, finding_id, marker), and set_position (run_id, position).
 - POST /api/v1/documents/{document_id}/review-workspace/fixture accepts
   expected_revision and explicitly installs the synthetic customer-perspective
@@ -112,7 +141,7 @@ copied automatically across sources, runs or documents.
 Fixture findings and evidence are labelled kind=fixture, not AI-generated output.
 The server resolves exact stored spans; ambiguous/missing references refuse the
 fixture rather than silently dropping findings. Editing a brief preserves the
-run's original context. Finding-scoped Ask is not yet exposed.
+run's original context. Ask drafts and attempts are independent of saved questions.
 
 ### AI review attempts
 
@@ -170,6 +199,47 @@ Model changes, source/input limits and missing credentials fail before paid work
 no model fallback or automatic paid retry is performed. If an HTTP/save outcome is
 uncertain, reload first. The persisted processing record does not prove that a
 provider is still running; explicit interruption permits a later deliberate review.
+
+### Finding-scoped Ask attempts
+
+- POST /api/v1/documents/{document_id}/review-workspace/runs/{run_id}/findings/{finding_id}/ask
+  accepts expected_revision, request_id, model_id, question (1–5000 characters,
+  nonblank) and include_history (default true). The displayed model must match
+  Settings. The finding and original context come from the selected saved run;
+  callers cannot supply another brief, source or arbitrary history. Ready or
+  incomplete runs need a usable finding. This action can incur an API charge,
+  including for findings in an authored synthetic example.
+- The response is the full workspace with an ask_turns entry. A persisted
+  request_id is idempotent; reusing it with another scope/question/model/history
+  choice conflicts. At most one processing Ask per document is permitted. Reads,
+  draft saves and navigation never dispatch another call.
+- POST /api/v1/documents/{document_id}/review-workspace/ask/{turn_id}/interrupt
+  accepts expected_revision. It marks processing work interrupted locally and
+  fences later output. It does not cancel a provider request or establish that
+  nothing was charged. Refresh saved state before deciding on another paid send.
+
+Each Ask turn records run_id, finding_id, source_revision_id, question, created_at,
+completed_at, status, answer, limitations, coverage, generation, failure and
+history provenance. Answer items contain text and evidence using the same exact
+source-range contract as review findings. Uncited clarification/uncertainty is not
+source-verified. Status is processing/ready/incomplete/failed/interrupted; ready
+means available, not legally verified. Invalid output is withheld. Known provider
+usage remains available even when references fail.
+
+include_history=true supplies up to six recent usable answers within the same
+run/finding, respecting the latest successful fresh-question boundary. The
+history_turn_ids list records the exact supplied turns; history_truncated discloses
+older usable turns outside that bounded history. include_history=false sends a
+fresh question with no conversation history while retaining the full extracted
+source and original review context. Earlier saved answers are never deleted.
+Over-budget source/context/history is rejected, not silently shortened; choose a
+fresh question explicitly when conversation history causes the limit.
+
+Personal ask_drafts use set_ask_draft and the existing revision-aware PUT path.
+They do not change saved_questions, markers or ordinary question drafts. Existing
+workspaces default to empty ask_turns and ask_drafts, so no backfill is necessary.
+Ask attempts have bounded record/output/storage capacity; reaching a limit refuses
+new work without removing earlier answers or requesting an automatic upgrade.
 
 ## Workspace settings
 
