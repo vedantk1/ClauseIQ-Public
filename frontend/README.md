@@ -1,7 +1,7 @@
 # ClauseIQ frontend
 
 The frontend is a Next.js application for a single-person local workspace:
-document management, contract review, document-grounded chat, and analytics.
+document management, evidence-linked contract review and document-grounded chat.
 There is no registration, login, or administrator setup. OpenAI credentials,
 model choices, optional document retention, and notifications live in Settings.
 

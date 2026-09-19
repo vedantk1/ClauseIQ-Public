@@ -19,12 +19,12 @@ export default function About() {
         <section>
           <h2 className="text-lg font-medium mb-2">How It Works</h2>
           <ol className="list-decimal list-inside space-y-2 ml-2">
-            <li>Add your OpenAI API key in Settings</li>
-            <li>Upload your agreement as a PDF</li>
-            <li>Our system extracts and processes the text</li>
-            <li>Document text is sent to OpenAI for clause and risk analysis</li>
-            <li>Each section is analyzed and summarized</li>
-            <li>Results are presented in an easy-to-understand format</li>
+            <li>Import a PDF and extract its text locally, without an API key</li>
+            <li>Read the original and prepare an optional review brief</li>
+            <li>Add your OpenAI API key and choose a model in Settings when ready</li>
+            <li>Explicitly start a paid review to send document text and review context to OpenAI</li>
+            <li>Inspect the overview, findings and linked source evidence</li>
+            <li>Keep questions locally, or explicitly send a paid finding-grounded follow-up</li>
           </ol>
         </section>
 
@@ -41,7 +41,7 @@ export default function About() {
       </div>
 
       <div className="mt-8 text-sm text-gray-500 text-center">
-        &copy; 2025 ClauseIQ Project • All Rights Reserved
+        ClauseIQ Project • MIT licensed
       </div>
     </div>
   );

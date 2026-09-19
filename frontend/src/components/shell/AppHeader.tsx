@@ -19,8 +19,6 @@ export interface AppHeaderProps {
 }
 
 const secondaryItems: Destination[] = [
-  { href: "/legacy-analysis", label: "Earlier analysis upload" },
-  { href: "/analytics", label: "Analytics" },
   { href: "/about", label: "About ClauseIQ" },
 ];
 

@@ -148,10 +148,10 @@ export default function ClauseNavigator({
               />
             </svg>
             <h2 className="font-heading text-heading-sm text-text-primary mb-2">
-              No clauses extracted yet
+              No saved clauses
             </h2>
             <p className="text-text-secondary">
-              Upload a contract with clauses to see detailed analysis.
+              No saved clauses are available for this earlier analysis.
             </p>
           </div>
         )}

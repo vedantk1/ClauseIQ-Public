@@ -409,7 +409,7 @@ function ReviewWorkspaceContent() {
         disabled: isDownloadingOriginalPdf,
       },
       {
-        label: "Upload Another",
+        label: "Import agreement",
         icon: (
           <svg
             className="w-4 h-4"
@@ -425,7 +425,7 @@ function ReviewWorkspaceContent() {
             />
           </svg>
         ),
-        onClick: () => router.push("/legacy-analysis"),
+        onClick: () => router.push("/import"),
       },
       {
         label: isDeleting ? "Deleting..." : "Delete Document",
@@ -592,11 +592,11 @@ function ReviewWorkspaceContent() {
               No document to review
             </h2>
             <p className="text-text-secondary">
-              Upload a contract to start your analysis and see detailed insights
-              here.
+              Open a saved agreement from the Library, or import one to start
+              the current review workflow.
             </p>
           </div>
-          <Button onClick={() => router.push("/legacy-analysis")}>Upload for earlier analysis</Button>
+          <Button onClick={() => router.push("/import")}>Import agreement</Button>
         </Card>
       </div>
     );

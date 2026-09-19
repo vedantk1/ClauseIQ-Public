@@ -55,14 +55,14 @@ async def _require_clause(service, document_id: str, clause_id: str, workspace_i
     return document
 
 
-@router.post("/analyze/", response_model=APIResponse[dict])
+@router.post("/analyze/", response_model=APIResponse[dict], deprecated=True)
 @versioned_response
 async def analyze_document(
     request: Request,
     file: UploadFile = File(...),
     workspace_id: str = Depends(get_workspace_id)
 ):
-    """Analyze document and extract clauses with AI summaries."""
+    """Compatibility upload/analysis API; new reviews use import and review-workspace."""
     correlation_id = getattr(request.state, 'correlation_id', None)
     doc_id = None
     service = None

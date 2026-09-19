@@ -91,9 +91,9 @@ test("workspace header navigation is guarded and theme change reuses the current
   const tree = h.Header({ documentId: "doc/1", filename: "Example.pdf", run, state: saved,
     onLeave(destination) { destinations.push(destination); } });
   const buttons = nodes(tree).filter(node => node.type === "button");
-  assert.equal(buttons.length, 8);
+  assert.equal(buttons.length, 6);
   buttons.forEach(button => button.props.onClick());
-  assert.deepEqual(destinations, ["/documents", "/documents", "/settings", "/review?documentId=doc%2F1", "/legacy-analysis", "/analytics", "/about"]);
+  assert.deepEqual(destinations, ["/documents", "/documents", "/settings", "/review?documentId=doc%2F1", "/about"]);
   assert.equal(h.toggles(), 1);
   assert.equal(buttons.find(button => button.props["aria-label"])?.props["aria-label"], "Switch to Black theme");
 });

@@ -344,39 +344,6 @@ class MongoDBAdapter(DatabaseInterface):
             logger.error("Database chat clearing failed: %s", type(e).__name__)
             return False
 
-    # Analytics operations
-    async def get_workspace_analytics(self, workspace_id: str) -> Dict[str, Any]:
-        """Get analytics data for user."""
-        try:
-            documents_collection = self._get_collection("documents")
-
-            # Aggregate user statistics
-            pipeline = [
-                {"$match": {"workspace_id": workspace_id}},
-                {"$group": {
-                    "_id": "$workspace_id",
-                    "total_documents": {"$sum": 1},
-                    "total_clauses": {"$sum": {"$size": {"$ifNull": ["$clauses", []]}}},
-                    "avg_risk_score": {"$avg": "$avg_risk_score"},
-                    "last_upload": {"$max": "$created_at"}
-                }}
-            ]
-
-            result = await documents_collection.aggregate(pipeline).to_list(1)
-
-            if result:
-                return result[0]
-            else:
-                return {
-                    "total_documents": 0,
-                    "total_clauses": 0,
-                    "avg_risk_score": 0.0,
-                    "last_upload": None
-                }
-        except Exception as e:
-            logger.error("Database analytics lookup failed: %s", type(e).__name__)
-            raise DatabaseError("Failed to get user analytics") from None
-
     # User interaction operations
     async def get_user_interactions(self, document_id: str, workspace_id: str) -> Optional[Dict[str, Any]]:
         """Get user interactions for a document."""

@@ -3,7 +3,7 @@ from fastapi.security import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from config.environments import get_environment_config
-from routers import documents, analysis, analytics, health, reports, chat, app_config, workspace, review_workspace
+from routers import documents, analysis, health, reports, chat, app_config, workspace, review_workspace
 from middleware.local_access import local_access_middleware
 from middleware.rate_limiter import rate_limit_middleware
 from middleware.logging import logging_middleware
@@ -242,7 +242,6 @@ v1_router.include_router(workspace.router)
 v1_router.include_router(documents.router)
 v1_router.include_router(review_workspace.router)
 v1_router.include_router(analysis.router, prefix="/analysis")
-v1_router.include_router(analytics.router)
 v1_router.include_router(health.router)
 v1_router.include_router(reports.router)
 v1_router.include_router(chat.router, prefix="/chat")

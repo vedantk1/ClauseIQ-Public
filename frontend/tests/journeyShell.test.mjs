@@ -37,20 +37,21 @@ test("home redirects to Library without mounting upload or dispatching AI", () =
   assert.deepEqual(destinations, ["/documents"]);
 });
 
-test("shared navigation marks Settings and keeps earlier analysis secondary", () => {
+test("shared navigation marks Settings and excludes retired entry points", () => {
   const { AppHeader } = appHeaderHarness();
   const html = render(React.createElement(AppHeader, { current: "settings" }));
   assert.match(html, /href="\/settings"[^>]*aria-current="page"/);
   assert.match(html, /Switch to Graphite theme/);
   const [primary, secondary] = html.split("<details");
   assert.doesNotMatch(primary, /legacy-analysis|Analytics|About ClauseIQ/);
-  assert.match(secondary, /href="\/legacy-analysis"/);
+  assert.match(secondary, /href="\/about"/);
+  assert.doesNotMatch(html, /legacy-analysis|\/analytics/);
   assert.doesNotMatch(html, /href="\/"/);
 });
 
 test("More closes on ordinary link navigation without intercepting modified links", () => {
   const { AppHeader } = appHeaderHarness();
-  const link = node(AppHeader({}), item => item.props.href === "/analytics");
+  const link = node(AppHeader({}), item => item.props.href === "/about");
   const menu = { open: true };
   const event = { button: 0, currentTarget: { closest: () => menu }, preventDefault() { assert.fail("Unguarded navigation remains native"); } };
   link.props.onClick(event);
@@ -67,15 +68,15 @@ test("More closes before guarded destination callbacks without bypassing the gua
   const menu = { open: true }, calls = [];
   const onNavigate = destination => { assert.equal(menu.open, false); calls.push(destination); };
   const tree = AppHeader({ guarded: true, onNavigate });
-  const button = node(tree, item => item.type === "button" && item.props.children === "Earlier analysis upload");
+  const button = node(tree, item => item.type === "button" && item.props.children === "About ClauseIQ");
   button.props.onClick({ currentTarget: { closest: () => menu } });
-  assert.deepEqual(calls, ["/legacy-analysis"]);
+  assert.deepEqual(calls, ["/about"]);
   menu.open = true;
   let prevented = false;
-  const link = node(AppHeader({ onNavigate }), item => item.props.href === "/analytics");
+  const link = node(AppHeader({ onNavigate }), item => item.props.href === "/about");
   link.props.onClick({ button: 0, currentTarget: { closest: () => menu }, preventDefault() { prevented = true; } });
   assert.equal(prevented, true);
-  assert.deepEqual(calls, ["/legacy-analysis", "/analytics"]);
+  assert.deepEqual(calls, ["/about", "/about"]);
 });
 
 test("Escape closes an open More menu and returns focus to its summary", () => {
@@ -96,14 +97,13 @@ test("Escape closes an open More menu and returns focus to its summary", () => {
   assert.equal(focused, 1);
 });
 
-test("legacy upload stays explicit and routes paid results to the earlier review", () => {
-  const source = readFileSync(new URL("../src/app/legacy-analysis/page.tsx", import.meta.url), "utf8");
-  assert.match(source, /await analyzeDocument\(file\)/);
-  assert.match(source, /router\.push\(`\/review\?documentId=/);
-  assert.match(source, /onClick=\{\(\) => void analyze\(\)\}/);
-  assert.match(source, /href="\/import"/);
-  assert.match(source, /Earlier analysis workflow/);
-  assert.doesNotMatch(source, /useEffect|fetch\(/);
+test("retired analytics bookmarks redirect to Library without loading dashboard data", () => {
+  const destinations = [];
+  const Analytics = loadModule("../src/app/analytics/page.tsx", {
+    "next/navigation": { redirect: destination => destinations.push(destination) },
+  }).default;
+  Analytics();
+  assert.deepEqual(destinations, ["/documents"]);
 });
 
 const modelSelection = loadModule("../src/lib/modelSelection.ts");

@@ -147,12 +147,6 @@ class DatabaseInterface(ABC):
         """Atomically add a message to the chat session."""
         pass
 
-    # Analytics operations
-    @abstractmethod
-    async def get_workspace_analytics(self, workspace_id: str) -> Dict[str, Any]:
-        """Get analytics data for user."""
-        pass
-
     # User interaction operations
     @abstractmethod
     async def get_user_interactions(self, document_id: str, workspace_id: str) -> Optional[Dict[str, Any]]:

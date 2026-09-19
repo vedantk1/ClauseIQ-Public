@@ -104,12 +104,11 @@ function contextHarness(response) {
   let reads = 0;
   const api = {
     async get() { reads += 1; return { success: true, data: response }; },
-    async uploadFile() { return { success: true, data: response }; },
   };
   const context = loadModule("../src/context/AnalysisContext.tsx", {
     react: { ...React, useCallback: (callback) => callback, useRef: (current) => ({ current }) },
     "../store/appState": { useAppState: () => ({ state: { analysis }, dispatch: (action) => { analysis = stateModule.analysisReducer(analysis, action); } }) },
-    "../lib/api": { apiClient: api, handleAPIError() {}, handleAPISuccess() {} },
+    "../lib/api": { apiClient: api, handleAPIError() {} },
     "@/lib/documentsApi": { loadWorkspaceDocuments: async () => [] },
     "@/lib/sourceStatus": helpers,
   });
@@ -133,15 +132,18 @@ test("loading preserves metadata and explicit same-ID loads refresh an unfinishe
   assert.equal(harness.reads(), 2);
 });
 
-test("successful legacy upload response carries source metadata into library and current state", async () => {
+test("saved legacy analysis preserves source metadata and summary without generation", async () => {
   const metadata = { ...sourceMetadata, analysis_status: "ready" };
   const harness = contextHarness({
     ...metadata, id: "doc-1", workspace_id: "local", filename: "synthetic.pdf",
-    summary: "Saved analysis", clauses: [], risk_summary: { high: 0, medium: 0, low: 0 }, full_text: "Source text",
+    ai_full_summary: "Saved analysis", clauses: [], risk_summary: { high: 0, medium: 0, low: 0 }, text: "Source text",
   });
-  assert.equal(await harness.value().analyzeDocument({ name: "synthetic.pdf" }), "doc-1");
+  await harness.value().loadDocument("doc-1");
   assert.deepEqual({ ...helpers.pickSourceMetadata(harness.state().currentDocument) }, metadata);
-  assert.deepEqual({ ...helpers.pickSourceMetadata(harness.state().documents[0]) }, metadata);
+  assert.equal(harness.state().currentDocument.summary, "Saved analysis");
+  assert.equal(harness.state().currentDocument.fullText, "Source text");
+  assert.equal(harness.reads(), 1);
+  assert.equal(harness.value().analyzeDocument, undefined);
 });
 
 test("library cards do not label imported documents Complete in either layout", () => {

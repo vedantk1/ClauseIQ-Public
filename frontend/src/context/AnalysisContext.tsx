@@ -11,15 +11,13 @@ import React, {
   useRef,
 } from "react";
 import { useAppState, type AnalysisState } from "../store/appState";
-import { apiClient, handleAPIError, handleAPISuccess } from "../lib/api";
+import { apiClient, handleAPIError } from "../lib/api";
 import { loadWorkspaceDocuments } from "@/lib/documentsApi";
 import { hasCompletedAnalysis, pickSourceMetadata } from "@/lib/sourceStatus";
 import type { DocumentItem } from "@/types/documents";
 import type {
   Clause,
   RiskSummary,
-  Document,
-  ContractType,
   SourceMetadata,
 } from "@clauseiq/shared-types";
 
@@ -42,7 +40,6 @@ interface AnalysisContextType {
   error: string | null;
 
   // Actions
-  analyzeDocument: (file: File) => Promise<string | null>;
   loadDocuments: () => Promise<void>;
   loadDocument: (documentId: string) => Promise<void>;
   setSelectedClause: (clause: Clause | null) => void;
@@ -62,101 +59,6 @@ export const AnalysisProvider: React.FC<{ children: ReactNode }> = ({
 
   // API call deduplication to prevent duplicate requests
   const activeRequests = useRef<Map<string, Promise<void>>>(new Map());
-
-  // Action implementations
-  const analyzeDocument = async (file: File): Promise<string | null> => {
-
-    try {
-      dispatch({ type: "ANALYSIS_SET_LOADING", payload: true });
-      dispatch({ type: "ANALYSIS_SET_ERROR", payload: null });
-
-
-      const response = await apiClient.uploadFile<SourceMetadata & {
-        id: string;
-        workspace_id: string;
-        filename: string;
-        summary: string;
-        ai_structured_summary?: StructuredSummary;
-        clauses: Clause[];
-        total_clauses: number;
-        risk_summary: RiskSummary;
-        full_text?: string;
-        contract_type?: string;
-      }>("/analysis/analyze/", file);
-
-
-      if (response.success && response.data) {
-        const sourceMetadata = pickSourceMetadata(response.data);
-        const {
-          id,
-          workspace_id,
-          filename,
-          summary,
-          ai_structured_summary,
-          clauses,
-          risk_summary,
-          full_text,
-          contract_type,
-        } = response.data;
-
-
-        // Add to documents list
-        const newDocument: Document = {
-          ...sourceMetadata,
-          id,
-          filename,
-          upload_date: new Date().toISOString(),
-          contract_type: contract_type as ContractType | null,
-          text: full_text || "",
-          ai_full_summary: summary,
-          ai_structured_summary: ai_structured_summary || null,
-          clauses,
-          risk_summary: risk_summary,
-          workspace_id,
-          user_interactions: null,
-          last_viewed: null, // Add missing property
-        };
-
-        dispatch({ type: "ANALYSIS_ADD_DOCUMENT", payload: newDocument });
-
-        // Set as current document
-        dispatch({
-          type: "ANALYSIS_SET_CURRENT_DOCUMENT",
-          payload: {
-            ...sourceMetadata,
-            id,
-            filename,
-            contract_type,
-            summary,
-            structuredSummary: ai_structured_summary || null,
-            clauses,
-            riskSummary: risk_summary,
-            fullText: full_text || "",
-            selectedClause: null,
-          },
-        });
-
-
-        handleAPISuccess("Document analyzed successfully!");
-        return id; // Return the document ID
-      } else {
-        const errorMessage =
-          response.error?.message || "Failed to analyze document";
-        console.error("❌ [DEBUG] Document analysis API error:");
-        dispatch({ type: "ANALYSIS_SET_ERROR", payload: errorMessage });
-        handleAPIError(response, "Document analysis failed");
-        throw new Error(errorMessage);
-      }
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Unknown error occurred";
-      console.error("❌ [DEBUG] Document analysis exception:");
-      dispatch({ type: "ANALYSIS_SET_ERROR", payload: errorMessage });
-      throw error;
-    } finally {
-      dispatch({ type: "ANALYSIS_SET_LOADING", payload: false });
-    }
-  };
 
   const loadDocuments = useCallback(async (): Promise<void> => {
     try {
@@ -286,7 +188,6 @@ export const AnalysisProvider: React.FC<{ children: ReactNode }> = ({
     error: analysisState.error,
 
     // Actions
-    analyzeDocument,
     loadDocuments,
     loadDocument,
     setSelectedClause,

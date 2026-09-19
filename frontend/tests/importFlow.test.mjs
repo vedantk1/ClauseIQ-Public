@@ -233,7 +233,7 @@ test("selected-file in-app navigation requires the leave modal; dismissing retai
   app.header().props.onNavigate("/settings");
   assert.deepEqual(app.navigations, ["/settings"]);
   app.select();
-  app.header().props.onNavigate("/analytics");
+  app.header().props.onNavigate("/about");
   assert.equal(app.modal().props.isOpen, true);
   assert.match(app.modal().props.message, /not been imported yet/);
   assert.equal(app.navigations.length, 1);

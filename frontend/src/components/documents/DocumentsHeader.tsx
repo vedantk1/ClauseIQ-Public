@@ -64,10 +64,9 @@ export const DocumentsHeader = ({
             </Button>
           </>
         )}
-        <Button variant="secondary" onClick={() => router.push("/import")}>Import without AI</Button>
-        <Button onClick={() => router.push("/legacy-analysis")}>
+        <Button onClick={() => router.push("/import")}>
           <Upload className="w-4 h-4 mr-2" />
-          Existing AI analysis
+          Import agreement
         </Button>
       </div>
     </div>

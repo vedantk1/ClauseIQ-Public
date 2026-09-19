@@ -20,9 +20,8 @@ when present, an allowed local Origin. In Swagger, select Authorize and enter
 | --- | --- |
 | /api/v1/workspace | Key status, key save/removal and ordinary Settings |
 | /api/v1/documents | Local source import/extraction, list, fetch, PDF access and delete |
-| /api/v1/analysis | Upload/analysis, stored clauses, notes, flags and rewrites |
+| /api/v1/analysis | Legacy clauses, notes, flags, rewrites and deprecated upload/analysis |
 | /api/v1/chat | Document sessions, messages, history and status |
-| /api/v1/analytics | Workspace dashboard |
 | /api/v1/reports | Document PDF reports |
 | /api/v1/health | Local health checks |
 | /api/v1/app-config | Non-sensitive presentation settings |
@@ -30,6 +29,12 @@ when present, an allowed local Origin. In Swagger, select Authorize and enter
 Account, admin and AI-debug routes are removed. The server supplies workspace_id;
 request data cannot change the workspace. Document IDs remain required for
 document-specific operations.
+
+The standalone Analytics API is removed; /api/v1/analytics/dashboard returns 404
+for authorized local requests. POST /api/v1/analysis/analyze/ remains available
+but is marked deprecated in OpenAPI. Its frontend uploader is retired; new work
+uses source import followed by an explicit review-workspace generation request.
+Saved earlier analyses, interactions, chat, reports and originals are not removed.
 
 ## Library listing
 

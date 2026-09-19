@@ -5,7 +5,7 @@ workspace namespace (`local`), not a default user, membership model or account.
 
 | Component | Responsibility |
 | --- | --- |
-| Next.js | Upload, review, document library, chat, analytics and Settings |
+| Next.js | Import, review workspace, document library, chat and Settings |
 | FastAPI | Local request boundary, document processing and AI orchestration |
 | MongoDB / GridFS | Documents, PDFs, interactions, chats, settings and encrypted credentials |
 | Qdrant | Per-document vector data for retrieval-augmented chat |
@@ -17,13 +17,18 @@ Shared Python and TypeScript domain types live in shared/clauseiq_types.
 1. The local browser submits a PDF with the local-request marker.
 2. The backend validates the file and supplies its own workspace identifier.
 3. The backend creates a document/source revision and stores the original PDF
-   before local page-aware extraction or AI analysis. Import itself needs no key.
-4. Explicit legacy analysis uses a request-scoped personal OpenAI client. It
-   updates that same document; indexing is separate from saving its analysis.
-   Documents, PDFs and embeddings retain document and workspace identifiers.
-5. The frontend renders the PDF alongside the structured review.
-6. Chat checks the requested document, retrieves only its workspace/document
-   vectors and persists messages with that document.
+   before local page-aware extraction. Import itself needs no key or AI call.
+4. The person prepares an optional brief and explicitly starts a review using
+   a request-scoped personal OpenAI client. The run snapshots its source/context
+   in that same document; personal questions and markers remain separate.
+5. The frontend connects overview, findings and original-page evidence to the
+   saved review. Opening results or saving personal work does not call AI.
+6. Finding-scoped Ask is another explicit paid request. Legacy document chat
+   remains scoped to that document's vectors and saved messages.
+
+The earlier upload/analysis UI is retired. Its backend generation endpoint remains
+deprecated for compatibility; existing clauses, notes, rewrites and reports are
+preserved. Documents, PDFs and embeddings retain workspace/document identifiers.
 
 Reading saved analysis does not make a new AI request. Deleting a document
 must remove its files, vector chunks, interactions and embedded chat; failures
@@ -32,7 +37,7 @@ must be reported rather than claiming complete deletion.
 ### Library read model
 
 The Library uses a dedicated workspace-scoped metadata projection, separate from
-the full-document listing retained for legacy analytics and internal operations.
+the full-document listing retained for internal document/workspace operations.
 database/library_summary.py projects only list fields, physical page count and
 compact saved-run/question metadata in Mongo. Source/review/evidence text, personal
 question wording, storage pointers and credentials are not returned by this query.
@@ -121,8 +126,11 @@ blocks generation for loading, mismatched, unstored or unusable source snapshots
 usable partial text retains its limitations. Existing runs, including failed and
 processing runs, retain their overview and recovery controls. This presentation
 uses the existing save/conflict and generation controllers, not another paid
-pipeline or persistence path. Legacy upload/analysis remains available at
-/legacy-analysis through More; existing /review links and stored results are preserved.
+pipeline or persistence path. The retired /legacy-analysis uploader redirects to
+/import; existing /review links, stored results and failed-import recovery remain.
+The standalone Analytics dashboard/API and its chart-only dependencies are removed.
+Old /analytics bookmarks redirect to /documents. Library activity and My review
+still describe personal work, not aggregate legal safety or review completeness.
 
 The workspace keeps the current brief, immutable review runs and personal work
 separate. Runs snapshot their source revision and context; editing the brief

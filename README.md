@@ -56,9 +56,10 @@ The app opens into the Library at /documents, which combines an agreement list, 
 and Continue reviewing for the latest eligible saved review activity. Review
 status is separate from source extraction and earlier analysis; examples remain
 labelled. Resume restores the latest run's saved view without starting AI. Search,
-sorting, contract-type filters and confirmed deletion remain available. Earlier
-analysis upload at /legacy-analysis, analytics and About remain accessible through
-More. Library, Import, Settings and the workspace share the same navigation.
+sorting, contract-type filters and confirmed deletion remain available. About is
+accessible through More; saved earlier analyses retain document-specific review
+links. Library, Import, Settings and the workspace share the same navigation.
+The retired /analytics and /legacy-analysis URLs redirect to Library and Import.
 Settings groups personal AI access, model choices, document retention and notifications.
 
 The Library offers Import agreement without AI: choose or drop one PDF, confirm
@@ -69,8 +70,9 @@ action using the model and key configured in Settings. Existing runs keep their
 overview and original review context. Their Overview leads with the saved agreement
 summary and source coverage; editing the brief and starting another run are secondary,
 explicit actions. Recovery controls and consequential warnings remain available.
-The existing AI analysis flow remains available separately and saves the original
-before generation. Extraction or AI failures do not discard an already stored PDF.
+New work uses Import and the review workspace; the earlier analysis uploader has
+been retired. Existing earlier results, notes, chat and reports remain accessible.
+Extraction or AI failures do not discard an already stored PDF.
 Imported/not-ready records are labelled separately from completed analysis.
 
 The review workspace connects Overview, Findings, Document and My review to

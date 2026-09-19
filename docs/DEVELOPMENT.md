@@ -22,8 +22,9 @@ npm run dev
 ~~~
 
 Open http://localhost:3000. Servers use development mode and loopback bindings.
-The root opens Library. More → Earlier analysis upload preserves the older paid
-flow at /legacy-analysis; existing /review links remain supported.
+The root opens Library; new agreements use /import and the review workspace.
+The retired /legacy-analysis uploader redirects to /import, and /analytics to
+/documents. Existing /review links and stored earlier analyses remain supported.
 MongoDB and Qdrant must both be available for workspace migration preflight.
 Use matching compatible Qdrant server/client versions; an existing older Docker
 image may need a separately reviewed upgrade before updating stored vectors.
