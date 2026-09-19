@@ -57,6 +57,11 @@ class DocumentService:
         db = await self._get_db()
         return await db.list_documents(workspace_id, limit, offset)
 
+    async def get_document_summaries_for_workspace(self, workspace_id: str, limit: int = 0, offset: int = 0) -> List[Dict[str, Any]]:
+        """Get content-free metadata for the Library in one scoped read."""
+        db = await self._get_db()
+        return await db.list_document_summaries(workspace_id, limit, offset)
+
     async def delete_document_for_workspace(self, doc_id: str, workspace_id: str) -> bool:
         """Delete document for a specific workspace and clean up RAG data and PDF files."""
         try:

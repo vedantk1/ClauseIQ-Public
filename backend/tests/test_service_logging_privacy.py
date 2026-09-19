@@ -159,7 +159,7 @@ async def test_document_analysis_errors_hide_provider_details(monkeypatch, caplo
 @pytest.mark.asyncio
 async def test_document_route_errors_hide_storage_details(monkeypatch, caplog):
     class FailingService:
-        async def get_documents_for_workspace(self, _workspace_id):
+        async def get_document_summaries_for_workspace(self, _workspace_id):
             raise RuntimeError(PRIVATE_CONTENT)
 
     monkeypatch.setattr(

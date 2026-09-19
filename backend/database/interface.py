@@ -103,6 +103,13 @@ class DatabaseInterface(ABC):
         pass
 
     @abstractmethod
+    async def list_document_summaries(
+        self, workspace_id: str, limit: int = 0, offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """Read Library metadata without document text or full saved reviews."""
+        pass
+
+    @abstractmethod
     async def update_document(self, document_id: str, workspace_id: str, update_data: Dict[str, Any]) -> bool:
         """Update document data."""
         pass

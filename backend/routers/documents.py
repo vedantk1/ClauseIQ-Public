@@ -126,7 +126,7 @@ async def list_documents(workspace_id: str = Depends(get_workspace_id)):
     """Get list of documents for the local workspace."""
     try:
         service = get_document_service()
-        workspace_docs = await service.get_documents_for_workspace(workspace_id)
+        workspace_docs = await service.get_document_summaries_for_workspace(workspace_id)
 
         response_data = DocumentListResponse(documents=workspace_docs)
         return APIResponse(

@@ -1,10 +1,18 @@
 """
 Document-related models.
 """
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, Field
+from typing import List, Optional, Dict, Any, Literal
 from .common import Clause, RiskSummary
 from .source import SourceMetadata
+
+
+class DocumentReviewSummary(BaseModel):
+    kind: Optional[Literal["fixture", "ai"]] = None
+    status: Literal["not_started", "ready", "incomplete", "processing", "failed", "interrupted", "unavailable"]
+    saved_question_count: int = Field(default=0, ge=0)
+    last_activity_at: Optional[str] = None
+    can_resume: bool = False
 
 
 class DocumentListItem(SourceMetadata):
@@ -17,6 +25,8 @@ class DocumentListItem(SourceMetadata):
     chunk_count: Optional[int] = None
     embedding_model: Optional[str] = None
     last_viewed: Optional[str] = None
+    page_count: Optional[int] = Field(default=None, ge=0)
+    review_summary: Optional[DocumentReviewSummary] = None
 
 
 class DocumentListResponse(BaseModel):

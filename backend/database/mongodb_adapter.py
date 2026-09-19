@@ -9,6 +9,7 @@ import uuid
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase, AsyncIOMotorCollection
 from pymongo.errors import DuplicateKeyError, ConnectionFailure, OperationFailure
 import logging
+from .library_summary import library_item, library_projection
 
 from .interface import (
     DatabaseInterface,
@@ -157,6 +158,19 @@ class MongoDBAdapter(DatabaseInterface):
         except Exception as e:
             logger.error("Database document listing failed: %s", type(e).__name__)
             raise DatabaseError("Failed to list documents") from None
+
+    async def list_document_summaries(
+        self, workspace_id: str, limit: int = 0, offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """One scoped projection; no full-document, provider or key lookups."""
+        try:
+            cursor = self._get_collection("documents").find(
+                {"workspace_id": workspace_id}, library_projection(),
+            ).skip(offset).limit(limit)
+            return [library_item(item) for item in await cursor.to_list(length=limit or None)]
+        except Exception as error:
+            logger.error("Database Library listing failed: %s", type(error).__name__)
+            raise DatabaseError("Failed to list document summaries") from None
 
     async def update_document(self, document_id: str, workspace_id: str, update_data: Dict[str, Any]) -> bool:
         """Update document data."""
