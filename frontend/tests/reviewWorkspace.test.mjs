@@ -531,6 +531,9 @@ const askControls = loadModule("../src/components/workspace/FindingAsk.tsx", {
 });
 const summaryImports = { react: React, "lucide-react": icons, "./workspaceState": stateHelpers,
   "./WorkspaceControls": controls, "./EvidenceSourcePane": evidenceControls,
+  "./ReviewBriefExport": { ReviewBriefExport: props => React.createElement("section", {
+    "data-testid": "review-brief-export", "data-unavailable": props.unavailable,
+  }) },
   "./WorkspaceSummaries.module.css": { summaries: "workspace-summaries" } };
 const overviewControls = loadModule("../src/components/workspace/AgreementOverview.tsx", summaryImports);
 const myReviewControls = loadModule("../src/components/workspace/MyReview.tsx", summaryImports);
@@ -657,11 +660,12 @@ test("initial workspace loading reports a read in progress and still offers othe
   assert.deepEqual(h.calls, ["source"]);
 });
 
-function workspaceInteractionHarness(workspace, source = null) {
+function workspaceInteractionHarness(workspace, source = null, readOverrides = {}) {
   const slots = [];
   const operations = [];
   let cursor = 0;
   const state = { workspace, status: "saved", pending: 0, localDrafts: {}, localAskDrafts: {}, briefDraft: null, error: null };
+  const reads = { source, filename: "synthetic.pdf", sourceError: null, sourceStatus: "ready", metadataStatus: "ready", ...readOverrides };
   const FindingProbe = () => null;
   const DocumentProbe = () => null;
   const component = loadModule("../src/components/workspace/ReviewWorkspace.tsx", {
@@ -674,7 +678,7 @@ function workspaceInteractionHarness(workspace, source = null) {
     "@/components/ui/Modal": () => null,
     "@/hooks/useReviewWorkspace": { useReviewWorkspace: () => ({
       controller: { enqueue(operation) { operations.push(clone(operation)); state.workspace = apply(state.workspace, operation); } },
-      state, source, filename: "synthetic.pdf", sourceError: null,
+      state, ...reads,
     }) },
     "./workspaceState": stateHelpers, "./WorkspaceControls": controls,
     "./EvidenceSourcePane": { DocumentSourceView: DocumentProbe, EvidenceList: () => null },
@@ -689,7 +693,7 @@ function workspaceInteractionHarness(workspace, source = null) {
     if (!React.isValidElement(node)) return [];
     return [node, ...React.Children.toArray(node.props.children).flatMap(children)];
   }
-  return { state, operations,
+  return { state, reads, operations,
     finding: () => children(tree()).find(node => node.type === FindingProbe)?.props,
     document: () => children(tree()).find(node => node.type === DocumentProbe)?.props,
     overview: () => children(tree()).find(node => node.type === overviewControls.AgreementOverview)?.props,
@@ -699,6 +703,51 @@ function workspaceInteractionHarness(workspace, source = null) {
     resume() { children(tree()).find(node => node.type === overviewControls.AgreementOverview).props.onResume(); },
   };
 }
+
+test("My review exports only after pending saves and conflicts are resolved", () => {
+  const h = workspaceInteractionHarness(initial());
+  h.tab("My review");
+  assert.equal(h.myReview().exportUnavailable, undefined);
+  for (const status of ["loading", "failed", "conflict", "review", "saving"]) {
+    h.state.status = status;
+    assert.match(h.myReview().exportUnavailable, /Finish saving or resolve pending changes/, status);
+  }
+  h.state.status = "saved";
+  h.state.pending = 1;
+  assert.match(h.myReview().exportUnavailable, /Finish saving/);
+  h.state.pending = 0;
+  h.state.reviewAction = { status: "generating" };
+  assert.match(h.myReview().exportUnavailable, /Finish saving/);
+  h.state.reviewAction = { status: "idle" };
+  h.state.askAction = { status: "uncertain" };
+  assert.match(h.myReview().exportUnavailable, /Finish saving/);
+  h.state.askAction = { status: "idle" };
+  assert.equal(h.myReview().exportUnavailable, undefined);
+});
+
+test("My review waits for document metadata but source read failure still permits a qualified export", () => {
+  const workspace = initial();
+  workspace.personal["run-1"].saved_questions["finding-1"] = { id: "question-1", text: "Confirmed question?", saved_at: "2026-01-01" };
+  const h = workspaceInteractionHarness(workspace, null, { sourceStatus: "error", sourceError: "Source unavailable", metadataStatus: "loading" });
+  h.tab("My review");
+  assert.match(h.myReview().exportUnavailable, /Load the agreement details/);
+  h.reads.metadataStatus = "error";
+  assert.match(h.myReview().exportUnavailable, /Load the agreement details/);
+  h.reads.metadataStatus = "ready";
+  const props = h.myReview();
+  assert.equal(props.exportUnavailable, undefined);
+  assert.equal(props.source, null);
+  assert.equal(props.filename, "synthetic.pdf");
+  assert.equal(props.run.id, "run-1");
+  assert.equal(props.personal.saved_questions["finding-1"].text, "Confirmed question?");
+  const rendered = myReviewControls.MyReview(props);
+  const exportNode = React.Children.toArray(rendered.props.children).find(node => node.type === summaryImports["./ReviewBriefExport"].ReviewBriefExport);
+  assert.equal(exportNode.props.unavailable, undefined);
+  assert.equal(exportNode.props.source, null);
+  assert.equal(exportNode.props.filename, props.filename);
+  assert.equal(exportNode.props.run, props.run);
+  assert.equal(exportNode.props.personal, props.personal);
+});
 
 test("workspace selection keeps exact references sharing one span through source navigation and saved-state refresh", () => {
   const workspace = initial();

@@ -139,6 +139,21 @@ recoverable drafts, explicitly saved questions, explicit reversible markers and
 navigation/opened history are distinct. Reading a finding never marks it reviewed.
 Saving wording does not send it, accept a term or resolve a finding.
 
+My review can produce a local Markdown brief through a pure selected-run serializer
+in components/workspace/reviewBrief.ts. It includes only findings with confirmed
+questions or explicit personal markers, recorded finding context, physical source
+references and run provenance/coverage. Drafts, Ask answers, other runs, full source
+text and internal URLs/identifiers are excluded. Source matching is labelled
+separately from interpretation; missing source does not discard saved questions.
+The original run context is used, never the current editable brief. Untrusted
+wording is literal Markdown text, not active HTML, images or links.
+
+Copy and download are explicit browser-only actions with no API/provider request,
+save, new record or schema change. Pending/conflicted saves and unavailable
+filename metadata block export. Clipboard/download failures use inline feedback
+and a read-only manual-copy fallback, not native dialogs. Object URLs are revoked
+after download dispatch. The earlier analysis PDF report remains separate.
+
 Updates carry an expected workspace revision and a typed operation. An atomic
 conditional document update rejects stale writes; it never upserts or changes
 identity. The frontend serializes its own writes and debounces draft recovery.

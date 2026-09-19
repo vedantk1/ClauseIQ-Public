@@ -241,6 +241,22 @@ responsive tests check CSS contracts, not a browser layout engine.
 At batched walkthroughs, include multiple records, long filenames, both
 themes, keyboard navigation and deletion confirmations. No AI key is required.
 
+## My review brief export checks
+
+~~~bash
+node --test frontend/tests/reviewBrief.test.mjs frontend/tests/reviewBriefExport.test.mjs frontend/tests/workspaceSummaries.test.mjs frontend/tests/reviewWorkspace.test.mjs
+npm run typecheck
+npm run lint
+~~~
+
+These check selected-run saved-question/marker scoping, draft/Ask exclusion,
+source matching and unavailable-source labels, literal Markdown safety, safe
+filenames, pending-save gates, clipboard rejection and download cleanup. Exports
+are generated from saved state in the browser; they make no API or paid call.
+At a batched UI checkpoint, use a retained synthetic review, copy/download its
+brief and compare it with My review. Do not export private source records as test
+artifacts or treat a successful copy as legal validation.
+
 ## Finding-scoped Ask checks
 
 Finding-scoped Ask uses deterministic mocked checks during development:

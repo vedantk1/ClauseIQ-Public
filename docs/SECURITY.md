@@ -65,6 +65,12 @@ period on the next cleanup run. Treat MongoDB, GridFS, vectors, logs and backups
 as sensitive. AI requests send relevant document content to OpenAI; local
 storage does not imply offline processing.
 
+My review brief copies/downloads contain selected saved questions, personal markers
+and finding context. They do not call a provider, but the resulting clipboard/file
+is outside ClauseIQ's storage protections and may be handled by other local apps
+or OS sync. Review it before sharing. Literal Markdown preserves supplied wording
+without introducing active images, links or HTML; it is not a sanitized legal opinion.
+
 Never commit credentials, real contracts, exports, local state or logs. The only
 tracked PDF exception is the reviewed synthetic test corpus described in
 REPOSITORY_POLICY.md; it contains no private source documents. Rotate a

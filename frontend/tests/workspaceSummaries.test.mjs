@@ -32,6 +32,7 @@ const evidence = loadModule("../src/components/workspace/EvidenceSourcePane.tsx"
 const imports = {
   react: React, "lucide-react": { ArrowRight: icon, BookOpen: icon, FileText: icon },
   "./WorkspaceControls": controls, "./EvidenceSourcePane": evidence, "./workspaceState": helpers,
+  "./ReviewBriefExport": { ReviewBriefExport: () => null },
   "./WorkspaceSummaries.module.css": { summaries: "workspace-summaries" },
 };
 const { AgreementOverview } = loadModule("../src/components/workspace/AgreementOverview.tsx", imports);

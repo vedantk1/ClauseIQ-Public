@@ -217,7 +217,10 @@ export default function ReviewWorkspace({ documentId, resumeOnOpen = false }: { 
       returnLabel={reviewSourceRunId === run?.id ? "Return to My review" : undefined}
       onReturn={() => navigate(activeOverviewSource ? "overview" : reviewSourceRunId === run?.id ? "my_review" : "findings")} />}
 
-    {view === "my_review" && <MyReview run={run} personal={personal} source={sourceError ? null : source}
+    {view === "my_review" && <MyReview filename={filename} run={run} personal={personal} source={sourceError ? null : source}
+      exportUnavailable={blocked || state.pending > 0 || state.status === "saving" || paidActionBusy(state)
+        ? "Finish saving or resolve pending changes before exporting."
+        : metadataStatus !== "ready" ? "Load the agreement details before exporting." : undefined}
       onFinding={openFinding} onSource={openMyReviewEvidence} onExplore={() => navigate(run ? "findings" : "overview")} />}
 
     </div>

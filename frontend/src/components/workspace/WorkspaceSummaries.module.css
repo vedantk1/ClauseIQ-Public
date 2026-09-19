@@ -55,6 +55,13 @@
 .summaries :global(.co-question-sources button:disabled) { color: var(--text-muted); cursor: not-allowed; }
 .summaries :global(.co-reference-page) { display: block; font-size: 12px; margin-top: 3px; color: var(--text-muted); }
 .summaries :global(.co-personal-markers > p) { margin-top: 10px; }
+.summaries :global(.co-export) { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 24px; padding: 20px; margin-bottom: 28px; border: 1px solid var(--border-muted); border-radius: 8px; background: var(--bg-surface); }
+.summaries :global(.co-export > div:first-child) { flex: 1; min-width: min(100%, 260px); }
+.summaries :global(.co-export h3) { font-size: 17px; font-weight: 550; margin-bottom: 7px; }
+.summaries :global(.co-export-actions) { display: flex; flex-wrap: wrap; gap: 10px; }
+.summaries :global(.co-export > p), .summaries :global(.co-export-fallback) { width: 100%; }
+.summaries :global(.co-export-fallback) { display: grid; gap: 8px; color: var(--text-secondary); font-size: 14px; }
+.summaries :global(.co-export-fallback textarea) { width: 100%; padding: 12px; border: 1px solid var(--border-muted); border-radius: 6px; background: var(--bg-primary); color: var(--text-primary); font-size: 14px; line-height: 1.6; resize: vertical; }
 .summaries :global(.co-marker-group) { padding-top: 21px; margin-top: 20px; border-top: 1px solid var(--border-muted); }
 .summaries :global(.co-marker-group h4) { display: flex; justify-content: space-between; gap: 12px; }
 .summaries :global(.co-marker-group h4 span) { color: var(--text-muted); font-weight: 400; }

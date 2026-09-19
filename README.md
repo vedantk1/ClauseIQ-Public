@@ -87,7 +87,10 @@ Incomplete extraction, invalid output and interrupted requests remain visible.
 Draft recovery, explicit saved questions, personal markers and resume position
 remain separate. My review collects only confirmed questions from the selected run,
 with finding context, source links and reversible personal markers; drafts and AI
-answers are not promoted into it. Finding-scoped Ask uses the selected review's original perspective
+answers are not promoted into it. Copy brief and Download Markdown take confirmed
+questions and markers out of My review, with finding context, source-page references
+and the selected run's limitations. Export is local and makes no AI call.
+Finding-scoped Ask uses the selected review's original perspective
 and extracted source, with its own recoverable draft and saved answer history.
 Sending is an explicit paid action; opening answers or saving drafts is not.
 Answers include source links, model attribution and any input limitations.

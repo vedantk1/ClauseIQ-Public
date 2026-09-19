@@ -3,9 +3,12 @@ import { ArrowRight, FileText } from "lucide-react";
 import type { DocumentSourceResponse, ReviewEvidence, ReviewPersonalState, ReviewRun } from "@clauseiq/shared-types";
 import { Action, markerLabels } from "./WorkspaceControls";
 import { evidenceMatches } from "./workspaceState";
+import { ReviewBriefExport } from "./ReviewBriefExport";
 import styles from "./WorkspaceSummaries.module.css";
 
 export interface MyReviewProps {
+  filename?: string;
+  exportUnavailable?: string;
   run: ReviewRun | null;
   personal: ReviewPersonalState;
   source: DocumentSourceResponse | null;
@@ -15,7 +18,7 @@ export interface MyReviewProps {
 }
 
 /** Confirmed questions only. Drafts and provider answers are not personal saves. */
-export function MyReview({ run, personal, source, onFinding, onSource, onExplore }: MyReviewProps) {
+export function MyReview({ filename = "Agreement", exportUnavailable, run, personal, source, onFinding, onSource, onExplore }: MyReviewProps) {
   const findings = run?.findings || [];
   const saved = findings.filter(finding => personal.saved_questions[finding.id]);
   const revisits = findings.filter(finding => personal.markers[finding.id] === "revisit");
@@ -25,6 +28,7 @@ export function MyReview({ run, personal, source, onFinding, onSource, onExplore
     <header className="co-heading"><div><p className="co-eyebrow">Your saved work · selected run only</p><h2>My review</h2>
       <p>Questions you deliberately saved, alongside your personal markers. Saving does not send a message, accept a term or resolve a finding.</p>
     </div><Action className="co-secondary-action" onClick={onExplore}>{run ? "Explore findings" : "Open review setup"}<ArrowRight size={17} aria-hidden="true" /></Action></header>
+    <ReviewBriefExport key={run?.id || "no-run"} filename={filename} run={run} personal={personal} source={source} unavailable={exportUnavailable} />
     <div className="co-personal-grid">
       <section aria-labelledby="saved-questions-heading" className="co-saved-questions">
         <div className="co-section-heading"><h3 id="saved-questions-heading">Saved questions</h3><span className="co-note">{saved.length} confirmed {saved.length === 1 ? "question" : "questions"}</span></div>
