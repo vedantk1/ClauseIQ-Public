@@ -5,8 +5,9 @@ import NavBar from "./NavBar";
 export default function ConditionalNavBar() {
   const pathname = usePathname();
 
-  // Hide navbar on review page (handles both /review and /review with query params)
-  if (pathname.startsWith("/review")) {
+  // Library/review screens provide their own navigation; reviews guard unsaved work.
+  // usePathname excludes the query string; do not hide unrelated route prefixes.
+  if (pathname.startsWith("/review") || pathname === "/workspace" || pathname === "/documents" || pathname === "/import") {
     return null;
   }
 

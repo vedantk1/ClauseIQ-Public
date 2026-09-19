@@ -14,11 +14,11 @@ export interface CardProps extends HTMLAttributes<HTMLDivElement> {
 }
 
 const cardVariants = {
-  default: "bg-white dark:bg-slate-900",
+  default: "bg-bg-surface text-text-primary",
   outlined:
-    "bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700",
+    "bg-bg-surface text-text-primary border border-border-muted",
   elevated:
-    "bg-white dark:bg-slate-900 shadow-lg border border-gray-100 dark:border-slate-800",
+    "bg-bg-elevated text-text-primary shadow-lg border border-border-muted",
 };
 
 const cardPadding = {
@@ -76,7 +76,7 @@ export const CardTitle: React.FC<HTMLAttributes<HTMLHeadingElement>> = ({
 }) => (
   <h3
     className={cn(
-      "text-lg font-semibold text-gray-900 dark:text-white",
+      "text-lg font-semibold text-text-primary",
       className
     )}
     {...props}
@@ -91,7 +91,7 @@ export const CardContent: React.FC<HTMLAttributes<HTMLDivElement>> = ({
   ...props
 }) => (
   <div
-    className={cn("text-gray-600 dark:text-slate-400", className)}
+    className={cn("text-text-secondary", className)}
     {...props}
   >
     {children}
@@ -105,7 +105,7 @@ export const CardFooter: React.FC<HTMLAttributes<HTMLDivElement>> = ({
 }) => (
   <div
     className={cn(
-      "mt-4 pt-4 border-t border-gray-200 dark:border-slate-700",
+      "mt-4 pt-4 border-t border-border-muted",
       className
     )}
     {...props}

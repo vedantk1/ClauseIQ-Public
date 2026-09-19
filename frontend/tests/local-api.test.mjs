@@ -6,7 +6,7 @@ import ts from "typescript";
 
 // Exercise the real TypeScript client without a browser, a running backend,
 // external credentials, or paid provider requests.
-function createClient(fetch) {
+function createClient(fetch, globals = {}) {
   const source = readFileSync(new URL("../src/lib/api.ts", import.meta.url), "utf8");
   const compiled = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
@@ -19,8 +19,9 @@ function createClient(fetch) {
       return { default: { error() {}, success() {} } };
     },
     process: { env: { NEXT_PUBLIC_API_URL: "http://127.0.0.1:8000" } },
-    fetch, FormData, AbortController, URLSearchParams, setTimeout, clearTimeout,
+    fetch, FormData, AbortController, URLSearchParams, setTimeout, clearTimeout, Error,
     console: { error() {}, warn() {} },
+    ...globals,
   });
   return exports.apiClient;
 }
@@ -74,4 +75,121 @@ test("the client preserves backend validation messages", async () => {
   const response = await client.put("/workspace/settings", { retention_days: -1 });
   assert.equal(response.success, false);
   assert.equal(response.error.message, "Retention must be non-negative");
+});
+
+test("workspace network diagnostics contain only allowlisted transport metadata", async () => {
+  const messages = [];
+  const client = createClient(async () => { throw new Error("private filename and key must not be logged"); }, {
+    console: { error: (...args) => messages.push(args) }, navigator: { onLine: false },
+  });
+  const response = await client.get("/documents/private-id/source", undefined, { diagnosticScope: "workspace-source" });
+  assert.equal(response.error.code, "NETWORK_ERROR");
+  assert.equal(response.error.message, "The local API could not be reached.");
+  assert.equal(messages.length, 1);
+  const [label, serialized] = messages[0];
+  const fields = JSON.parse(serialized);
+  assert.equal(label, "Workspace read failed");
+  assert.deepEqual(Object.keys(fields).sort(), ["category", "elapsedMs", "online", "phase", "resource"]);
+  assert.equal(fields.category, "network");
+  assert.equal(fields.resource, "workspace-source");
+  assert.equal(fields.online, false);
+  assert.equal(fields.phase, "headers");
+  assert.doesNotMatch(JSON.stringify(messages), /private|key|\/documents|http:/);
+});
+
+test("explicit read cancellation aborts once and stays separate from failures", async () => {
+  const messages = [];
+  const controller = new AbortController();
+  let calls = 0;
+  const client = createClient((_url, { signal }) => new Promise((_resolve, reject) => {
+    calls++;
+    signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+  }), { console: { error: (...args) => messages.push(args) } });
+  const pending = client.get("/documents/fixture/source", undefined, {
+    signal: controller.signal, timeout: 20000, diagnosticScope: "workspace-source",
+  });
+  controller.abort();
+  const response = await pending;
+  assert.equal(response.error.code, "REQUEST_CANCELLED");
+  assert.equal(calls, 1);
+  assert.deepEqual(messages, []);
+});
+
+test("workspace timeouts are bounded and reported without an automatic retry or URL", async () => {
+  let timeout;
+  let calls = 0;
+  let cleared = 0;
+  const messages = [];
+  const client = createClient((_url, { signal }) => new Promise((_resolve, reject) => {
+    calls++;
+    signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+  }), {
+    setTimeout(callback, ms) { assert.equal(ms, 20000); timeout = callback; return 1; },
+    clearTimeout() { cleared++; }, console: { error: (...args) => messages.push(args) },
+  });
+  const pending = client.get("/documents/private-id/source", undefined, { timeout: 20000, diagnosticScope: "workspace-source" });
+  timeout();
+  const response = await pending;
+  assert.equal(response.error.code, "REQUEST_TIMEOUT");
+  assert.equal(response.error.details.url, undefined);
+  assert.equal(JSON.parse(messages[0][1]).category, "timeout");
+  assert.equal(calls, 1);
+  assert.equal(cleared, 1);
+});
+
+test("workspace read timeout includes stalled response bodies but does not alter write timeout semantics", async () => {
+  for (const method of ["get", "post"]) {
+    let timeout;
+    let cleared = false;
+    let finish;
+    const client = createClient(async (_url, { signal }) => ({ status: 200, ok: true,
+      json: () => new Promise((resolve, reject) => {
+        finish = resolve;
+        signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+      }),
+    }), {
+      setTimeout(callback) { timeout = callback; return 1; },
+      clearTimeout() { cleared = true; },
+    });
+    const options = { timeout: 20000, ...(method === "get" ? { diagnosticScope: "workspace-source" } : {}) };
+    const pending = client[method]("/fixture", undefined, options);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(typeof finish, "function");
+    assert.equal(cleared, method === "post");
+    if (method === "get") timeout();
+    else finish({ success: true, data: { saved: true } });
+    const result = await pending;
+    assert.equal(result.success, method === "post");
+    if (method === "get") assert.equal(result.error.code, "REQUEST_TIMEOUT");
+  }
+});
+
+test("HTTP failure diagnostics never log backend error fields or resource identifiers", async () => {
+  const messages = [];
+  const client = createClient(async () => Response.json({ detail: "private source body" }, { status: 503 }), {
+    console: { error: (...args) => messages.push(args) },
+  });
+  const result = await client.get("/documents/private-id", undefined, { diagnosticScope: "workspace-metadata" });
+  assert.equal(result.success, false);
+  assert.equal(messages.length, 1);
+  assert.equal(JSON.parse(messages[0][1]).category, "http");
+  assert.equal(JSON.parse(messages[0][1]).status, 503);
+  assert.equal(JSON.parse(messages[0][1]).phase, "body");
+  assert.doesNotMatch(JSON.stringify(messages), /private|detail|\/documents/);
+});
+
+test("workspace-state body failures have readable phase diagnostics without response content", async () => {
+  const messages = [];
+  const client = createClient(async () => ({ status: 200, ok: true,
+    json: async () => { throw new Error("private response text"); },
+  }), { console: { error: (...args) => messages.push(args) } });
+  const result = await client.get("/documents/private-id/review-workspace", undefined,
+    { diagnosticScope: "workspace-state" });
+  assert.equal(result.error.code, "PARSE_ERROR");
+  const fields = JSON.parse(messages.find(([label]) => label === "Workspace read failed")[1]);
+  assert.equal(fields.resource, "workspace-state");
+  assert.equal(fields.category, "response-format");
+  assert.equal(fields.phase, "body");
+  assert.equal(fields.status, 200);
+  assert.doesNotMatch(JSON.stringify(messages), /private|response text|\/documents/);
 });

@@ -1,34 +1,43 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { DocumentSourceResponse } from "@clauseiq/shared-types";
+import { useCallback, useEffect, useState } from "react";
 import { reviewWorkspaceApi } from "@/lib/reviewWorkspaceApi";
+import { initialWorkspaceReads, WorkspaceReads } from "@/lib/workspaceReads";
 import { ReviewWorkspaceController, type WorkspaceSaveState } from "@/components/workspace/workspaceState";
 
 export function useReviewWorkspace(documentId: string) {
-  const [controller, setController] = useState<ReviewWorkspaceController | null>(null);
+  const [session, setSession] = useState<{
+    documentId: string; controller: ReviewWorkspaceController; reads: WorkspaceReads;
+  } | null>(null);
   const [state, setState] = useState<WorkspaceSaveState | null>(null);
-  const [source, setSource] = useState<DocumentSourceResponse | null>(null);
-  const [filename, setFilename] = useState("Agreement");
-  const [sourceError, setSourceError] = useState<string | null>(null);
+  const [readState, setReadState] = useState(initialWorkspaceReads);
 
   useEffect(() => {
     const current = new ReviewWorkspaceController(documentId, reviewWorkspaceApi);
-    let active = true;
-    setController(current);
+    const reads = new WorkspaceReads(documentId, reviewWorkspaceApi);
+    setSession({ documentId, controller: current, reads });
     setState(current.getSnapshot());
-    setSource(null);
-    setSourceError(null);
+    setReadState(reads.getSnapshot());
     const unsubscribe = current.subscribe(() => setState(current.getSnapshot()));
+    const unsubscribeReads = reads.subscribe(() => setReadState(reads.getSnapshot()));
     void current.load();
-    void Promise.all([reviewWorkspaceApi.source(documentId), reviewWorkspaceApi.document(documentId)])
-      .then(([snapshot, document]) => {
-        if (active) { setSource(snapshot); setFilename(document.filename); }
-      }).catch(() => {
-        if (active) setSourceError("Source details could not be loaded. Reload the workspace before checking evidence.");
-      });
-    return () => { active = false; unsubscribe(); current.dispose(); };
+    reads.load();
+    return () => { unsubscribeReads(); reads.dispose(); unsubscribe(); current.dispose(); };
   }, [documentId]);
 
-  return { controller, state, source, filename, sourceError };
+  const isCurrent = session?.documentId === documentId;
+  const retrySource = useCallback(() => {
+    if (session?.documentId === documentId) void session.reads.retrySource();
+  }, [session, documentId]);
+  const retryMetadata = useCallback(() => {
+    if (session?.documentId === documentId) void session.reads.retryMetadata();
+  }, [session, documentId]);
+
+  // A route change must not expose the previous document while its effect cleans up.
+  return {
+    controller: isCurrent ? session.controller : null,
+    state: isCurrent ? state : null,
+    ...(isCurrent ? readState : initialWorkspaceReads()),
+    retrySource, retryMetadata,
+  };
 }

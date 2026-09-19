@@ -1,11 +1,11 @@
 import type {
   DocumentSourceResponse, ReviewBrief, ReviewEvidence, ReviewPersonalState, ReviewPosition,
-  ReviewRun, ReviewWorkspaceOperation, ReviewWorkspaceResponse,
+  ReviewAskTurn, ReviewRun, ReviewWorkspaceOperation, ReviewWorkspaceResponse,
 } from "@clauseiq/shared-types";
 import type { ReviewWorkspaceTransport } from "@/lib/reviewWorkspaceApi";
 
 export const emptyPersonal = (): ReviewPersonalState => ({
-  drafts: {}, saved_questions: {}, markers: {}, opened_finding_ids: [],
+  drafts: {}, ask_drafts: {}, saved_questions: {}, markers: {}, opened_finding_ids: [],
   position: { view: "overview", finding_id: null, evidence_span_id: null },
 });
 export const draftKey = (runId: string, findingId: string) => JSON.stringify([runId, findingId]);
@@ -24,6 +24,16 @@ export function safeReviewPosition(run: ReviewRun, view: ReviewPosition["view"],
   return { view, finding_id: finding?.id || null,
     evidence_span_id: finding?.evidence.some(item => item.span_id === evidenceId) ? evidenceId : null };
 }
+
+/** Same latest-run rule as the Library; never silently fall back to older output. */
+export function libraryResumePosition(workspace: ReviewWorkspaceResponse) {
+  const run = workspace.runs.at(-1);
+  if (!run || run.source_revision_id !== workspace.source_revision_id || !["ready", "incomplete"].includes(runStatus(run))) return null;
+  const saved = workspace.personal[run.id]?.position || emptyPersonal().position;
+  const position = safeReviewPosition(run, saved.view, saved.finding_id, saved.evidence_span_id) || emptyPersonal().position;
+  const evidence = run.findings.find(finding => finding.id === position.finding_id)?.evidence.find(item => item.span_id === position.evidence_span_id);
+  return { runId: run.id, position, pageNumber: evidence?.page_number || null };
+}
 export type ReviewActionState = {
   status: "idle" | "preparing" | "generating" | "uncertain" | "interrupting";
   error: string | null;
@@ -31,6 +41,22 @@ export type ReviewActionState = {
   requestRejected?: boolean;
 };
 const idleReviewAction = (): ReviewActionState => ({ status: "idle", error: null, canRetryRequest: false });
+export type AskActionState = ReviewActionState & { runId?: string; findingId?: string };
+export const paidActionBusy = (state: WorkspaceSaveState) =>
+  (state.reviewAction?.status || "idle") !== "idle" || (state.askAction?.status || "idle") !== "idle";
+const hasProcessing = (workspace: ReviewWorkspaceResponse) =>
+  workspace.runs.some(run => runStatus(run) === "processing") ||
+  (workspace.ask_turns || []).some(turn => turn.status === "processing");
+
+/** Mirror the server's successful fresh-question boundary; display only, never dispatches. */
+export function askHistorySummary(turns: ReviewAskTurn[], runId: string, findingId: string) {
+  let eligible = turns.filter(turn => turn.run_id === runId && turn.finding_id === findingId &&
+    ["ready", "incomplete"].includes(turn.status) && turn.answer.length > 0);
+  for (let index = eligible.length - 1; index >= 0; index -= 1) {
+    if (!eligible[index].include_history) { eligible = eligible.slice(index); break; }
+  }
+  return { count: Math.min(eligible.length, 6), truncated: eligible.length > 6 };
+}
 
 export function evidenceMatches(evidence: ReviewEvidence, source: DocumentSourceResponse | null): boolean {
   if (!source || evidence.source_revision_id !== source.source_revision_id) return false;
@@ -67,6 +93,47 @@ export function evidenceMatches(evidence: ReviewEvidence, source: DocumentSource
 }
 
 type QueueEntry = { key: string; operation: ReviewWorkspaceOperation | null };
+
+// A disposed controller cannot cancel a PUT that may already be committing.
+// Keep reads in a replacement controller behind those same-tab writes, without
+// retrying them or rebasing genuine external conflicts. Entries expire on settle.
+const inFlightWrites = new WeakMap<ReviewWorkspaceTransport, Map<string, Set<Promise<ReviewWorkspaceResponse>>>>();
+const WRITE_SETTLE_TIMEOUT_MS = 20000;
+function trackWrite(transport: ReviewWorkspaceTransport, documentId: string, request: Promise<ReviewWorkspaceResponse>) {
+  let documents = inFlightWrites.get(transport);
+  if (!documents) { documents = new Map(); inFlightWrites.set(transport, documents); }
+  let requests = documents.get(documentId);
+  if (!requests) { requests = new Set(); documents.set(documentId, requests); }
+  requests.add(request);
+  const settled = () => {
+    requests.delete(request);
+    if (!requests.size) documents.delete(documentId);
+  };
+  void request.then(settled, settled);
+  return request;
+}
+
+async function waitForWrites(transport: ReviewWorkspaceTransport, documentId: string) {
+  const requests = inFlightWrites.get(transport)?.get(documentId);
+  if (!requests?.size) return;
+  await new Promise<void>((resolve, reject) => {
+    let finished = false;
+    const finish = (error?: Error) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      if (error) reject(error);
+      else resolve();
+    };
+    const timer = setTimeout(() => finish(new Error(
+      "An earlier save is still awaiting confirmation. Saved work was not reloaded. Keep this page open and retry loading after the save finishes.",
+    )), WRITE_SETTLE_TIMEOUT_MS);
+    // A timeout ends this read attempt, not the tracked write. A later retry
+    // must still wait unless that request has actually settled.
+    void Promise.allSettled([...requests]).then(() => finish());
+  });
+}
+
 export type SaveStatus = "loading" | "saved" | "saving" | "failed" | "conflict" | "review";
 export interface WorkspaceSaveState {
   workspace: ReviewWorkspaceResponse | null;
@@ -74,12 +141,16 @@ export interface WorkspaceSaveState {
   error: string | null;
   pending: number;
   localDrafts: Record<string, string>;
+  localAskDrafts: Record<string, string>;
   briefDraft: ReviewBrief | null;
   reviewAction: ReviewActionState;
+  askAction: AskActionState;
 }
 
 export function hasUnconfirmedChanges(state: WorkspaceSaveState): boolean {
   return state.pending > 0 || ["preparing", "generating", "uncertain", "interrupting"].includes(state.reviewAction?.status) ||
+    ["preparing", "generating", "uncertain", "interrupting"].includes(state.askAction?.status) ||
+    !!state.workspace?.ask_turns?.some(turn => turn.status === "processing") ||
     ["loading", "failed", "conflict", "review"].includes(state.status) ||
     !!(state.briefDraft && state.workspace && !sameBrief(state.briefDraft, state.workspace.brief));
 }
@@ -87,16 +158,19 @@ export function hasUnconfirmedChanges(state: WorkspaceSaveState): boolean {
 /** Serial writes use confirmed revisions only. Conflicts never auto-rebase edits. */
 export class ReviewWorkspaceController {
   private current: WorkspaceSaveState = {
-    workspace: null, status: "loading", error: null, pending: 0, localDrafts: {}, briefDraft: null,
-    reviewAction: idleReviewAction(),
+    workspace: null, status: "loading", error: null, pending: 0, localDrafts: {}, localAskDrafts: {}, briefDraft: null,
+    reviewAction: idleReviewAction(), askAction: idleReviewAction(),
   };
   private listeners = new Set<() => void>();
   private queue: QueueEntry[] = [];
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
+  private askTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private sending = false;
   private stopped = false;
   private generation = 0;
   private pendingAttempt: { revision: number; requestId: string; modelId: string; rejected?: boolean } | null = null;
+  private pendingAskAttempt: { revision: number; requestId: string; modelId: string; runId: string;
+    findingId: string; question: string; includeHistory: boolean; rejected?: boolean } | null = null;
   private pendingWaiters = new Set<() => void>();
 
   constructor(private documentId: string, private transport: ReviewWorkspaceTransport, private debounceMs = 500) {}
@@ -105,7 +179,7 @@ export class ReviewWorkspaceController {
 
   private emit(values: Partial<WorkspaceSaveState> = {}) {
     if (this.stopped) return;
-    this.current = { ...this.current, ...values, pending: this.queue.length + this.timers.size };
+    this.current = { ...this.current, ...values, pending: this.queue.length + this.timers.size + this.askTimers.size };
     this.listeners.forEach(listener => listener());
     this.pendingWaiters.forEach(listener => listener());
   }
@@ -113,6 +187,8 @@ export class ReviewWorkspaceController {
   async load() {
     const generation = ++this.generation;
     try {
+      await waitForWrites(this.transport, this.documentId);
+      if (this.stopped || generation !== this.generation) return;
       const workspace = await this.transport.load(this.documentId);
       if (this.stopped || generation !== this.generation) return;
       this.emit({ workspace, status: "saved", error: null });
@@ -149,6 +225,18 @@ export class ReviewWorkspaceController {
     this.enqueue({ type: "save_question", run_id: runId, finding_id: findingId, text });
   }
 
+  setAskDraft(runId: string, findingId: string, text: string) {
+    const key = draftKey(runId, findingId);
+    this.emit({ localAskDrafts: { ...this.current.localAskDrafts, [key]: text } });
+    const old = this.askTimers.get(key);
+    if (old) clearTimeout(old);
+    this.askTimers.set(key, setTimeout(() => {
+      this.askTimers.delete(key);
+      this.enqueue({ type: "set_ask_draft", run_id: runId, finding_id: findingId, text });
+    }, this.debounceMs));
+    this.emit();
+  }
+
   enqueue(operation: ReviewWorkspaceOperation) {
     const key = operation.type === "set_brief" ? "brief" :
       operation.type === "set_position" ? `position:${operation.run_id}` :
@@ -162,7 +250,7 @@ export class ReviewWorkspaceController {
   }
 
   createFixture() {
-    if (!this.current.workspace?.fixture_available || this.queue.some(item => item.key === "fixture")) return;
+    if (paidActionBusy(this.current) || !this.current.workspace?.fixture_available || this.queue.some(item => item.key === "fixture")) return;
     this.queue.push({ key: "fixture", operation: null });
     this.emit();
     void this.drain();
@@ -171,26 +259,32 @@ export class ReviewWorkspaceController {
   private async drain() {
     if (this.stopped || this.sending || !this.current.workspace || !this.queue.length ||
         ["generating", "uncertain", "interrupting"].includes(this.current.reviewAction.status) ||
+        ["generating", "uncertain", "interrupting"].includes(this.current.askAction.status) ||
         ["failed", "conflict", "review", "loading"].includes(this.current.status)) return;
     this.sending = true;
     const entry = this.queue[0];
     const revision = this.current.workspace.revision;
     this.emit({ status: "saving", error: null });
     try {
-      const workspace = entry.operation
-        ? await this.transport.update(this.documentId, revision, entry.operation)
-        : await this.transport.fixture(this.documentId, revision);
+      const workspace = await trackWrite(this.transport, this.documentId, entry.operation
+        ? this.transport.update(this.documentId, revision, entry.operation)
+        : this.transport.fixture(this.documentId, revision));
       if (this.stopped) return;
       this.queue.shift();
       const localDrafts = { ...this.current.localDrafts };
+      const localAskDrafts = { ...this.current.localAskDrafts };
       const operation = entry.operation;
       if (operation?.type === "set_draft") {
         const key = draftKey(operation.run_id, operation.finding_id);
         if (localDrafts[key] === operation.text) delete localDrafts[key];
       }
+      if (operation?.type === "set_ask_draft") {
+        const key = draftKey(operation.run_id, operation.finding_id);
+        if (localAskDrafts[key] === operation.text) delete localAskDrafts[key];
+      }
       const briefDraft = this.current.briefDraft && sameBrief(this.current.briefDraft, workspace.brief)
         ? null : this.current.briefDraft;
-      this.emit({ workspace, localDrafts, briefDraft, status: "saved" });
+      this.emit({ workspace, localDrafts, localAskDrafts, briefDraft, status: "saved" });
     } catch (error) {
       const conflict = typeof error === "object" && error !== null && "code" in error && error.code === "REVISION_CONFLICT";
       this.emit({ status: conflict ? "conflict" : "failed", error: safeMessage(error) });
@@ -202,11 +296,14 @@ export class ReviewWorkspaceController {
 
   /** Keep pending intentions and local wording, but do not apply them after reload. */
   async reloadSaved() {
-    if (this.sending || ["preparing", "generating", "interrupting"].includes(this.current.reviewAction.status)) return;
+    if (this.sending || ["preparing", "generating", "interrupting"].includes(this.current.reviewAction.status) ||
+        ["preparing", "generating", "interrupting"].includes(this.current.askAction.status)) return;
     this.emit({ status: "loading", error: null });
     this.flushDrafts();
     const generation = ++this.generation;
     try {
+      await waitForWrites(this.transport, this.documentId);
+      if (this.stopped || generation !== this.generation) return;
       const workspace = await this.transport.load(this.documentId);
       if (this.stopped || generation !== this.generation) return;
       let reviewAction = this.current.reviewAction;
@@ -217,7 +314,14 @@ export class ReviewWorkspaceController {
           reviewAction = { ...idleReviewAction(), error: previousError };
         } else reviewAction = { ...reviewAction, canRetryRequest: true };
       }
-      this.emit({ workspace, status: this.queue.length ? "review" : "saved", error: null, reviewAction });
+      let askAction = this.current.askAction;
+      if (this.pendingAskAttempt) {
+        if (this.pendingAskAttempt.rejected || workspace.ask_turns?.some(turn => turn.id === this.pendingAskAttempt!.requestId)) {
+          askAction = { ...askAction, ...idleReviewAction(), error: this.pendingAskAttempt.rejected ? askAction.error : null };
+          this.pendingAskAttempt = null;
+        } else askAction = { ...askAction, canRetryRequest: true };
+      }
+      this.emit({ workspace, status: this.queue.length ? "review" : "saved", error: null, reviewAction, askAction });
     } catch (error) {
       if (generation === this.generation) this.emit({ status: "failed", error: safeMessage(error) });
     }
@@ -232,8 +336,8 @@ export class ReviewWorkspaceController {
 
   /** Paid work never enters the recoverable local-write queue. */
   async startReview(modelId: string, requestId: string) {
-    if (this.stopped || this.current.reviewAction.status !== "idle" || !this.current.workspace ||
-        this.current.workspace.runs.some(run => runStatus(run) === "processing") ||
+    if (this.stopped || paidActionBusy(this.current) || !this.current.workspace ||
+        hasProcessing(this.current.workspace) ||
         ["loading", "failed", "conflict", "review"].includes(this.current.status) || !modelId || !requestId) return;
     this.emit({ reviewAction: { status: "preparing", error: null, canRetryRequest: false } });
     this.saveBrief();
@@ -287,8 +391,77 @@ export class ReviewWorkspaceController {
     await this.sendReviewAttempt();
   }
 
+  /** Finding questions keep the selected run's context, never save or use a draft brief. */
+  async startAsk(runId: string, findingId: string, question: string, modelId: string,
+    requestId: string, includeHistory = true) {
+    const workspace = this.current.workspace;
+    const run = workspace?.runs.find(item => item.id === runId);
+    if (this.stopped || paidActionBusy(this.current) || !workspace || hasProcessing(workspace) ||
+        !run?.findings.some(item => item.id === findingId) ||
+        !["ready", "incomplete"].includes(runStatus(run)) ||
+        ["loading", "failed", "conflict", "review"].includes(this.current.status) ||
+        !question.trim() || question.length > 5000 || !modelId || !requestId) return;
+    const target = { runId, findingId };
+    this.emit({ askAction: { ...target, status: "preparing", error: null, canRetryRequest: false } });
+    this.flushDrafts();
+    await this.waitForWrites();
+    if (this.stopped) return;
+    const currentDraft = this.current.localAskDrafts[draftKey(runId, findingId)] ??
+      this.current.workspace?.personal[runId]?.ask_drafts?.[findingId];
+    if (this.current.status !== "saved" || this.current.pending ||
+        (currentDraft !== undefined && currentDraft !== question)) {
+      this.emit({ askAction: { ...target, ...idleReviewAction(),
+        error: "Question was not sent. Confirm pending changes and your latest question first." } });
+      return;
+    }
+    this.pendingAskAttempt = { revision: this.current.workspace!.revision, requestId, modelId,
+      runId, findingId, question, includeHistory };
+    await this.sendAskAttempt();
+  }
+
+  private async sendAskAttempt() {
+    const attempt = this.pendingAskAttempt;
+    if (!attempt || this.stopped) return;
+    const target = { runId: attempt.runId, findingId: attempt.findingId };
+    this.emit({ askAction: { ...target, status: "generating", error: null, canRetryRequest: false } });
+    try {
+      const workspace = await this.transport.ask(this.documentId, attempt.revision, attempt.requestId,
+        attempt.modelId, attempt.runId, attempt.findingId, attempt.question, attempt.includeHistory);
+      if (this.stopped) return;
+      this.pendingAskAttempt = null;
+      this.acceptReviewResponse(workspace);
+    } catch (error) {
+      const rejected = isPreflightRejection(error);
+      if (this.pendingAskAttempt) this.pendingAskAttempt.rejected = rejected;
+      this.emit({ askAction: { ...target, status: "uncertain", canRetryRequest: false, requestRejected: rejected,
+        error: rejected ? `Question was not sent. ${safeMessage(error)} Refresh saved state before starting again.`
+          : `${safeMessage(error)} The question was not retried. Refresh saved state to check whether it was recorded.` } });
+    }
+  }
+
+  async retryAskRequest() {
+    if (this.current.askAction.status !== "uncertain" || !this.current.askAction.canRetryRequest || this.sending) return;
+    await this.sendAskAttempt();
+  }
+
+  async interruptAsk(turnId: string) {
+    const turn = this.current.workspace?.ask_turns?.find(item => item.id === turnId);
+    if (this.stopped || this.sending || paidActionBusy(this.current) || this.current.status !== "saved" ||
+        this.current.pending || turn?.status !== "processing") return;
+    this.emit({ askAction: { status: "interrupting", error: null, canRetryRequest: false,
+      runId: turn.run_id, findingId: turn.finding_id } });
+    try {
+      const workspace = await this.transport.interruptAsk(this.documentId, this.current.workspace!.revision, turnId);
+      if (!this.stopped) this.acceptReviewResponse(workspace);
+    } catch (error) {
+      this.emit({ status: "failed", error: "The interrupted Ask state could not be confirmed. Refresh saved state.",
+        askAction: { ...idleReviewAction(), runId: turn.run_id, findingId: turn.finding_id,
+          error: `${safeMessage(error)} Refresh saved state before trying again.` } });
+    }
+  }
+
   async interruptRun(runId: string) {
-    if (this.stopped || this.sending || this.current.reviewAction.status !== "idle" ||
+    if (this.stopped || this.sending || paidActionBusy(this.current) ||
         !this.current.workspace?.runs.some(run => run.id === runId && runStatus(run) === "processing")) return;
     this.emit({ reviewAction: { status: "interrupting", error: null, canRetryRequest: false } });
     try {
@@ -302,7 +475,7 @@ export class ReviewWorkspaceController {
 
   private acceptReviewResponse(workspace: ReviewWorkspaceResponse) {
     // Preserve edits made while a long request was running. Reapply only explicitly.
-    this.emit({ workspace, status: "loading", error: null, reviewAction: idleReviewAction() });
+    this.emit({ workspace, status: "loading", error: null, reviewAction: idleReviewAction(), askAction: idleReviewAction() });
     this.flushDrafts();
     this.emit({ status: this.queue.length ? "review" : "saved" });
   }
@@ -314,6 +487,12 @@ export class ReviewWorkspaceController {
       const [runId, findingId] = JSON.parse(key) as [string, string];
       this.enqueue({ type: "set_draft", run_id: runId, finding_id: findingId, text: this.current.localDrafts[key] });
     }
+    for (const [key, timer] of this.askTimers) {
+      clearTimeout(timer);
+      this.askTimers.delete(key);
+      const [runId, findingId] = JSON.parse(key) as [string, string];
+      this.enqueue({ type: "set_ask_draft", run_id: runId, finding_id: findingId, text: this.current.localAskDrafts[key] });
+    }
   }
 
   dispose() {
@@ -321,6 +500,8 @@ export class ReviewWorkspaceController {
     this.generation += 1;
     this.timers.forEach(timer => clearTimeout(timer));
     this.timers.clear();
+    this.askTimers.forEach(timer => clearTimeout(timer));
+    this.askTimers.clear();
     this.listeners.clear();
     this.pendingWaiters.forEach(listener => listener());
   }
@@ -333,5 +514,6 @@ function safeMessage(error: unknown) {
 function isPreflightRejection(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error &&
     ["REQUEST_ID_CONFLICT", "REVIEW_RUN_LIMIT", "REVIEW_ALREADY_PROCESSING", "REVIEW_MODEL_CHANGED",
-      "REVIEW_INPUT_REJECTED", "API_KEY_REQUIRED", "REVISION_CONFLICT"].includes(String(error.code));
+      "REVIEW_INPUT_REJECTED", "API_KEY_REQUIRED", "REVISION_CONFLICT", "ASK_INPUT_REJECTED",
+      "INVALID_QUESTION", "ASK_REVIEW_UNAVAILABLE", "ASK_TURN_LIMIT", "ASK_ALREADY_PROCESSING", "ASK_STORAGE_LIMIT"].includes(String(error.code));
 }

@@ -3,34 +3,41 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Theme system - Dark theme as default */
+/* Both supported themes are dark. Black is the first-paint/default palette. */
 :root {
-  /* ClauseIQ Dark Theme Colors */
-  --bg-primary: #0e0e11;
-  --bg-surface: #18181d;
-  --bg-elevated: #1f1f25;
+  color-scheme: dark;
+  --bg-primary: #101010;
+  --bg-header: #080808;
+  --bg-surface: #161616;
+  --bg-elevated: #1b1b1b;
+  --bg-selected: #242424;
+  --bg-disabled: #242424;
   --accent-purple: #7c3aed;
+  --accent-subtle: #b4a1ed;
   --accent-green: #10b981;
   --accent-amber: #f59e0b;
   --accent-rose: #ef4444;
-  --text-primary: #f9fafb;
-  --text-secondary: #d1d5db;
-  --border-muted: #2a2a31;
+  --text-primary: #f0f0f0;
+  --text-secondary: #d6d6d6;
+  --text-muted: #aaaaaa;
+  --text-disabled: #8c8c8c;
+  --border-muted: #333333;
 }
 
-/* Light theme variables */
-[data-theme="light"] {
-  /* ClauseIQ Light Theme Colors */
-  --bg-primary: #ffffff;
-  --bg-surface: #f8fafc;
-  --bg-elevated: #f1f5f9;
-  --accent-purple: #7c3aed;
-  --accent-green: #10b981;
-  --accent-amber: #f59e0b;
-  --accent-rose: #ef4444;
-  --text-primary: #1e293b;
-  --text-secondary: #64748b;
-  --border-muted: #e2e8f0;
+/* Graphite retains the softer, subtly cool surfaces of the approved alternative. */
+[data-theme="graphite"] {
+  --bg-primary: #17191c;
+  --bg-header: #15171a;
+  --bg-surface: #1b1e22;
+  --bg-elevated: #1d2025;
+  --bg-selected: #252536;
+  --bg-disabled: #2c3038;
+  --accent-subtle: #b4a1ed;
+  --text-primary: #eeeff3;
+  --text-secondary: #cbd0d9;
+  --text-muted: #abb3c2;
+  --text-disabled: #9298a3;
+  --border-muted: #343a45;
 }
 
 * {
@@ -40,17 +47,6 @@
 body {
   @apply bg-bg-primary text-text-primary font-sans antialiased;
   font-feature-settings: "rlig" 1, "calt" 1;
-}
-
-/* Debug: Ensure theme switching is visible */
-[data-theme="light"] body {
-  background-color: var(--bg-primary) !important;
-  color: var(--text-primary) !important;
-}
-
-[data-theme="dark"] body {
-  background-color: var(--bg-primary) !important;
-  color: var(--text-primary) !important;
 }
 
 /* Focus styles for accessibility */
@@ -84,15 +80,6 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-secondary);
-}
-
-/* Light theme scrollbar adjustments */
-[data-theme="light"] ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-}
-
-[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
 }
 
 /* Selection styling */

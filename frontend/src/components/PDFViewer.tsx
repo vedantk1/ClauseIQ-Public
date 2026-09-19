@@ -250,8 +250,9 @@ export default function PDFViewer({
     setIsLoading(false);
     setError(null);
 
-    // Set initial zoom level
-    zoomTo(scale);
+    // Source navigation starts at an explicit scale. Changing it here races the
+    // queued page jump against measurements from the viewer's previous scale.
+    if (!sourceNavigation) zoomTo(scale);
     // A load callback may precede the latest request's passive effect.
     if (navigationRequestRef.current) applyNavigation(navigationSession.request(navigationRequestRef.current));
     else navigationSession.clearRequest();
@@ -596,6 +597,11 @@ export default function PDFViewer({
             {pdfUrl && loadedSourceKey === sourceKey ? (
               <Viewer
                 fileUrl={pdfUrl}
+                // A physical source-page jump must not keep animating toward an
+                // offset measured before a viewport resize. Legacy search keeps
+                // its existing scrolling behavior.
+                enableSmoothScroll={!sourceNavigation}
+                defaultScale={sourceNavigation ? scale : undefined}
                 // PDF.js mitigation for GHSA-wgrm-67xf-hhpq while the viewer remains on PDF.js 3.
                 transformGetDocumentParams={securePdfDocumentOptions}
                 onDocumentLoad={handleDocumentLoad}

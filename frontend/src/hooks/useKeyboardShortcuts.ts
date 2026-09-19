@@ -15,6 +15,12 @@ interface UseKeyboardShortcutsProps {
   selectAllDocuments: () => void;
 }
 
+function isEditableTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && (
+    ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) || target.isContentEditable
+  );
+}
+
 export const useKeyboardShortcuts = ({
   searchInputRef,
   isSelectMode,
@@ -27,6 +33,8 @@ export const useKeyboardShortcuts = ({
   // Global keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      // Preserve native text/field shortcuts, including contenteditable descendants.
+      const editing = isEditableTarget(event.target) || isEditableTarget(document.activeElement);
       // Focus search when pressing '/'
       if (
         event.key === "/" &&
@@ -34,11 +42,7 @@ export const useKeyboardShortcuts = ({
         !event.metaKey &&
         !event.altKey
       ) {
-        // Only if we're not in an input/textarea
-        if (
-          document.activeElement?.tagName !== "INPUT" &&
-          document.activeElement?.tagName !== "TEXTAREA"
-        ) {
+        if (!editing) {
           event.preventDefault();
           searchInputRef.current?.focus();
         }
@@ -59,7 +63,8 @@ export const useKeyboardShortcuts = ({
       if (
         (event.ctrlKey || event.metaKey) &&
         event.key === "a" &&
-        isSelectMode
+        isSelectMode &&
+        !editing
       ) {
         event.preventDefault();
         selectAllDocuments();

@@ -1,0 +1,52 @@
+.content { max-width: 930px; margin: 0 auto; padding: 27px 30px 64px; }
+.back { display: inline-flex; align-items: center; gap: 9px; color: var(--text-muted); font-size: 14px; }
+.back:hover { color: var(--text-primary); }
+.intro { margin: 32px 0 28px; }
+.eyebrow { font-size: 13px; color: var(--text-muted); margin-bottom: 8px; }
+.intro h1 { font-size: 36px; font-weight: 650; letter-spacing: -.8px; line-height: 1.25; }
+.intro > p:last-child { margin-top: 12px; color: var(--text-secondary); font-size: 17px; max-width: 690px; }
+.form { border: 1px solid var(--border-muted); border-radius: 9px; padding: 28px; background: var(--bg-surface); }
+.dropZone { position: relative; display: flex; flex-direction: column; align-items: center; gap: 13px; text-align: center; border: 1px dashed var(--border-muted); border-radius: 7px; padding: 34px 22px; background: var(--bg-primary); }
+.dropZone > svg { color: var(--accent-subtle); margin-bottom: 3px; }
+.dropZone h2 { font-size: 22px; }
+.dropZone > p { color: var(--text-muted); font-size: 14px; }
+.dropZone > button { margin-top: 4px; }
+.dragActive { border-color: var(--accent-subtle); background: var(--bg-selected); }
+.fileInput { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.selectedFile { display: flex; align-items: center; gap: 14px; margin-top: 17px; padding: 16px; border: 1px solid var(--border-muted); border-radius: 6px; background: var(--bg-primary); }
+.selectedFile > svg { flex-shrink: 0; color: var(--accent-subtle); }
+.selectedFile > div { flex: 1; min-width: 0; }
+.filename { display: block; overflow-wrap: anywhere; font-weight: 500; }
+.fileSize { display: block; font-size: 13px; color: var(--text-muted); margin-top: 3px; }
+.remove { display: flex; align-items: center; gap: 5px; font-size: 13px; color: var(--text-muted); padding: 7px; flex-shrink: 0; }
+.remove:hover { color: var(--text-primary); }
+.error { margin-top: 16px; color: var(--status-error, var(--text-primary)); border-left: 2px solid var(--accent-subtle); padding-left: 12px; }
+.recovery { border: 1px solid var(--border-muted); border-left: 3px solid var(--accent-subtle); border-radius: 6px; margin-top: 20px; padding: 18px; }
+.recovery h2 { font-size: 18px; }
+.recovery p { color: var(--text-secondary); margin-top: 9px; font-size: 14px; overflow-wrap: anywhere; }
+.recovery button { margin-top: 16px; }
+.boundary { margin-top: 28px; padding-bottom: 24px; border-bottom: 1px solid var(--border-muted); }
+.boundary h2 { font-size: 17px; font-weight: 550; letter-spacing: 0; }
+.boundary p { margin-top: 9px; font-size: 14px; color: var(--text-muted); }
+.actions { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-top: 24px; }
+.actions p { color: var(--text-muted); font-size: 13px; max-width: 340px; }
+.actions button { flex-shrink: 0; }
+.actions button:disabled { background: var(--bg-selected); border-color: var(--border-muted); filter: none; }
+.progress { font-size: 14px; margin-top: 20px; color: var(--text-secondary); }
+.spinner { animation: spin 1s linear infinite; }
+.example { margin-top: 24px; color: var(--text-muted); font-size: 13px; }
+.example summary { padding: 7px 0; width: fit-content; }
+.example p { margin-top: 10px; max-width: 700px; }
+.example code { color: var(--text-secondary); overflow-wrap: anywhere; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+@media (max-width: 640px) {
+  .content { padding: 24px 16px 40px; }
+  .intro { margin-top: 25px; }
+  .intro h1 { font-size: 30px; }
+  .form { padding: 18px; }
+  .dropZone { padding: 28px 14px; }
+  .actions { flex-direction: column; align-items: stretch; gap: 18px; }
+  .actions p { max-width: none; }
+  .remove span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+}

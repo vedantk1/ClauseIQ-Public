@@ -5,6 +5,7 @@ import vm from "node:vm";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
+import { appHeaderHarness } from "./appHeaderHarness.mjs";
 
 function loadModule(path, imports = {}, globals = {}) {
   const compiled = ts.transpileModule(readFileSync(new URL(path, import.meta.url), "utf8"), {
@@ -38,6 +39,7 @@ function apply(workspace, operation) {
   else {
     const personal = next.personal[operation.run_id];
     if (operation.type === "set_draft") personal.drafts[operation.finding_id] = operation.text;
+    if (operation.type === "set_ask_draft") (personal.ask_drafts ||= {})[operation.finding_id] = operation.text;
     if (operation.type === "save_question") personal.saved_questions[operation.finding_id] = {
       id: personal.saved_questions[operation.finding_id]?.id || "question-1", text: operation.text, saved_at: "2026-01-01",
     };
@@ -85,10 +87,27 @@ function harness({ delayed = false } = {}) {
       server.runs.find(run => run.id === runId).status = "interrupted";
       return clone(server);
     },
+    async ask(documentId, revision, requestId, modelId, runId, findingId, question, includeHistory) {
+      calls.push({ documentId, revision, requestId, modelId, runId, findingId, question, includeHistory, ask: true });
+      server.ask_turns ||= [];
+      if (!server.ask_turns.some(turn => turn.id === requestId)) {
+        server.revision += 1;
+        server.ask_turns.push({ ...askTurn(), id: requestId, modelId, run_id: runId, finding_id: findingId, question,
+          include_history: includeHistory });
+      }
+      return clone(server);
+    },
+    async interruptAsk(documentId, revision, turnId) {
+      calls.push({ documentId, revision, turnId, interruptAsk: true });
+      server.revision += 1;
+      server.ask_turns.find(turn => turn.id === turnId).status = "interrupted";
+      return clone(server);
+    },
   };
   const controller = new state.ReviewWorkspaceController("doc-1", transport, 500);
   return { state, controller, calls, transport,
     timers: () => { const callbacks = [...timers.values()]; timers.clear(); callbacks.forEach(callback => callback()); },
+    timerCount: () => timers.size,
     failNext(error) { failure = error; }, server: () => server, setServer(value) { server = value; },
   };
 }
@@ -222,6 +241,101 @@ test("disposing a workspace cancels its debounce and cannot write into another d
   assert.equal(h.calls.length, 0);
 });
 
+test("reopening a document waits for its retired controller write before loading a revision", async () => {
+  const h = harness({ delayed: true }); await h.controller.load();
+  h.controller.enqueue({ type: "set_position", run_id: "run-1", position: {
+    view: "my_review", finding_id: "finding-1", evidence_span_id: null,
+  } });
+  h.controller.dispose();
+  const reopened = new h.state.ReviewWorkspaceController("doc-1", h.transport);
+  const loading = reopened.load();
+  await settle();
+  assert.equal(reopened.getSnapshot().status, "loading");
+  h.calls[0].finish(); await loading;
+  assert.equal(reopened.getSnapshot().workspace.revision, 1);
+  reopened.enqueue({ type: "set_position", run_id: "run-1", position: {
+    view: "overview", finding_id: "finding-1", evidence_span_id: null,
+  } });
+  assert.equal(h.calls[1].revision, 1);
+  h.calls[1].finish(); await settle();
+  assert.equal(reopened.getSnapshot().status, "saved");
+  reopened.dispose();
+});
+
+test("a retired write does not block another document and a disposed waiting reader never loads", async () => {
+  const h = harness({ delayed: true }); await h.controller.load();
+  h.controller.enqueue({ type: "set_marker", run_id: "run-1", finding_id: "finding-1", marker: "revisit" });
+  h.controller.dispose();
+  const reads = [];
+  const load = h.transport.load;
+  h.transport.load = async documentId => { reads.push(documentId); return load(documentId); };
+  const reopened = new h.state.ReviewWorkspaceController("doc-1", h.transport);
+  const loading = reopened.load();
+  const other = new h.state.ReviewWorkspaceController("doc-2", h.transport);
+  await other.load();
+  assert.deepEqual(reads, ["doc-2"]);
+  reopened.dispose();
+  h.calls[0].finish(); await loading;
+  assert.deepEqual(reads, ["doc-2"]);
+  other.dispose();
+});
+
+test("a failed retired write releases the read barrier without replaying the edit", async () => {
+  const h = harness(); await h.controller.load();
+  let rejectWrite;
+  let writeCount = 0;
+  h.transport.update = () => {
+    writeCount += 1;
+    return new Promise((resolve, reject) => { rejectWrite = reject; });
+  };
+  h.controller.setDraft("run-1", "finding-1", "Unconfirmed wording"); h.timers();
+  h.controller.dispose();
+  const reopened = new h.state.ReviewWorkspaceController("doc-1", h.transport);
+  const loading = reopened.load();
+  await settle();
+  assert.equal(reopened.getSnapshot().status, "loading");
+  rejectWrite(new Error("Connection closed")); await loading;
+  assert.equal(reopened.getSnapshot().status, "saved");
+  assert.equal(reopened.getSnapshot().workspace.revision, 0);
+  assert.equal(h.timerCount(), 0);
+  assert.equal(writeCount, 1);
+  assert.equal(h.controller.getSnapshot().localDrafts[h.state.draftKey("run-1", "finding-1")], "Unconfirmed wording");
+  reopened.dispose();
+});
+
+test("a stalled retired write bounds loading and retry without reading stale state or replaying", async () => {
+  const h = harness({ delayed: true }); await h.controller.load();
+  h.controller.enqueue({ type: "set_marker", run_id: "run-1", finding_id: "finding-1", marker: "revisit" });
+  h.controller.dispose();
+  let readCount = 0;
+  const load = h.transport.load;
+  h.transport.load = async (...args) => { readCount += 1; return load(...args); };
+  const reopened = new h.state.ReviewWorkspaceController("doc-1", h.transport);
+  const loading = reopened.load();
+  assert.equal(h.timerCount(), 1);
+  h.timers(); await loading;
+  assert.equal(reopened.getSnapshot().status, "failed");
+  assert.match(reopened.getSnapshot().error, /earlier save is still awaiting confirmation/);
+  assert.equal(readCount, 0);
+  assert.equal(h.calls.length, 1);
+  assert.equal(h.timerCount(), 0);
+
+  const retry = reopened.reloadSaved();
+  h.timers(); await retry;
+  assert.equal(reopened.getSnapshot().status, "failed");
+  assert.equal(readCount, 0);
+  assert.equal(h.calls.length, 1);
+
+  h.calls[0].finish(); await settle();
+  await reopened.reloadSaved();
+  assert.equal(reopened.getSnapshot().status, "saved");
+  assert.equal(reopened.getSnapshot().workspace.revision, 1);
+  assert.equal(readCount, 1);
+  assert.equal(h.calls.length, 1);
+  assert.equal(h.timerCount(), 0);
+  reopened.dispose();
+});
+
 test("source matching requires exact revision, span, page and Unicode code-point slice", () => {
   const { evidenceMatches } = harness().state;
   const source = { id: "doc-1", source_revision_id: "source-1", source_extraction: { pages: [{ page_number: 2, text: "🙂 obligation", spans: [{ id: "span-1", start: 2, end: 12, text: "obligation" }] }] } };
@@ -300,7 +414,8 @@ test("a complete passage stays one evidence card and navigates to its physical p
   let navigation;
   const { EvidenceList, DocumentSourceView } = loadModule("../src/components/workspace/EvidenceSourcePane.tsx", {
     react: React, "@/components/PDFViewer": props => { navigation = props.navigationRequest; return null; },
-    "./workspaceState": helpers, "./WorkspaceControls": controlsForEvidence,
+    "./evidencePresentation": evidencePresentation,
+    "./workspaceState": helpers, "./WorkspaceControls": controlsForEvidence, "lucide-react": icons,
   });
   const { source, evidence } = passageFixture();
   let opened;
@@ -329,6 +444,31 @@ test("a complete passage stays one evidence card and navigates to its physical p
   assert.equal(navigation.pageNumber, 2);
 });
 
+test("the source PDF has a bounded viewport while preserving the requested physical page", () => {
+  const helpers = harness().state;
+  const controlsForEvidence = loadModule("../src/components/workspace/WorkspaceControls.tsx", {
+    react: React, "./workspaceState": helpers,
+  });
+  let navigation;
+  const { DocumentSourceView } = loadModule("../src/components/workspace/EvidenceSourcePane.tsx", {
+    react: React,
+    "./evidencePresentation": evidencePresentation,
+    "@/components/PDFViewer": props => {
+      navigation = props.navigationRequest;
+      return React.createElement("div", { "data-testid": "pdf-viewer-stub" });
+    },
+    "./workspaceState": helpers, "./WorkspaceControls": controlsForEvidence, "lucide-react": icons,
+  });
+  const html = renderToStaticMarkup(React.createElement(DocumentSourceView, {
+    documentId: "long-doc", filename: "long-synthetic.pdf", source: null,
+    finding: null, evidence: null,
+    navigationRequest: { requestId: 1, pageNumber: 25 }, onReturn() {},
+  }));
+  assert.match(html, /<div class="h-\[75vh\] min-h-\[360px\] max-h-\[900px\] overflow-hidden"><div data-testid="pdf-viewer-stub"><\/div><\/div>/);
+  assert.equal(navigation.pageNumber, 25);
+  // Static rendering checks the height contract, not the browser's PDF scroll position.
+});
+
 test("unmatched evidence renders an explicit limitation and cannot jump to a guessed location", () => {
   const helpers = harness().state;
   const controlsForEvidence = loadModule("../src/components/workspace/WorkspaceControls.tsx", {
@@ -336,7 +476,8 @@ test("unmatched evidence renders an explicit limitation and cannot jump to a gue
   });
   const { EvidenceSourcePane } = loadModule("../src/components/workspace/EvidenceSourcePane.tsx", {
     react: React, "@/components/PDFViewer": () => null, "./workspaceState": helpers,
-    "./WorkspaceControls": controlsForEvidence,
+    "./evidencePresentation": evidencePresentation,
+    "./WorkspaceControls": controlsForEvidence, "lucide-react": icons,
   });
   const finding = { ...initial().runs[0].findings[0], evidence: [{ source_revision_id: "source-1",
     span_id: "not-found", page_number: 25, quote: "Unmatched excerpt", label: "Possible exception" }] };
@@ -369,11 +510,38 @@ test("API mutations carry expected revisions, preserve errors and encode documen
 });
 
 const stateHelpers = loadModule("../src/components/workspace/workspaceState.ts");
+const evidencePresentation = loadModule("../src/components/workspace/evidencePresentation.ts", { "./workspaceState": stateHelpers });
 const controls = loadModule("../src/components/workspace/WorkspaceControls.tsx", { react: React, "./workspaceState": stateHelpers });
+const icon = name => props => React.createElement("i", { ...props, "data-icon": name });
+const icons = Object.fromEntries(["ChevronRight", "FileText", "Info", "CircleHelp", "ArrowLeft", "ArrowRight", "BookOpen", "Settings", "Palette"].map(name => [name, icon(name)]));
 const generationControls = loadModule("../src/components/workspace/ReviewGenerationControls.tsx", {
   react: React, "./workspaceState": stateHelpers, "./WorkspaceControls": controls,
   "@/components/ui/Modal": () => null,
   "@/context/WorkspaceContext": { useWorkspace: () => ({ settings: { has_api_key: true, model_id: "test-model" }, isLoading: false, error: null, refresh() {} }) },
+});
+const evidenceControls = loadModule("../src/components/workspace/EvidenceSourcePane.tsx", {
+  react: React, "@/components/PDFViewer": () => null, "./workspaceState": stateHelpers,
+  "./evidencePresentation": evidencePresentation,
+  "./WorkspaceControls": controls, "lucide-react": icons,
+});
+const askControls = loadModule("../src/components/workspace/FindingAsk.tsx", {
+  react: React, "./workspaceState": stateHelpers, "./WorkspaceControls": controls,
+  "./EvidenceSourcePane": evidenceControls, "@/components/ui/Modal": () => null,
+  "@/context/WorkspaceContext": { useWorkspace: () => ({ settings: { has_api_key: true, model_id: "test-model" }, isLoading: false, error: null, refresh() {} }) },
+});
+const summaryImports = { react: React, "lucide-react": icons, "./workspaceState": stateHelpers,
+  "./WorkspaceControls": controls, "./EvidenceSourcePane": evidenceControls,
+  "./WorkspaceSummaries.module.css": { summaries: "workspace-summaries" } };
+const overviewControls = loadModule("../src/components/workspace/AgreementOverview.tsx", summaryImports);
+const myReviewControls = loadModule("../src/components/workspace/MyReview.tsx", summaryImports);
+const readNoticeControls = loadModule("../src/components/workspace/SourceReadNotice.tsx", summaryImports);
+const headerControls = loadModule("../src/components/workspace/WorkspaceHeader.tsx", {
+  react: React, "./workspaceState": stateHelpers, "./WorkspaceControls": controls,
+  "@/components/shell/AppHeader": appHeaderHarness(),
+});
+const findingControls = loadModule("../src/components/workspace/FindingReview.tsx", {
+  react: React, "./workspaceState": stateHelpers, "./WorkspaceControls": controls, "lucide-react": icons,
+  "./EvidenceSourcePane": evidenceControls, "./FindingAsk": askControls,
 });
 
 test("saving feedback is honest during debounce, brief editing and conflict recovery", () => {
@@ -400,26 +568,236 @@ function renderWorkspace(view, overrides = {}) {
     "./workspaceState": stateHelpers, "./WorkspaceControls": controls,
     "./EvidenceSourcePane": { EvidenceSourcePane: () => null, DocumentSourceView: () => null, EvidenceList: () => null },
     "./ReviewGenerationControls": generationControls,
+    "./FindingAsk": askControls,
+    "./WorkspaceHeader": headerControls,
+    "./ReviewSetup": { ReviewSetup: () => React.createElement("section", { "data-testid": "review-setup" }, "Prepare a review") },
+    "./FindingReview": findingControls,
+    "./AgreementOverview": overviewControls, "./MyReview": myReviewControls, "./SourceReadNotice": readNoticeControls,
+    "./ReviewWorkspace.module.css": { shell: "workspace-shell" },
   }).default;
   return renderToStaticMarkup(React.createElement(component, { documentId: "doc-1" }));
 }
+
+function initialWorkspaceReadHarness(overrides = {}) {
+  const calls = [];
+  const state = { workspace: null, status: "failed", pending: 0, localDrafts: {}, localAskDrafts: {},
+    briefDraft: null, error: "Request could not be completed." };
+  const reads = { state, source: null, filename: "Agreement", sourceStatus: "error", metadataStatus: "error",
+    sourceError: "Source text could not be loaded.", metadataError: "Agreement details could not be loaded.",
+    retrySource: () => calls.push("source"), retryMetadata: () => calls.push("metadata"), ...overrides };
+  const component = loadModule("../src/components/workspace/ReviewWorkspace.tsx", {
+    react: { ...React, useEffect() {}, useRef: current => ({ current }), useState: value => [value, () => {}] },
+    "next/link": ({ children, ...props }) => React.createElement("a", props, children),
+    "next/navigation": { useRouter: () => ({ push() { assert.fail("Initial read recovery must not navigate automatically"); } }) },
+    "@/components/ui/Modal": () => null,
+    "@/hooks/useReviewWorkspace": { useReviewWorkspace: () => ({ ...reads,
+      controller: { reloadSaved: () => calls.push("workspace") } }) },
+    "./workspaceState": stateHelpers, "./WorkspaceControls": controls,
+    "./EvidenceSourcePane": evidenceControls, "./ReviewGenerationControls": generationControls,
+    "./WorkspaceHeader": headerControls, "./FindingReview": findingControls,
+    "./ReviewSetup": { ReviewSetup: () => null },
+    "./AgreementOverview": overviewControls, "./MyReview": myReviewControls, "./SourceReadNotice": readNoticeControls,
+    "./ReviewWorkspace.module.css": { workspace: "workspace-shell" },
+  }).default;
+  const tree = () => component({ documentId: "doc-1" });
+  function nodes(node) {
+    if (!React.isValidElement(node)) return [];
+    const children = typeof node.type === "function" ? [node.type(node.props)] : React.Children.toArray(node.props.children);
+    return [node, ...children.flatMap(nodes)];
+  }
+  return { calls, state, reads, html: () => renderToStaticMarkup(tree()),
+    click(label) {
+      const action = nodes(tree()).find(node => node.type === "button" && node.props.children === label);
+      assert.ok(action, `Missing read recovery action: ${label}`);
+      action.props.onClick();
+    } };
+}
+
+test("initial workspace read failure does not masquerade as a failed save", () => {
+  const h = initialWorkspaceReadHarness();
+  const html = h.html();
+  assert.match(html, /The review workspace could not be loaded/);
+  assert.match(html, /Request could not be completed/);
+  assert.match(html, /Retry reads saved review work/);
+  assert.match(html, /It does not start a review or send a question/);
+  assert.doesNotMatch(html, /Saving could not be confirmed|Retry pending changes|Apply my pending changes|Changes saved locally/);
+  assert.match(html, /href="\/documents"/);
+  assert.match(html, /href="\/review\?documentId=doc-1"/);
+  assert.deepEqual(h.calls, []);
+  h.click("Retry workspace loading");
+  assert.deepEqual(h.calls, ["workspace"]);
+});
+
+test("source and metadata recovery remain independent before a workspace has loaded", () => {
+  const h = initialWorkspaceReadHarness();
+  const before = JSON.stringify(h.state);
+  assert.match(h.html(), /Source text could not be loaded/);
+  assert.match(h.html(), /Agreement details could not be loaded/);
+  h.click("Retry source loading");
+  h.click("Retry agreement details");
+  assert.deepEqual(h.calls, ["source", "metadata"]);
+  assert.equal(JSON.stringify(h.state), before);
+  h.reads.sourceStatus = "ready";
+  h.reads.sourceError = null;
+  assert.doesNotMatch(h.html(), /Retry source loading/);
+  assert.match(h.html(), /Retry agreement details/);
+  assert.match(h.html(), /Retry workspace loading/);
+});
+
+test("initial workspace loading reports a read in progress and still offers other failed-read recovery", () => {
+  const h = initialWorkspaceReadHarness();
+  h.state.status = "loading";
+  h.state.error = null;
+  const html = h.html();
+  assert.match(html, /role="status"[^>]*>Loading saved review workspace/);
+  assert.doesNotMatch(html, /could not be loaded\. Request|Retry workspace loading|Saving changes/);
+  assert.match(html, /Retry source loading/);
+  assert.match(html, /Retry agreement details/);
+  h.click("Retry source loading");
+  assert.deepEqual(h.calls, ["source"]);
+});
+
+function workspaceInteractionHarness(workspace, source = null) {
+  const slots = [];
+  const operations = [];
+  let cursor = 0;
+  const state = { workspace, status: "saved", pending: 0, localDrafts: {}, localAskDrafts: {}, briefDraft: null, error: null };
+  const FindingProbe = () => null;
+  const DocumentProbe = () => null;
+  const component = loadModule("../src/components/workspace/ReviewWorkspace.tsx", {
+    react: { ...React, useEffect() {}, useRef: current => ({ current }), useState(value) {
+      const index = cursor++;
+      if (!(index in slots)) slots[index] = value;
+      return [slots[index], update => { slots[index] = typeof update === "function" ? update(slots[index]) : update; }];
+    } },
+    "next/link": () => null, "next/navigation": { useRouter: () => ({ push() {} }) },
+    "@/components/ui/Modal": () => null,
+    "@/hooks/useReviewWorkspace": { useReviewWorkspace: () => ({
+      controller: { enqueue(operation) { operations.push(clone(operation)); state.workspace = apply(state.workspace, operation); } },
+      state, source, filename: "synthetic.pdf", sourceError: null,
+    }) },
+    "./workspaceState": stateHelpers, "./WorkspaceControls": controls,
+    "./EvidenceSourcePane": { DocumentSourceView: DocumentProbe, EvidenceList: () => null },
+    "./ReviewGenerationControls": generationControls,
+    "./WorkspaceHeader": headerControls, "./FindingReview": { FindingReview: FindingProbe },
+    "./ReviewSetup": { ReviewSetup: () => null },
+    "./AgreementOverview": overviewControls, "./MyReview": myReviewControls, "./SourceReadNotice": readNoticeControls,
+    "./ReviewWorkspace.module.css": { workspace: "workspace-shell" },
+  }).default;
+  function tree() { cursor = 0; return component({ documentId: workspace.document_id }); }
+  function children(node) {
+    if (!React.isValidElement(node)) return [];
+    return [node, ...React.Children.toArray(node.props.children).flatMap(children)];
+  }
+  return { state, operations,
+    finding: () => children(tree()).find(node => node.type === FindingProbe)?.props,
+    document: () => children(tree()).find(node => node.type === DocumentProbe)?.props,
+    overview: () => children(tree()).find(node => node.type === overviewControls.AgreementOverview)?.props,
+    myReview: () => children(tree()).find(node => node.type === myReviewControls.MyReview)?.props,
+    tab(label) { children(tree()).find(node => node.type === "button" && node.props.children[0] === label).props.onClick(); },
+    selectRun(id) { children(tree()).find(node => node.type === "select").props.onChange({ target: { value: id } }); },
+    resume() { children(tree()).find(node => node.type === overviewControls.AgreementOverview).props.onResume(); },
+  };
+}
+
+test("workspace selection keeps exact references sharing one span through source navigation and saved-state refresh", () => {
+  const workspace = initial();
+  const { source, evidence } = passageFixture();
+  const short = { ...evidence, end_span_id: null, quote: source.source_extraction.pages[0].spans[0].text, label: "Base wording" };
+  const qualified = { ...evidence, label: "Rule and qualifications" };
+  const differentlyLabelled = { ...evidence, label: "Continuing charges" };
+  workspace.runs[0].findings[0].evidence = [short, qualified, differentlyLabelled];
+  const h = workspaceInteractionHarness(workspace, source);
+  h.tab("Findings");
+  h.finding().onSelectEvidence(h.finding().finding.evidence[1]);
+  let selected = h.finding();
+  assert.deepEqual(selected.selectedEvidence, qualified);
+  assert.equal(h.state.workspace.revision, 2); // Navigation and selection each return cloned saved state.
+  const pane = renderToStaticMarkup(React.createElement(evidenceControls.EvidenceSourcePane, {
+    finding: selected.finding, source, selectedEvidence: selected.selectedEvidence, onOpen() {},
+  }));
+  assert.match(pane, /Only if requested/);
+  assert.match(pane, /Charges continue/);
+  assert.match(pane, /Passage matched to source/);
+  selected.onOpenEvidence(selected.selectedEvidence);
+  assert.deepEqual(h.document().evidence, qualified);
+  assert.equal(h.document().navigationRequest.pageNumber, 2);
+  h.document().onReturn();
+  assert.deepEqual(h.finding().selectedEvidence, qualified);
+  h.finding().onSelectEvidence(h.finding().finding.evidence[2]);
+  selected = h.finding();
+  assert.deepEqual(selected.selectedEvidence, differentlyLabelled);
+  selected.onOpenEvidence(selected.selectedEvidence);
+  assert.deepEqual(h.document().evidence, differentlyLabelled);
+  assert.equal(h.operations.every(operation => operation.type === "set_position"), true);
+  assert.equal(h.operations.every(operation => !Object.hasOwn(operation.position, "index")), true);
+  assert.equal(h.state.workspace.personal["run-1"].position.evidence_span_id, evidence.span_id);
+});
+
+test("exact evidence choice does not leak into another finding or run, and fresh resume uses its stored span", () => {
+  const workspace = initial();
+  const { source, evidence } = passageFixture();
+  workspace.runs[0].findings[0].evidence = [{ ...evidence, label: "First entry" }, { ...evidence, label: "Second entry" }];
+  workspace.runs[0].findings.push({ ...clone(workspace.runs[0].findings[0]), id: "finding-2", title: "Another finding",
+    evidence: [{ ...evidence, label: "Other finding entry" }] });
+  const otherRun = { ...clone(workspace.runs[0]), id: "run-2" };
+  otherRun.findings[0].evidence = [{ ...evidence, label: "Other run entry" }];
+  workspace.runs.unshift(otherRun);
+  workspace.personal["run-2"] = clone(stateHelpers.emptyPersonal());
+  const h = workspaceInteractionHarness(workspace, source);
+  h.tab("Findings");
+  h.finding().onSelectEvidence(h.finding().finding.evidence[1]);
+  h.finding().onFinding("finding-2");
+  assert.equal(h.finding().selectedEvidence, null);
+  assert.equal(h.finding().finding.evidence[0].label, "Other finding entry");
+  h.selectRun("run-2");
+  h.tab("Findings");
+  assert.equal(h.finding().selectedEvidence, null);
+  assert.equal(h.finding().finding.evidence[0].label, "Other run entry");
+
+  const restored = initial();
+  restored.runs[0].findings[0].evidence = clone(workspace.runs[1].findings[0].evidence);
+  restored.personal["run-1"].position = { view: "findings", finding_id: "finding-1", evidence_span_id: evidence.span_id };
+  const fresh = workspaceInteractionHarness(restored, source);
+  fresh.resume();
+  assert.deepEqual(fresh.finding().selectedEvidence, restored.runs[0].findings[0].evidence[0]);
+  assert.equal(fresh.finding().selectedEvidence.label, "First entry");
+});
 
 test("workspace render labels fixture and context mismatch; reopening defaults to overview with explicit resume", () => {
   const html = renderWorkspace("overview");
   assert.match(html, /Synthetic example — not an AI-generated review/);
   assert.match(html, /saved brief differs/);
   assert.match(html, /Continue from saved position/);
-  assert.match(html, /Last saved position: Findings/);
+  assert.match(html, /Saved position: Findings/);
   assert.match(html, /not review completeness/);
+  assert.doesNotMatch(html, /data-testid="review-setup"/);
+});
+
+test("only an unreviewed workspace opens the new setup, never an existing or failed run", () => {
+  const workspace = initial();
+  workspace.runs = [];
+  workspace.personal = {};
+  const html = renderWorkspace("overview", { workspace });
+  assert.match(html, /data-testid="review-setup"/);
+  assert.match(html, />Review setup<\/button>/);
+  assert.doesNotMatch(html, /Pick up where you left off|Continue from saved position/);
+  for (const status of ["ready", "incomplete", "processing", "failed", "interrupted"]) {
+    const stored = initial();
+    stored.runs[0].status = status;
+    assert.doesNotMatch(renderWorkspace("overview", { workspace: stored }), /data-testid="review-setup"/);
+  }
 });
 
 test("finding render keeps draft and saved question distinct and does not turn opened into reviewed", () => {
   const html = renderWorkspace("findings");
   assert.match(html, /A recovered draft/);
   assert.match(html, /Previously saved question/);
-  assert.match(html, /Not marked · Opened/);
-  assert.match(html, /Ask — not available yet/);
-  assert.match(html, /No answer will be generated here/);
+  assert.match(html, /<option value="not_marked" selected="">Not marked<\/option>/);
+  assert.match(html, /Opened/);
+  assert.match(html, /Send question to AI/);
+  assert.match(html, /No questions have been sent for this finding/);
+  assert.match(html, /Typing and saving never send it to AI/);
 });
 
 test("My review contains confirmed saved questions and independent marker groups, not draft wording", () => {
@@ -428,7 +806,38 @@ test("My review contains confirmed saved questions and independent marker groups
   assert.doesNotMatch(html, /A recovered draft/);
   assert.match(html, /Revisit/);
   assert.match(html, /Reviewed by me/);
-  assert.match(html, /Nothing marked here yet/);
+  assert.match(html, /Nothing marked here in this run/);
+});
+
+test("My review source navigation selects the exact finding reference and returns to the takeaway", () => {
+  const workspace = initial();
+  const { source, evidence } = passageFixture();
+  workspace.runs[0].findings.push({ ...clone(workspace.runs[0].findings[0]), id: "finding-2", title: "Second finding",
+    evidence: [{ ...evidence, label: "Base" }, { ...evidence, label: "Qualifications" }] });
+  const h = workspaceInteractionHarness(workspace, source);
+  h.tab("My review");
+  const selected = h.myReview().run.findings[1];
+  h.myReview().onSource(selected.id, selected.evidence[1]);
+  assert.equal(h.document().finding.id, "finding-2");
+  assert.equal(h.document().evidence.label, "Qualifications");
+  assert.equal(h.document().returnLabel, "Return to My review");
+  assert.equal(h.operations.at(-1).position.finding_id, "finding-2");
+  h.document().onReturn();
+  assert.ok(h.myReview());
+  assert.equal(h.operations.at(-1).position.view, "my_review");
+});
+
+test("Overview keeps normal rerun controls secondary and opens recovery controls when needed", () => {
+  const h = workspaceInteractionHarness(initial());
+  assert.equal(h.overview().controlsOpen, false);
+  h.state.reviewAction = { status: "uncertain" };
+  assert.equal(h.overview().controlsOpen, true);
+  h.state.reviewAction = { status: "idle" };
+  h.state.briefDraft = { ...brief, priorities: "Unconfirmed brief" };
+  assert.equal(h.overview().controlsOpen, true);
+  h.state.briefDraft = null;
+  h.state.workspace.runs[0].status = "processing";
+  assert.equal(h.overview().controlsOpen, true);
 });
 
 test("starting review confirms dirty brief and all draft timers before one paid request", async () => {
@@ -629,7 +1038,7 @@ test("AI overview render exposes incomplete status, provenance, coverage and ret
   assert.match(html, /AI review — incomplete/);
   assert.match(html, /This review is incomplete/);
   assert.match(html, /Source-backed overview/);
-  assert.match(html, /Pages omitted from review input: 2/);
+  assert.match(html, /Pages omitted from this review: 2/);
   assert.match(html, /Synthetic example — available/);
   assert.match(html, /Prompt: review-v1/);
   assert.match(html, /usage unavailable; this does not mean no charge/);
@@ -656,4 +1065,315 @@ test("uncertain request controls expose read-only recovery and charge warning, n
   assert.doesNotMatch(html, /Retry this request with the same ID/);
   assert.match(html, /Selected model/);
   assert.match(html, /test-model/);
+});
+
+function askTurn(overrides = {}) {
+  return { id: "ask-1", run_id: "run-1", finding_id: "finding-1", source_revision_id: "source-1",
+    question: "Does another clause qualify this?", created_at: "2026-01-01", completed_at: "2026-01-01",
+    status: "ready", answer: [{ text: "A conditional extension may apply.", evidence: [] }], limitations: [], failure: null,
+    history_turn_ids: [], include_history: true, history_truncated: false,
+    generation: { model_id: "test-model", endpoint: "chat.completions", reasoning_effort: "medium", prompt_version: "ask-v1",
+      schema_version: "ask-v1", extraction_version: "extract-v1", estimated_input_tokens: 1000, max_completion_tokens: 2000,
+      usage: null, duration_ms: 2000 },
+    coverage: { page_count: 3, extracted_pages: [1, 3], omitted_pages: [2], input_scope: "all_extracted_text", limitations: ["Page 2 has no extractable text."] },
+    ...overrides };
+}
+
+test("Ask drafts debounce independently from kept-question drafts and never run AI", async () => {
+  const h = harness(); await h.controller.load();
+  h.controller.setDraft("run-1", "finding-1", "Keep this question");
+  h.controller.setAskDraft("run-1", "finding-1", "First AI question");
+  h.controller.setAskDraft("run-1", "finding-1", "Latest AI question");
+  assert.equal(h.controller.getSnapshot().pending, 2);
+  h.timers(); await settle();
+  assert.deepEqual(h.calls.map(call => call.operation.type), ["set_draft", "set_ask_draft"]);
+  assert.equal(h.server().personal["run-1"].drafts["finding-1"], "Keep this question");
+  assert.equal(h.server().personal["run-1"].ask_drafts["finding-1"], "Latest AI question");
+  assert.equal(h.controller.getSnapshot().pending, 0);
+  assert.deepEqual(h.server().personal["run-1"].saved_questions, {});
+  assert.equal(h.calls.filter(call => call.ask || call.generate).length, 0);
+});
+
+test("Ask confirms draft saves, retains question and original context without saving the dirty brief", async () => {
+  const h = harness(); await h.controller.load();
+  h.controller.setBriefDraft({ ...brief, perspective: "provider", priorities: "Unsent changed brief" });
+  h.controller.setAskDraft("run-1", "finding-1", "What qualifies it?");
+  await h.controller.startAsk("run-1", "finding-1", "What qualifies it?", "selected-model", "ask-1", false);
+  assert.deepEqual(h.calls.map(call => call.operation?.type || "ask"), ["set_ask_draft", "ask"]);
+  assert.equal(h.calls[1].revision, 1);
+  assert.equal(h.calls[1].includeHistory, false);
+  assert.equal(h.calls[1].modelId, "selected-model");
+  assert.equal(h.controller.getSnapshot().askAction.status, "idle");
+  assert.deepEqual(h.server().runs[0].context, customer);
+  assert.deepEqual(h.server().brief, brief);
+  assert.equal(h.controller.getSnapshot().briefDraft.priorities, "Unsent changed brief");
+  assert.equal(h.server().personal["run-1"].ask_drafts["finding-1"], "What qualifies it?");
+});
+
+test("failed saves and edits during Ask preparation prevent dispatch and preserve drafts", async () => {
+  const h = harness({ delayed: true }); await h.controller.load();
+  h.controller.setAskDraft("run-1", "finding-1", "Original question");
+  const attempt = h.controller.startAsk("run-1", "finding-1", "Original question", "model", "ask-1");
+  h.controller.setAskDraft("run-1", "finding-1", "Newer question");
+  h.calls[0].finish(); h.timers(); await settle();
+  h.calls[1].finish(); await attempt;
+  assert.equal(h.calls.some(call => call.ask), false);
+  assert.match(h.controller.getSnapshot().askAction.error, /not sent/);
+  assert.equal(h.server().personal["run-1"].ask_drafts["finding-1"], "Newer question");
+  for (const code of ["NETWORK_ERROR", "REVISION_CONFLICT"]) {
+    const failed = harness(); await failed.controller.load();
+    failed.failNext(Object.assign(new Error("Save failed"), { code }));
+    failed.controller.setAskDraft("run-1", "finding-1", "Retain me");
+    await failed.controller.startAsk("run-1", "finding-1", "Retain me", "model", "ask-1");
+    assert.equal(failed.calls.some(call => call.ask), false);
+    assert.equal(failed.controller.getSnapshot().localAskDrafts[failed.state.draftKey("run-1", "finding-1")], "Retain me");
+  }
+});
+
+test("Ask and review generation mutually exclude paid work, including double clicks", async () => {
+  const h = harness({ delayed: true }); await h.controller.load();
+  h.controller.setAskDraft("run-1", "finding-1", "Question");
+  const first = h.controller.startAsk("run-1", "finding-1", "Question", "model", "ask-1");
+  await h.controller.startAsk("run-1", "finding-1", "Question", "model", "ask-2");
+  await h.controller.startReview("model", "review-1");
+  assert.equal(h.state.hasUnconfirmedChanges(h.controller.getSnapshot()), true);
+  h.calls[0].finish(); await first;
+  assert.equal(h.calls.filter(call => call.ask).length, 1);
+  assert.equal(h.calls.filter(call => call.generate).length, 0);
+
+  const g = harness({ delayed: true }); await g.controller.load();
+  g.controller.setBriefDraft(customer);
+  const review = g.controller.startReview("model", "review-1");
+  await g.controller.startAsk("run-1", "finding-1", "Question", "model", "ask-1");
+  g.calls[0].finish(); await review;
+  assert.equal(g.calls.filter(call => call.ask).length, 0);
+});
+
+test("Ask result cannot erase edits made during the request or automatically apply them", async () => {
+  const h = harness(); await h.controller.load();
+  const ask = h.transport.ask;
+  let finish;
+  h.transport.ask = (...args) => new Promise(resolve => { finish = async () => resolve(await ask(...args)); });
+  h.controller.setAskDraft("run-1", "finding-1", "Sent question");
+  const pending = h.controller.startAsk("run-1", "finding-1", "Sent question", "model", "ask-1");
+  await settle();
+  h.controller.setAskDraft("run-1", "finding-1", "Next question drafted meanwhile"); h.timers();
+  h.controller.setDraft("run-1", "finding-1", "Keep separate wording"); h.timers();
+  finish(); await pending;
+  assert.equal(h.controller.getSnapshot().status, "review");
+  assert.equal(h.server().personal["run-1"].ask_drafts["finding-1"], "Sent question");
+  assert.equal(h.controller.getSnapshot().localAskDrafts[h.state.draftKey("run-1", "finding-1")], "Next question drafted meanwhile");
+  h.controller.retryPending(); await settle();
+  assert.equal(h.server().personal["run-1"].ask_drafts["finding-1"], "Next question drafted meanwhile");
+  assert.equal(h.server().personal["run-1"].drafts["finding-1"], "Keep separate wording");
+  assert.equal(h.calls.filter(call => call.ask).length, 1);
+});
+
+test("lost Ask response recovers through GET without another paid call or lost draft", async () => {
+  const h = harness(); await h.controller.load();
+  const ask = h.transport.ask;
+  h.transport.ask = async (...args) => { await ask(...args); throw new Error("Response lost"); };
+  h.controller.setAskDraft("run-1", "finding-1", "Keep question");
+  await h.controller.startAsk("run-1", "finding-1", "Keep question", "model", "ask-1");
+  assert.equal(h.controller.getSnapshot().askAction.status, "uncertain");
+  h.controller.retryPending(); await h.controller.retryAskRequest();
+  await h.controller.startReview("model", "review-1");
+  await h.controller.startAsk("run-1", "finding-1", "Keep question", "model", "ask-2");
+  assert.equal(h.calls.filter(call => call.ask).length, 1);
+  await h.controller.reloadSaved();
+  assert.equal(h.controller.getSnapshot().askAction.status, "idle");
+  assert.equal(h.controller.getSnapshot().workspace.ask_turns[0].id, "ask-1");
+  assert.equal(h.calls.filter(call => call.ask).length, 1);
+});
+
+test("unrecorded uncertain Ask requires explicit same-ID replay with the immutable question snapshot", async () => {
+  const h = harness(); await h.controller.load();
+  const ask = h.transport.ask; const calls = []; let fail = true;
+  h.transport.ask = async (...args) => { calls.push(args); if (fail) { fail = false; throw new Error("Network uncertain"); } return ask(...args); };
+  await h.controller.startAsk("run-1", "finding-1", "Original question", "original-model", "ask-1", false);
+  await h.controller.retryAskRequest(); assert.equal(calls.length, 1);
+  await h.controller.reloadSaved();
+  assert.equal(h.controller.getSnapshot().askAction.canRetryRequest, true);
+  h.controller.setAskDraft("run-1", "finding-1", "New local question");
+  h.controller.retryPending(); await settle();
+  assert.equal(calls.length, 1);
+  await h.controller.retryAskRequest();
+  assert.deepEqual(calls[0], calls[1]);
+  assert.equal(h.controller.getSnapshot().status, "review");
+  assert.equal(h.controller.getSnapshot().localAskDrafts[h.state.draftKey("run-1", "finding-1")], "New local question");
+});
+
+test("Ask preflight errors resolve only after refresh, but unconfirmed saves remain uncertain", async () => {
+  for (const code of ["ASK_INPUT_REJECTED", "ASK_ALREADY_PROCESSING", "ASK_REVIEW_UNAVAILABLE", "ASK_STORAGE_LIMIT", "ASK_TURN_LIMIT", "INVALID_QUESTION", "REVIEW_MODEL_CHANGED"]) {
+    const h = harness(); await h.controller.load();
+    h.transport.ask = async () => { throw Object.assign(new Error("Rejected"), { code }); };
+    await h.controller.startAsk("run-1", "finding-1", "Question", "model", "ask-1");
+    assert.equal(h.controller.getSnapshot().askAction.requestRejected, true, code);
+    await h.controller.reloadSaved();
+    assert.equal(h.controller.getSnapshot().askAction.status, "idle", code);
+  }
+  const h = harness(); await h.controller.load();
+  h.transport.ask = async () => { throw Object.assign(new Error("Save unknown"), { code: "ASK_SAVE_UNCONFIRMED" }); };
+  await h.controller.startAsk("run-1", "finding-1", "Question", "model", "ask-1");
+  await h.controller.reloadSaved();
+  assert.equal(h.controller.getSnapshot().askAction.status, "uncertain");
+  assert.equal(h.controller.getSnapshot().askAction.requestRejected, false);
+});
+
+test("reopening a processing Ask is read-only, blocks paid work, warns on leave and allows explicit interrupt", async () => {
+  const h = harness(); h.server().ask_turns = [askTurn({ status: "processing", answer: [], completed_at: null })];
+  await h.controller.load(); await h.controller.reloadSaved();
+  assert.equal(h.state.hasUnconfirmedChanges(h.controller.getSnapshot()), true);
+  await h.controller.startAsk("run-1", "finding-1", "Another question", "model", "ask-2");
+  await h.controller.startReview("model", "review-1");
+  assert.equal(h.calls.length, 0);
+  await h.controller.interruptAsk("ask-1");
+  assert.equal(h.calls[0].interruptAsk, true);
+  assert.equal(h.controller.getSnapshot().workspace.ask_turns[0].status, "interrupted");
+  assert.equal(h.state.hasUnconfirmedChanges(h.controller.getSnapshot()), false);
+});
+
+test("Ask draft conflict recovery keeps both local and saved wording for deliberate comparison", async () => {
+  const h = harness(); await h.controller.load();
+  h.setServer(apply(h.server(), { type: "set_ask_draft", run_id: "run-1", finding_id: "finding-1", text: "Other tab Ask" }));
+  h.controller.setAskDraft("run-1", "finding-1", "My Ask draft"); h.timers(); await settle();
+  assert.equal(h.controller.getSnapshot().status, "conflict");
+  await h.controller.reloadSaved();
+  assert.equal(h.controller.getSnapshot().status, "review");
+  assert.equal(h.controller.getSnapshot().workspace.personal["run-1"].ask_drafts["finding-1"], "Other tab Ask");
+  assert.equal(h.controller.getSnapshot().localAskDrafts[h.state.draftKey("run-1", "finding-1")], "My Ask draft");
+  h.controller.retryPending(); await settle();
+  assert.equal(h.server().personal["run-1"].ask_drafts["finding-1"], "My Ask draft");
+  assert.equal(h.calls.some(call => call.ask), false);
+});
+
+test("Ask API uses encoded finding and run identity, revision and explicit history choice", async () => {
+  const calls = [];
+  const api = { async post(path, body, options) { calls.push({ path, body, options }); return { success: true, data: initial() }; } };
+  const { reviewWorkspaceApi } = loadModule("../src/lib/reviewWorkspaceApi.ts", { "@/lib/api": { default: api, __esModule: true } });
+  await reviewWorkspaceApi.ask("doc/a", 12, "request-1", "model", "run/b", "finding/c", "Question?", false);
+  await reviewWorkspaceApi.interruptAsk("doc/a", 13, "ask/d");
+  assert.equal(calls[0].path, "/documents/doc%2Fa/review-workspace/runs/run%2Fb/findings/finding%2Fc/ask");
+  assert.deepEqual(clone(calls[0].body), { expected_revision: 12, request_id: "request-1", model_id: "model", question: "Question?", include_history: false });
+  assert.equal(calls[0].options.timeout, 210000);
+  assert.equal(calls[1].path, "/documents/doc%2Fa/review-workspace/ask/ask%2Fd/interrupt");
+  assert.equal(calls[1].body.expected_revision, 13);
+});
+
+test("finding Ask render isolates conversation, saved-question wording, drafts and original perspective", () => {
+  const workspace = initial();
+  workspace.personal["run-1"].ask_drafts = { "finding-1": "Recovered Ask draft" };
+  workspace.ask_turns = [askTurn(), askTurn({ id: "ask-other", finding_id: "another-finding", question: "Other finding question" })];
+  const html = renderWorkspace("findings", { workspace });
+  assert.match(html, /Recovered Ask draft/);
+  assert.match(html, /Does another clause qualify this/);
+  assert.doesNotMatch(html, /Other finding question/);
+  assert.match(html, /Example Customer/);
+  assert.match(html, /real, paid AI answer/);
+  assert.match(html, /separately from Keep a question/);
+  assert.match(html, /last 6 usable/);
+  assert.match(html, /Model: test-model · reasoning: medium/);
+  assert.match(html, /Omitted pages: 2/);
+  assert.match(html, /not correctness, completeness or legal verification/);
+});
+
+test("Ask evidence uses the source adapter for passages outside the original finding's citations", () => {
+  const { source, evidence } = passageFixture();
+  const turn = askTurn({ answer: [{ text: "Another passage qualifies this finding.", evidence: [evidence] }] });
+  let opened;
+  const element = askControls.AskTurn({ turn, source, onEvidence(text, item) { opened = { text, item }; },
+    onRefresh() {}, onInterrupt() {}, controlsDisabled: false });
+  const html = renderToStaticMarkup(element);
+  assert.match(html, /Passage matched to source/);
+  assert.match(html, /Read page 2 in the original/);
+  function findEvidence(node) {
+    if (!React.isValidElement(node)) return;
+    if (node.type === evidenceControls.EvidenceList) node.props.onOpen(evidence);
+    React.Children.forEach(node.props.children, findEvidence);
+  }
+  findEvidence(element);
+  assert.equal(opened.item, evidence);
+  assert.equal(opened.text, turn.answer[0].text);
+  assert.equal(stateHelpers.safeReviewPosition(initial().runs[0], "document", "finding-1", evidence.span_id).evidence_span_id, null);
+  const sourceHtml = renderToStaticMarkup(React.createElement(evidenceControls.DocumentSourceView, {
+    documentId: "doc-1", filename: "synthetic.pdf", source, finding: initial().runs[0].findings[0], evidence,
+    answerText: opened.text, navigationRequest: { requestId: 1, pageNumber: 2 }, onReturn() {},
+  }));
+  assert.match(sourceHtml, /Source context for Ask answer/);
+  assert.match(sourceHtml, /Return to this finding/);
+});
+
+test("incomplete, failed and uncertain Ask UI exposes limitations and recovery without false verification", () => {
+  const workspace = initial(); workspace.ask_turns = [askTurn({ status: "incomplete", limitations: ["Missing extracted schedule"] }),
+    askTurn({ id: "ask-2", status: "failed", answer: [], failure: { code: "ASK_GENERATION_FAILED", message: "No usable response." } })];
+  const html = renderWorkspace("findings", { workspace, askAction: { status: "uncertain", runId: "run-1", findingId: "finding-1", error: "Unknown outcome", canRetryRequest: false } });
+  assert.match(html, /This answer is incomplete/);
+  assert.match(html, /Missing extracted schedule/);
+  assert.match(html, /No usable answer was completed/);
+  assert.match(html, /Check saved Ask state/);
+  assert.match(html, /charges may apply/);
+  assert.doesNotMatch(html, /Resend same Ask request/);
+  assert.doesNotMatch(html, /Answer verified/);
+});
+
+test("history availability respects the successful fresh-question boundary and six-turn cap", () => {
+  const turns = Array.from({ length: 8 }, (_, index) => askTurn({ id: `ask-${index}` }));
+  assert.deepEqual(clone(stateHelpers.askHistorySummary(turns, "run-1", "finding-1")), { count: 6, truncated: true });
+  turns.push(askTurn({ id: "fresh", include_history: false }));
+  turns.push(askTurn({ id: "followup", status: "incomplete" }));
+  turns.push(askTurn({ id: "failed-fresh", status: "failed", answer: [], include_history: false }));
+  turns.push(askTurn({ id: "other-finding", finding_id: "other", include_history: false }));
+  turns.push(askTurn({ id: "other-run", run_id: "other", include_history: false }));
+  assert.deepEqual(clone(stateHelpers.askHistorySummary(turns, "run-1", "finding-1")), { count: 2, truncated: false });
+  const workspace = initial(); workspace.ask_turns = turns;
+  const html = renderWorkspace("findings", { workspace });
+  assert.match(html, /since the latest successful fresh question/);
+  assert.match(html, /2 currently available/);
+  assert.doesNotMatch(html, /Older turns stay visible but are omitted from this request/);
+});
+
+test("Ask component only sends on explicit action, with Settings model and the selected history choice", () => {
+  for (const includeHistory of [true, false]) {
+    const calls = [];
+    const workspace = initial(); workspace.personal["run-1"].ask_drafts = { "finding-1": "Persisted question" };
+    const module = loadModule("../src/components/workspace/FindingAsk.tsx", {
+      react: { ...React, useState: initial => [typeof initial === "boolean" ? includeHistory : initial, () => {}] },
+      "./workspaceState": stateHelpers, "./WorkspaceControls": controls, "./EvidenceSourcePane": evidenceControls,
+      "@/components/ui/Modal": () => null,
+      "@/context/WorkspaceContext": { useWorkspace: () => ({ settings: { has_api_key: true, model_id: "selected-in-settings" }, isLoading: false, error: null, refresh() {} }) },
+    }, { crypto: { randomUUID: () => "unique-request" } });
+    const controller = { setAskDraft(...args) { calls.push(["draft", ...args]); }, flushDrafts() { calls.push(["flush"]); },
+      startAsk(...args) { calls.push(["send", ...args]); } };
+    const element = module.FindingAsk({ run: workspace.runs[0], finding: workspace.runs[0].findings[0],
+      state: { workspace, status: "saved", pending: 0, localAskDrafts: {}, reviewAction: { status: "idle" }, askAction: { status: "idle" } },
+      controller, source: null, sourceReady: true, onEvidence() {}, onSettings() {} });
+    const html = renderToStaticMarkup(element);
+    assert.equal(calls.length, 0);
+    if (!includeHistory) assert.match(html, /Fresh question: no earlier Ask turns/);
+    let textarea, send;
+    function visit(node) {
+      if (!React.isValidElement(node)) return;
+      if (node.type === "textarea") textarea = node;
+      if (node.type === controls.Action && node.props.children === "Send question to AI") send = node;
+      React.Children.forEach(node.props.children, visit);
+    }
+    visit(element);
+    textarea.props.onChange({ target: { value: "Updated draft" } }); textarea.props.onBlur();
+    assert.deepEqual(calls.map(item => item[0]), ["draft", "flush"]);
+    assert.equal(send.props.disabled, false);
+    send.props.onClick();
+    assert.deepEqual(calls[2], ["send", "run-1", "finding-1", "Persisted question", "selected-in-settings", "unique-request", includeHistory]);
+  }
+});
+
+test("Ask disposal cancels draft timers and prevents a preparing request from dispatching", async () => {
+  const h = harness({ delayed: true }); await h.controller.load();
+  h.controller.setAskDraft("run-1", "finding-1", "Before close");
+  const pending = h.controller.startAsk("run-1", "finding-1", "Before close", "model", "ask-1");
+  h.controller.dispose(); h.calls[0].finish(); await pending;
+  assert.equal(h.calls.some(call => call.ask), false);
+  const g = harness(); await g.controller.load();
+  g.controller.setAskDraft("run-1", "finding-1", "Unsent");
+  g.controller.dispose(); g.timers(); await settle();
+  assert.equal(g.calls.length, 0);
 });

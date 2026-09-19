@@ -61,15 +61,15 @@ class ErrorBoundary extends Component<Props, State> {
       return (
         <div className="min-h-[400px] flex items-center justify-center p-8">
           <div className="max-w-md mx-auto text-center">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
-              <AlertTriangle className="w-8 h-8 text-red-600" />
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-bg-elevated flex items-center justify-center">
+              <AlertTriangle className="w-8 h-8 text-accent-rose" />
             </div>
 
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">
+            <h2 className="text-xl font-semibold text-text-primary mb-2">
               Something went wrong
             </h2>
 
-            <p className="text-gray-600 mb-6">
+            <p className="text-text-secondary mb-6">
               An unexpected error occurred. Please try refreshing the page or
               contact support if the problem persists.
             </p>
@@ -96,10 +96,10 @@ class ErrorBoundary extends Component<Props, State> {
             {/* Show error details in development */}
             {process.env.NODE_ENV === "development" && this.state.error && (
               <details className="mt-6 text-left">
-                <summary className="cursor-pointer text-sm text-gray-500 hover:text-gray-700">
+                <summary className="cursor-pointer text-sm text-text-secondary hover:text-text-primary">
                   Error Details (Development)
                 </summary>
-                <div className="mt-2 p-4 bg-gray-50 rounded-md text-xs font-mono text-gray-800 overflow-auto">
+                <div className="mt-2 p-4 bg-bg-elevated border border-border-muted rounded-md text-xs font-mono text-text-secondary overflow-auto">
                   <div className="mb-2">
                     <strong>Error:</strong> {this.state.error.message}
                   </div>

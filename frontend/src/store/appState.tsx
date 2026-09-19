@@ -11,6 +11,7 @@ import type {
 } from "@clauseiq/shared-types";
 import { StructuredSummary } from "../context/AnalysisContext";
 import type { DocumentItem } from "@/types/documents";
+import type { Theme } from "@/lib/theme";
 
 // State interfaces
 export interface AnalysisState {
@@ -35,7 +36,7 @@ export interface AppState {
   analysis: AnalysisState;
   ui: {
     sidebarOpen: boolean;
-    theme: "light" | "dark";
+    theme: Theme;
     notifications: Array<{
       id: string;
       type: "info" | "success" | "warning" | "error";
@@ -64,7 +65,7 @@ export type AnalysisAction =
 
 export type UIAction =
   | { type: "UI_TOGGLE_SIDEBAR" }
-  | { type: "UI_SET_THEME"; payload: "light" | "dark" }
+  | { type: "UI_SET_THEME"; payload: Theme }
   | { type: "UI_ADD_NOTIFICATION"; payload: { type: string; message: string } }
   | { type: "UI_REMOVE_NOTIFICATION"; payload: string };
 
@@ -93,7 +94,7 @@ const initialAppState: AppState = {
   analysis: initialAnalysisState,
   ui: {
     sidebarOpen: false,
-    theme: "dark", // Default to dark theme
+    theme: "black",
     notifications: [],
   },
 };

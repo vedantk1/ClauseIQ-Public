@@ -3,10 +3,11 @@
  */
 "use client";
 
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import { X } from "lucide-react";
+import { isTopModal, mountModal } from "./modalFocus";
 
 export interface ModalProps {
   isOpen: boolean;
@@ -35,40 +36,24 @@ const Modal: React.FC<ModalProps> = ({
 }) => {
   const modalRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  const dismissal = useRef({ onClose, closeOnEscapeKey });
+  dismissal.current = { onClose, closeOnEscapeKey };
 
-  // Handle escape key
+  // Register only open dialogs. Inline callback changes must not reset focus or scroll locks.
   useEffect(() => {
-    const handleEscapeKey = (event: KeyboardEvent) => {
-      if (closeOnEscapeKey && event.key === "Escape") {
-        onClose();
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener("keydown", handleEscapeKey);
-      // Prevent body scroll
-      document.body.style.overflow = "hidden";
-    }
-
-    return () => {
-      document.removeEventListener("keydown", handleEscapeKey);
-      document.body.style.overflow = "unset";
-    };
-  }, [isOpen, onClose, closeOnEscapeKey]);
+    if (!isOpen || !modalRef.current) return;
+    return mountModal(modalRef.current, () => {
+      if (dismissal.current.closeOnEscapeKey) dismissal.current.onClose();
+    });
+  }, [isOpen]);
 
   // Handle overlay click
   const handleOverlayClick = (event: React.MouseEvent) => {
-    if (closeOnOverlayClick && event.target === overlayRef.current) {
+    if (closeOnOverlayClick && event.target === overlayRef.current && isTopModal(modalRef.current)) {
       onClose();
     }
   };
-
-  // Focus management
-  useEffect(() => {
-    if (isOpen && modalRef.current) {
-      modalRef.current.focus();
-    }
-  }, [isOpen]);
 
   if (!isOpen) {
     return null;
@@ -99,13 +84,13 @@ const Modal: React.FC<ModalProps> = ({
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
-        aria-labelledby={title ? "modal-title" : undefined}
+        aria-labelledby={title ? titleId : undefined}
       >
         {(title || showCloseButton) && (
           <div className="flex items-center justify-between px-6 py-4 border-b border-border-muted">
             {title && (
               <h2
-                id="modal-title"
+                id={titleId}
                 className="text-lg font-semibold text-text-primary"
               >
                 {title}

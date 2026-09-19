@@ -124,6 +124,7 @@ function viewerHarness() {
     },
   };
   const jumps = [];
+  const zooms = [];
   const requests = [];
   const highlights = [];
   const Viewer = () => null;
@@ -134,7 +135,7 @@ function viewerHarness() {
   const imports = {
     react: hooks,
     "@react-pdf-viewer/core": { Worker: empty, Viewer, ScrollMode: { Page: "page", Vertical: "vertical" } },
-    "@react-pdf-viewer/zoom": { zoomPlugin: () => ({ zoomTo() {} }) },
+    "@react-pdf-viewer/zoom": { zoomPlugin: () => ({ zoomTo: scale => zooms.push(scale) }) },
     "@react-pdf-viewer/page-navigation": { pageNavigationPlugin: () => navigation },
     "@react-pdf-viewer/search": { searchPlugin: () => search },
     "./Card": empty, "./Button": Button, "./DropdownMenu": empty,
@@ -158,11 +159,12 @@ function viewerHarness() {
   let props;
   let tree;
   return {
-    jumps, requests, highlights,
+    jumps, zooms, requests, highlights,
     render(nextProps = props) { props = nextProps; cursor = 0; tree = exports.default(props); return tree; },
     async flush() { const pending = effects; effects = []; pending.forEach((effect) => effect()); for (let i = 0; i < 6; i += 1) await Promise.resolve(); },
     viewer() { return findElement(tree, (item) => item.type === Viewer)?.props; },
     toggleMode() { findElement(tree, (item) => item.type === Button && item.props.title?.startsWith("Switch to")).props.onClick(); },
+    zoomIn() { findElement(tree, (item) => item.type === Button && item.props.title === "Zoom in").props.onClick(); },
   };
 }
 
@@ -181,10 +183,13 @@ test("component waits for load, uses latest target, fences old callbacks and pre
   harness.render({ ...props, navigationRequest: { requestId: 2, pageNumber: 25 } });
   const first = harness.viewer();
   assert.ok(first);
+  assert.equal(first.defaultScale, 1);
+  assert.equal(first.enableSmoothScroll, false); // No stale pixel-offset animation across a resize.
   assert.deepEqual(harness.jumps, []);
   const doc = { numPages: 25 };
   first.onDocumentLoad({ doc });
   assert.deepEqual(harness.jumps, [24]);
+  assert.deepEqual(harness.zooms, []); // No concurrent initial zoom can invalidate this jump's measurements.
   await harness.flush();
   first.onPageChange({ currentPage: 0, doc });
   first.onPageChange({ currentPage: 24, doc });
@@ -194,12 +199,18 @@ test("component waits for load, uses latest target, fences old callbacks and pre
   assert.ok(harness.highlights.every((clause) => clause === null));
   assert.equal(harness.requests[0].options.headers["X-ClauseIQ-Local"], "1");
 
+  harness.zoomIn();
+  harness.render();
+  assert.deepEqual(harness.zooms, [1.2]);
   harness.toggleMode();
   harness.render();
   await harness.flush();
   const single = harness.viewer();
   assert.equal(single.initialPage, 24);
+  assert.equal(single.defaultScale, 1.2);
+  assert.equal(single.enableSmoothScroll, false);
   single.onDocumentLoad({ doc: { numPages: 25 } });
+  assert.deepEqual(harness.zooms, [1.2]); // Remounts also start at the selected scale without a load-time resize.
   first.onPageChange({ currentPage: 2, doc }); // Callback from the previous mode.
   assert.deepEqual(pages, [25]);
 
@@ -214,5 +225,29 @@ test("component waits for load, uses latest target, fences old callbacks and pre
   replacement.onDocumentLoad({ doc: { numPages: 25 } });
   assert.equal(errors.length, 1);
   assert.match(errors[0], /outside this PDF/);
+  assert.deepEqual(harness.jumps, [24]);
+});
+
+test("legacy viewer retains its existing load-time zoom behavior", async () => {
+  const harness = viewerHarness();
+  harness.render({ documentId: "legacy-doc" });
+  await harness.flush();
+  harness.render();
+  const viewer = harness.viewer();
+  assert.equal(viewer.defaultScale, undefined);
+  assert.equal(viewer.enableSmoothScroll, true);
+  viewer.onDocumentLoad({ doc: { numPages: 25 } });
+  assert.deepEqual(harness.zooms, [1]);
+  assert.deepEqual(harness.jumps, []);
+});
+
+test("explicit physical-page navigation disables animation even before source metadata is available", async () => {
+  const harness = viewerHarness();
+  harness.render({ documentId: "source-doc", navigationRequest: { requestId: 1, pageNumber: 25 } });
+  await harness.flush();
+  harness.render();
+  const viewer = harness.viewer();
+  assert.equal(viewer.enableSmoothScroll, false);
+  viewer.onDocumentLoad({ doc: { numPages: 25 } });
   assert.deepEqual(harness.jumps, [24]);
 });

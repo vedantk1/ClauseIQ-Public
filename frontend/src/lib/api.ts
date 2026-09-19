@@ -30,6 +30,36 @@ export interface PaginationMeta {
   has_previous: boolean;
 }
 
+type WorkspaceDiagnosticScope = "workspace-source" | "workspace-metadata" | "workspace-state";
+
+interface ReadOptions {
+  signal?: AbortSignal;
+  timeout?: number;
+  diagnosticScope?: WorkspaceDiagnosticScope;
+}
+
+// Only fixed labels and transport metadata: never response bodies, URLs, IDs,
+// filenames, exception messages, credentials or extracted text.
+function reportWorkspaceReadFailure(scope: WorkspaceDiagnosticScope | undefined,
+  response: APIResponse<unknown>, startedAt: number, phase: "headers" | "body", status?: number) {
+  if (!scope || response.success || response.error?.code === "REQUEST_CANCELLED") return;
+  const code = response.error?.code;
+  const category = code === "NETWORK_ERROR" ? "network"
+    : code === "REQUEST_TIMEOUT" ? "timeout"
+      : code === "PARSE_ERROR" ? "response-format"
+        : status && status >= 400 ? "http" : "application";
+  // Serialize fixed fields so browser log collectors retain useful diagnostics
+  // rather than reducing the object to an uninspectable "Object" label.
+  console.error("Workspace read failed", JSON.stringify({
+    resource: scope,
+    category,
+    phase,
+    ...(status ? { status } : {}),
+    elapsedMs: Math.max(0, Date.now() - startedAt),
+    online: typeof navigator === "undefined" ? "unknown" : navigator.onLine,
+  }));
+}
+
 class APIClient {
   private baseURL: string;
 
@@ -39,7 +69,7 @@ class APIClient {
 
   private async request<T>(
     endpoint: string,
-    options: RequestInit & { timeout?: number } = {},
+    options: RequestInit & { timeout?: number; diagnosticScope?: WorkspaceDiagnosticScope } = {},
   ): Promise<APIResponse<T>> {
     const url = `${this.baseURL}${endpoint}`;
     // Prepare headers
@@ -54,15 +84,23 @@ class APIClient {
     }
 
     // Setup timeout if specified
-    const { timeout, ...fetchOptions } = options;
+    const { timeout, diagnosticScope, ...fetchOptions } = options;
+    const startedAt = Date.now();
+    const callerSignal = options.signal;
     let timeoutId: NodeJS.Timeout | undefined;
     let abortController: AbortController | undefined;
+    let timedOut = false;
+    let phase: "headers" | "body" = "headers";
+    const abortFromCaller = () => abortController?.abort();
 
     if (timeout) {
       abortController = new AbortController();
       timeoutId = setTimeout(() => {
+        timedOut = true;
         abortController?.abort();
       }, timeout);
+      if (callerSignal?.aborted) abortFromCaller();
+      else callerSignal?.addEventListener("abort", abortFromCaller, { once: true });
       fetchOptions.signal = abortController.signal;
     }
 
@@ -72,47 +110,55 @@ class APIClient {
         ...fetchOptions,
         headers,
       });
+      phase = "body";
 
-      // Clear timeout on successful response
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-
-
-      return this.parseResponse<T>(response);
+      // Keep existing write/legacy timeout semantics unchanged. Workspace reads
+      // alone keep their bounded timer through response-body consumption.
+      if (!diagnosticScope && timeoutId) clearTimeout(timeoutId);
+      const parsed = await this.parseResponse<T>(response, fetchOptions.signal);
+      reportWorkspaceReadFailure(diagnosticScope, parsed, startedAt, phase, response.status);
+      return parsed;
     } catch (error) {
-      // Clear timeout on error
-      if (timeoutId) {
-        clearTimeout(timeoutId);
+      // This only represents an explicit caller cancellation, not an arbitrary
+      // transport AbortError. Read cleanup may cancel without showing an error.
+      if (callerSignal?.aborted && !timedOut) {
+        return { success: false, error: { code: "REQUEST_CANCELLED", message: "Request cancelled." } };
       }
 
       // Handle abort error (timeout)
-      if (error instanceof Error && error.name === "AbortError") {
-        console.error("API request timed out");
-
-        return {
+      if (timedOut || (error instanceof Error && error.name === "AbortError")) {
+        if (!diagnosticScope) console.error("API request timed out");
+        const result: APIResponse<T> = {
           success: false,
           error: {
             code: "REQUEST_TIMEOUT",
             message: `Request timed out after ${timeout ? timeout / 1000 : "?"} seconds`,
-            details: { timeout, url, method: fetchOptions.method || "GET" },
+            details: { timeout, ...(!diagnosticScope ? { url } : {}), method: fetchOptions.method || "GET" },
           },
         };
+        reportWorkspaceReadFailure(diagnosticScope, result, startedAt, phase);
+        return result;
       }
 
-      console.error("API request failed");
-      return {
+      if (!diagnosticScope) console.error("API request failed");
+      const result: APIResponse<T> = {
         success: false,
         error: {
           code: "NETWORK_ERROR",
           message:
-            error instanceof Error ? error.message : "Network error occurred",
+            diagnosticScope ? "The local API could not be reached."
+              : error instanceof Error ? error.message : "Network error occurred",
         },
       };
+      reportWorkspaceReadFailure(diagnosticScope, result, startedAt, phase);
+      return result;
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+      callerSignal?.removeEventListener("abort", abortFromCaller);
     }
   }
 
-  private async parseResponse<T>(response: Response): Promise<APIResponse<T>> {
+  private async parseResponse<T>(response: Response, signal?: AbortSignal | null): Promise<APIResponse<T>> {
 
     try {
       const data = await response.json();
@@ -140,6 +186,8 @@ class APIClient {
         };
       }
     } catch (parseError) {
+      // Let request distinguish deliberate cleanup from its own timeout.
+      if (signal?.aborted) throw parseError;
       console.error("Failed to parse API response");
 
       return {
@@ -164,12 +212,13 @@ class APIClient {
   async get<T>(
     endpoint: string,
     params?: Record<string, string>,
+    options?: ReadOptions,
   ): Promise<APIResponse<T>> {
     const url = params
       ? `${endpoint}?${new URLSearchParams(params).toString()}`
       : endpoint;
 
-    return this.request<T>(url, { method: "GET" });
+    return this.request<T>(url, { ...options, method: "GET" });
   }
 
   async post<T>(

@@ -7,6 +7,7 @@ import ConditionalNavBar from "@/components/ConditionalNavBar";
 import ThemeProvider from "@/components/ThemeProvider";
 import ToasterProvider from "@/components/ToasterProvider";
 import { ErrorBoundary } from "@/components/ui";
+import { THEME_BOOTSTRAP_SCRIPT } from "@/lib/theme";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -32,7 +33,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" data-theme="dark">
+    <html lang="en" data-theme="black" className="dark" style={{ colorScheme: "dark" }} suppressHydrationWarning>
+      <head><script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP_SCRIPT }} /></head>
       <body
         className={`${inter.variable} ${spaceGrotesk.variable} font-sans bg-bg-primary text-text-primary antialiased`}
       >

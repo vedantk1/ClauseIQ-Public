@@ -5,8 +5,9 @@ import { useWorkspace } from "@/context/WorkspaceContext";
 import { type ReviewWorkspaceController, type WorkspaceSaveState, runLabel, runStatus } from "./workspaceState";
 import { Action, Panel } from "./WorkspaceControls";
 
-export function ReviewGenerationControls({ state, controller, sourceReady, onSettings }: {
+export function ReviewGenerationControls({ state, controller, sourceReady, onSettings, variant = "default" }: {
   state: WorkspaceSaveState; controller: ReviewWorkspaceController; sourceReady: boolean; onSettings: () => void;
+  variant?: "default" | "setup";
 }) {
   const { settings, isLoading, error, refresh } = useWorkspace();
   const [interruptId, setInterruptId] = useState<string | null>(null);
@@ -14,14 +15,15 @@ export function ReviewGenerationControls({ state, controller, sourceReady, onSet
   const working = ["preparing", "generating", "interrupting"].includes(action.status);
   const processing = state.workspace?.runs.filter(run => runStatus(run) === "processing") || [];
   const blocked = ["loading", "failed", "conflict", "review"].includes(state.status);
-  return <Panel>
+  const askBusy = (state.askAction?.status || "idle") !== "idle" || !!state.workspace?.ask_turns?.some(turn => turn.status === "processing");
+  return <Panel className={variant === "setup" ? "cw-setup-generation" : ""}>
     <h2 className="text-lg font-semibold">Start an AI review</h2>
     <p className="mt-2 text-sm">The saved document text and your brief are sent to OpenAI using your key. API charges apply. Earlier runs and personal work are kept separately.</p>
     <p className="mt-3 text-sm">Selected model: <strong>{settings?.model_id || "Unavailable"}</strong></p>
     <p className="mt-1 text-sm text-text-secondary">{isLoading ? "Loading key status…" : settings?.has_api_key && !settings.api_key_needs_reentry ? "Your API key is saved." : "Add or re-enter your API key in Settings before starting. Reading and saving existing work remain available."}</p>
     {error && <p role="alert" className="mt-2 text-sm">Settings could not be confirmed. {error}</p>}
     <div className="mt-3 flex flex-wrap gap-2">
-      <Action disabled={working || action.status === "uncertain" || blocked || !!processing.length || !sourceReady || isLoading || !!error || !settings?.has_api_key || settings.api_key_needs_reentry}
+      <Action className={variant === "setup" ? "cw-start-review" : undefined} disabled={working || action.status === "uncertain" || askBusy || blocked || !!processing.length || !sourceReady || isLoading || !!error || !settings?.has_api_key || settings.api_key_needs_reentry}
         onClick={() => settings && void controller.startReview(settings.model_id, crypto.randomUUID())}>
         {action.status === "preparing" ? "Confirming saved work…" : action.status === "generating" ? "Review request in progress…" : state.briefDraft ? "Save brief and start review" : "Start review"}
       </Action>
@@ -30,6 +32,7 @@ export function ReviewGenerationControls({ state, controller, sourceReady, onSet
     </div>
     {!sourceReady && <p className="mt-2 text-sm">Load an extracted source before starting a review.</p>}
     {blocked && <p className="mt-2 text-sm">Resolve pending save errors or compare local changes before starting.</p>}
+    {askBusy && <p className="mt-2 text-sm">Resolve the current Ask request before starting another paid operation.</p>}
     {working && <p className="mt-3 text-sm" role="status">{action.status === "preparing" ? "Waiting for your brief and pending edits to be confirmed. No review request has been sent yet." : action.status === "interrupting" ? "Marking the saved run interrupted…" : "One bounded request is running. No automatic retry or model switch will occur. Changes you make now stay separate until you confirm applying them."}</p>}
     {action.error && <p role="alert" className="mt-3 text-sm">{action.error}</p>}
     {action.status === "uncertain" && <div className="mt-3 space-y-3 text-sm">
@@ -51,17 +54,27 @@ export function ReviewGenerationControls({ state, controller, sourceReady, onSet
   </Panel>;
 }
 
-export function ReviewRunSummary({ run, contextChanged }: { run: ReviewRun; contextChanged: boolean }) {
-  return <div className="rounded-lg border border-accent-amber/50 bg-accent-amber/10 p-4 text-sm">
+export function ReviewRunSummary({ run, contextChanged, compact = false }: {
+  run: ReviewRun; contextChanged: boolean; compact?: boolean;
+}) {
+  const introduction = <>
     <p className="font-semibold">{run.kind === "fixture" ? "Synthetic example — not an AI-generated review" : runLabel(run)}</p>
     <p className="mt-1">{run.kind === "fixture" ? "Selected example findings for the exact synthetic managed-services PDF, written from Example Customer's perspective. They are not exhaustive and do not establish legal safety." : "AI interpretation can be wrong. A matched quotation confirms its wording and location, not the finding's correctness or a complete legal review."}</p>
+  </>;
+  const warnings = <>
     {runStatus(run) === "incomplete" && <p className="mt-2 font-medium">This review is incomplete. Omitted source pages, output or evidence-validation limitations must be considered alongside any displayed findings.</p>}
     {runStatus(run) === "failed" && <p className="mt-2 font-medium">No usable review was completed. The saved original and earlier reviews remain available.</p>}
     {runStatus(run) === "interrupted" && <p className="mt-2 font-medium">This run was abandoned. Late output will not be attached; provider charges may still apply.</p>}
     {runStatus(run) === "processing" && <p className="mt-2 font-medium">No final result is recorded yet. This is not a completed review.</p>}
     {run.failure && <p className="mt-2">{run.failure.message}</p>}
-    {contextChanged && <p className="mt-2 font-medium">The saved brief differs from this review&apos;s context. These findings keep their original perspective; changing the brief has not rerun them.</p>}
-    <details className="mt-2"><summary className="cursor-pointer">Review context and provenance</summary>
+    {contextChanged && <p className="mt-2 font-medium">{compact ? "The saved brief differs; these findings keep their original perspective and have not been rerun." : "The saved brief differs from this review's context. These findings keep their original perspective; changing the brief has not rerun them."}</p>}
+  </>;
+  const hasWarning = contextChanged || runStatus(run) !== "ready" || !!run.failure;
+  return <div className={compact ? "cw-run-summary" : "rounded-lg border border-accent-amber/50 bg-accent-amber/10 p-4 text-sm"} data-warning={hasWarning || undefined}>
+    {!compact && introduction}
+    {hasWarning && <div className={compact ? "cw-run-warnings" : undefined}>{warnings}</div>}
+    <details className={compact ? "cw-provenance" : "mt-2"}><summary className="cursor-pointer">Review context and provenance</summary>
+      {compact && introduction}
       <p className="mt-2">{run.context.role || run.context.perspective}</p><p>{run.context.priorities || "No extra priorities supplied."}</p>
       <p className="mt-2">Recorded: {run.created_at}</p>
       {run.generation && <div className="mt-2 space-y-1 break-words text-xs">

@@ -23,10 +23,10 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const buttonVariants = {
-  primary: "bg-blue-600 hover:bg-blue-700 text-white shadow-sm",
-  secondary: "bg-gray-600 hover:bg-gray-700 text-white shadow-sm",
-  outline: "border border-gray-300 bg-white hover:bg-gray-50 text-gray-700",
-  ghost: "hover:bg-gray-100 text-gray-700",
+  primary: "bg-accent-purple hover:brightness-110 text-white shadow-sm",
+  secondary: "bg-bg-elevated hover:bg-bg-surface text-text-primary shadow-sm",
+  outline: "border border-border-muted bg-bg-surface hover:bg-bg-elevated text-text-primary",
+  ghost: "hover:bg-bg-elevated text-text-secondary hover:text-text-primary",
   danger: "bg-red-600 hover:bg-red-700 text-white shadow-sm",
   success: "bg-green-600 hover:bg-green-700 text-white shadow-sm",
 };
@@ -51,7 +51,7 @@ export const Button: React.FC<ButtonProps> = ({
   ...props
 }) => {
   const baseStyles =
-    "inline-flex items-center justify-center rounded-md font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none";
+    "inline-flex items-center justify-center rounded-md font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-accent-purple focus:ring-offset-2 focus:ring-offset-bg-primary disabled:opacity-50 disabled:pointer-events-none";
 
   const variantStyles = buttonVariants[variant];
   const sizeStyles = buttonSizes[size];

@@ -1,31 +1,30 @@
-/**
- * Theme provider component that handles theme initialization
- */
 "use client";
 
-import { useEffect } from "react";
-import { useTheme } from "../hooks/useTheme";
+import { useEffect, useState } from "react";
+import { useAppState } from "../store/appState";
+import { applyTheme, persistTheme, readSavedTheme } from "../lib/theme";
 
 export default function ThemeProvider({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { theme } = useTheme();
+  const { state: { ui: { theme } }, dispatch } = useAppState();
+  const [initialized, setInitialized] = useState(false);
 
-  // Apply theme to document element on theme change
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
+    const savedTheme = readSavedTheme();
+    dispatch({ type: "UI_SET_THEME", payload: savedTheme });
+    applyTheme(savedTheme);
+    setInitialized(true);
+  }, [dispatch]);
 
-    // Also set class for backward compatibility if needed
-    if (theme === "dark") {
-      document.documentElement.classList.add("dark");
-      document.documentElement.classList.remove("light");
-    } else {
-      document.documentElement.classList.add("light");
-      document.documentElement.classList.remove("dark");
-    }
-  }, [theme]);
+  useEffect(() => {
+    // Do not overwrite a saved preference with the server's default on mount.
+    if (!initialized) return;
+    applyTheme(theme);
+    persistTheme(theme);
+  }, [theme, initialized]);
 
   return <>{children}</>;
 }

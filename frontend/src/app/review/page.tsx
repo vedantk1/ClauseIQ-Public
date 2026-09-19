@@ -344,9 +344,9 @@ function ReviewWorkspaceContent() {
         toast.success("Document deleted successfully!");
       }, 0);
 
-      // Close modal and redirect to homepage
+      // Return to the Library after deletion.
       setShowDeleteConfirmation(false);
-      router.push("/");
+      router.push("/documents");
     } catch (error) {
       console.error("Error deleting document");
       setTimeout(() => {
@@ -425,7 +425,7 @@ function ReviewWorkspaceContent() {
             />
           </svg>
         ),
-        onClick: () => router.push("/"),
+        onClick: () => router.push("/legacy-analysis"),
       },
       {
         label: isDeleting ? "Deleting..." : "Delete Document",
@@ -596,7 +596,7 @@ function ReviewWorkspaceContent() {
               here.
             </p>
           </div>
-          <Button onClick={() => router.push("/")}>Upload a Document</Button>
+          <Button onClick={() => router.push("/legacy-analysis")}>Upload for earlier analysis</Button>
         </Card>
       </div>
     );
@@ -729,7 +729,7 @@ function ReviewWorkspaceContent() {
         {/* Main Content Area - Now contains Document + Optional Right Panel */}
         <div className="flex-1 flex min-w-0">
           {/* Document Viewer Container - Full height, no header */}
-          <div className="flex-1 bg-gray-50 h-full">
+          <div className="flex-1 bg-bg-surface h-full">
             <PDFViewer
               documentId={documentId || ""}
               fileName={fileName}

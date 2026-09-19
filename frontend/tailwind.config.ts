@@ -28,7 +28,7 @@ const config: Config = {
         text: {
           primary: "var(--text-primary)",
           secondary: "var(--text-secondary)",
-          muted: "var(--text-secondary)", // Add muted variant
+          muted: "var(--text-muted)",
         },
         border: {
           muted: "var(--border-muted)",

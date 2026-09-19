@@ -166,6 +166,14 @@ test("library cards do not label imported documents Complete in either layout", 
   }
 });
 
+test("import route mounts the focused import flow without the earlier analysis screen", () => {
+  const page = loadModule("../src/app/import/page.tsx", {
+    "@/components/documents/ImportAgreement": () => React.createElement("section", null, "Focused import flow"),
+  });
+  const html = renderToStaticMarkup(React.createElement(page.default));
+  assert.equal(html, "<section>Focused import flow</section>");
+});
+
 test("unfinished review renders only source status and original access, never analysis or chat", () => {
   const initial = stateModule.analysisReducer({}, { type: "ANALYSIS_RESET" });
   const currentDocument = { ...initial.currentDocument, id: "doc-1", filename: "synthetic.pdf", ...sourceMetadata };

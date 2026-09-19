@@ -7,17 +7,21 @@ import { formatModelRate, getModelSelectionError, getSelectableModels } from "@/
 import Button from "@/components/Button";
 import Card from "@/components/Card";
 import ConfirmModal from "@/components/ui/ConfirmModal";
+import styles from "./Settings.module.css";
 
 const inputClass = "w-full bg-bg-elevated border border-border-muted rounded-md px-3 py-2 text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-purple disabled:opacity-50";
 
 function ModelDetails({ model }: { model: AvailableModel }) {
-  return <div className="space-y-2 text-sm text-text-secondary">
+  return <details className={styles.modelDetails}>
+    <summary>Model details and reference pricing</summary>
+    <div className="space-y-2 text-sm text-text-secondary">
     <p>{model.description}</p>
     <p>Model ID: <code className="break-all text-text-primary">{model.id}</code></p>
     <p>Base price per 1 million tokens (USD): {formatModelRate(model.input_price_per_million)} input · {formatModelRate(model.output_price_per_million)} output.</p>
     <p className="text-xs">Reference prices checked {model.pricing_verified_on}, not a quote for a document. {model.pricing_note} <a className="text-accent-purple underline" href="https://developers.openai.com/api/docs/pricing" target="_blank" rel="noopener noreferrer">Check OpenAI pricing</a>.</p>
     {model.legacy && <p className="text-xs text-accent-amber">Your saved legacy model is preserved. Choose another model explicitly when you are ready to change it.</p>}
-  </div>;
+    </div>
+  </details>;
 }
 
 export default function Settings() {
@@ -93,20 +97,32 @@ export default function Settings() {
     else void saveSettings(update);
   };
 
-  if (isLoading && !settings) return <div className="max-w-3xl mx-auto px-6 py-12" role="status">Loading workspace settings…</div>;
+  if (isLoading && !settings) return <div className={styles.page} role="status">Loading workspace settings…</div>;
 
-  return <div className="max-w-3xl mx-auto px-6 py-12 space-y-6">
-    <header className="space-y-2">
-      <h1 className="font-heading text-3xl font-semibold">Workspace settings</h1>
-      <p className="text-text-secondary">One local workspace, with no account or administrator setup.</p>
+  return <div className={styles.page}>
+    <header className={styles.intro}>
+      <h1>Settings</h1>
+      <p>Manage AI access and how your local workspace keeps its documents.</p>
     </header>
+    <div className={styles.layout}>
+      <aside className={styles.sidebar}>
+        <nav aria-label="Settings sections">
+          <a href="#ai-access">OpenAI API key</a>
+          <a href="#ai-models">AI models</a>
+          <a href="#document-library">Document library</a>
+          <a href="#notifications">Notifications</a>
+        </nav>
+        <p>One local workspace. No account or administrator setup.</p>
+        <p>Importing, reading and saving your own work do not use AI.</p>
+      </aside>
+      <div className={styles.content}>
     {connectionError && <Card className="p-5 space-y-3"><p role="alert" className="text-accent-rose">{connectionError}</p><Button variant="secondary" onClick={() => void refresh()} loading={isLoading}>Retry connection</Button></Card>}
     {error && <p role="alert" className="text-accent-rose bg-accent-rose/10 rounded-lg p-4">{error}</p>}
     {message && <p role="status" className="text-accent-green bg-accent-green/10 rounded-lg p-4">{message}</p>}
 
     {settings && <>
-      <Card className="p-6 space-y-4">
-        <div><h2 className="text-xl font-semibold">OpenAI API key</h2><p className="text-sm text-text-secondary mt-2">{settings.has_api_key ? "A key is saved. Enter a replacement below if needed." : "Add your own key to enable analysis, document chat, and rewrites."}</p></div>
+      <section id="ai-access" aria-labelledby="ai-access-title" className={styles.section}>
+        <div className={styles.sectionHeading}><div><h2 id="ai-access-title">OpenAI API key</h2><p>{settings.has_api_key ? "Enter a replacement only if you want to change the saved key." : "Add your own key when you are ready to run a review or ask AI."}</p></div><span className={styles.status}>{settings.has_api_key ? "Key saved locally" : "No key saved"}</span></div>
         {settings.api_key_needs_reentry && <p role="alert" className="text-sm text-accent-amber">The previous key could not be restored. Enter your OpenAI API key again; your saved documents are unchanged.</p>}
         <p className="text-sm text-text-secondary">The key is stored encrypted by your local backend, not in browser storage. AI requests send document text to OpenAI and incur charges on your API account. Saving a key does not run an AI request.</p>
         <form onSubmit={(event) => { event.preventDefault(); void saveKey(); }} className="space-y-3">
@@ -118,13 +134,13 @@ export default function Settings() {
             {settings.has_api_key && <Button type="button" variant="secondary" disabled={!!saving} onClick={() => setConfirmRemove(true)}>Remove key</Button>}
           </div>
         </form>
-      </Card>
+      </section>
 
-      <form onSubmit={(event) => { event.preventDefault(); requestSettingsSave(); }} className="space-y-6">
-        <Card className="p-6 space-y-4">
-          <h2 className="text-xl font-semibold">AI models</h2>
+      <form onSubmit={(event) => { event.preventDefault(); requestSettingsSave(); }} className={styles.settingsForm}>
+        <section id="ai-models" aria-labelledby="ai-models-title" className={styles.section}>
+          <div className={styles.sectionHeading}><div><h2 id="ai-models-title">AI models</h2><p>Choose deliberately. Saving a selection does not start or rerun a review.</p></div></div>
           <label htmlFor="analysis-model" className="block text-sm font-medium">Review model</label>
-          <p id="review-model-help" className="text-sm text-text-secondary">Used for document analysis, summaries, clause rewrites, and chat answers.</p>
+          <p id="review-model-help" className="text-sm text-text-secondary">Used for reviews and finding-scoped Ask, as well as earlier analysis, summaries, clause rewrites and chat answers.</p>
           <select id="analysis-model" value={modelId} className={inputClass} aria-describedby="review-model-help" aria-invalid={!reviewModel} disabled={!!saving} onChange={(event) => setModelId(event.target.value)}>
             {!reviewModel && <option value={modelId} disabled>{modelId ? `Unavailable model: ${modelId}` : "Choose a review model"}</option>}
             {getSelectableModels(models, modelId).map((model) => <option key={model.id} value={model.id}>{model.name}{model.legacy ? " (saved legacy model)" : ""}</option>)}
@@ -144,10 +160,10 @@ export default function Settings() {
               {queryModel && <ModelDetails model={queryModel} />}
             </div>
           </details>
-        </Card>
+        </section>
 
-        <Card className="p-6 space-y-4">
-          <h2 className="text-xl font-semibold">Document library</h2>
+        <section id="document-library" aria-labelledby="document-library-title" className={styles.section}>
+          <div className={styles.sectionHeading}><div><h2 id="document-library-title">Document library</h2><p>Keep your agreements until you decide to remove them.</p></div></div>
           <p className="text-sm text-text-secondary">There is no document-count cap. Automatic deletion is off by default, so documents stay until you choose to delete them.</p>
           <label className="flex gap-3 items-start cursor-pointer"><input type="checkbox" checked={retentionEnabled} disabled={!!saving} className="mt-1" onChange={(event) => setRetentionEnabled(event.target.checked)} /><span>Automatically delete older documents</span></label>
           {retentionEnabled && <div className="space-y-2">
@@ -155,15 +171,17 @@ export default function Settings() {
             <input id="retention-days" type="number" min="1" max="36500" step="1" value={retentionDays} disabled={!!saving} className={inputClass} onChange={(event) => setRetentionDays(event.target.value)} />
             <p className="text-sm text-accent-amber">Deletion permanently removes the original PDF, analysis, notes, chat history, and vector data. Existing older documents are included.</p>
           </div>}
-        </Card>
+        </section>
 
-        <Card className="p-6 space-y-4">
-          <h2 className="text-xl font-semibold">Notifications</h2>
+        <section id="notifications" aria-labelledby="notifications-title" className={styles.section}>
+          <h2 id="notifications-title">Notifications</h2>
           <label className="flex items-center gap-3 cursor-pointer"><input type="checkbox" checked={toastsEnabled} disabled={!!saving} onChange={(event) => setToastsEnabled(event.target.checked)} /><span>Show pop-up notifications</span></label>
-        </Card>
-        <Button type="submit" loading={saving === "settings"} disabled={!!saving || !!connectionError}>Save workspace settings</Button>
+        </section>
+        <div className={styles.saveBar}><p>Model, library and notification changes take effect after saving.</p><Button type="submit" loading={saving === "settings"} disabled={!!saving || !!connectionError}>Save workspace settings</Button></div>
       </form>
     </>}
+      </div>
+    </div>
 
     <ConfirmModal isOpen={confirmRemove} title="Remove your API key?" message="AI features will stop working until you add a key again. Existing documents, notes, and saved results will remain."
       confirmText="Remove key" confirmVariant="danger" loading={saving === "remove"} onClose={() => setConfirmRemove(false)} onConfirm={() => void deleteKey()} />

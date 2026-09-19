@@ -289,7 +289,7 @@ export default function AnalyticsDashboard() {
             <p className="text-text-secondary text-sm mb-6">
               Upload and analyze documents to see your analytics dashboard.
             </p>
-            <Button onClick={() => router.push("/")}>Upload Document</Button>
+            <Button onClick={() => router.push("/legacy-analysis")}>Upload for earlier analysis</Button>
           </Card>
         </div>
       </div>
