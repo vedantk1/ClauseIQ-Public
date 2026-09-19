@@ -28,8 +28,9 @@ The retired /legacy-analysis uploader redirects to /import, and /analytics to
 MongoDB and Qdrant must both be available for workspace migration preflight.
 Leave `QDRANT_API_KEY` blank for the unkeyed local service. Blank or whitespace-only
 values are treated as absent so the client uses local HTTP, not key-triggered HTTPS.
-Use matching compatible Qdrant server/client versions; an existing older Docker
-image may need a separately reviewed upgrade before updating stored vectors.
+Compose pins Qdrant server 1.16.3 with Python client 1.16.2. See
+[version and existing-store guidance](../DOCKER.md#qdrant-versions-and-existing-stores)
+before recreating an existing container; setup commands do not back up its data.
 
 The frontend predev/prebuild hooks prepare the pinned Mozilla PDF.js worker,
 fonts, character maps, decoders and annotation assets under public/pdfjs. These
@@ -63,6 +64,14 @@ npm --prefix shared run build
 
 Optional isolated live storage checks (no OpenAI calls) are documented in
 ../backend/tests/README.md. They create and clean up only their own fixture stores.
+
+For Qdrant dependency changes, run `tests/test_qdrant_configuration.py`,
+`tests/test_qdrant_version_contract.py` and `tests/test_workspace_storage.py` with
+the candidate dependency environment, then the opt-in `manual_qdrant_smoke.py`.
+That smoke requires Docker and the exact cached image, creates a separate
+tmpfs-only container on an unused loopback port, and uses deterministic synthetic
+vectors instead of an AI provider. It never starts either Compose stack or
+connects to the application's Qdrant service. See backend/tests/README.md for flags.
 
 For source import/extraction changes, focused checks include:
 

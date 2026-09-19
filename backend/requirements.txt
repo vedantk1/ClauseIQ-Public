@@ -25,7 +25,8 @@ pillow==12.3.0
 # SDK v2 migration is tested against the application's request paths.
 openai==1.109.1
 tiktoken==0.14.0
-qdrant-client==1.19.0
+# Tested with the pinned Compose server; review both versions together (DOCKER.md).
+qdrant-client==1.16.2
 numpy==2.5.2
 
 # Configuration and diagnostics

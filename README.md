@@ -32,7 +32,10 @@ npm run setup
 ~~~
 
 No application secrets or email configuration need to be generated. Check that
-ports 3000, 8000, 27017, 6333 and 6334 are free or already running ClauseIQ, then:
+ports 3000, 8000, 27017, 6333 and 6334 are free or already running ClauseIQ.
+
+Existing installation? Read [Qdrant version and data guidance](DOCKER.md#qdrant-versions-and-existing-stores)
+before recreating its database container with a changed image.
 
 ~~~bash
 docker compose -f docker-compose.dev.yml up -d

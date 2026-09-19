@@ -49,6 +49,36 @@ It does not modify the application's library, settings, credentials, or .env
 files, and makes no OpenAI calls. It is excluded from normal Pytest discovery.
 Review the final cleanup report; a failed cleanup names any remaining fixture.
 
+## Qdrant version compatibility
+
+`test_qdrant_configuration.py` checks optional-key handling and SDK HTTP request
+construction. `test_qdrant_version_contract.py` guards the declared client/server
+pair, used SDK interfaces and disposable-container safety boundaries.
+
+The Qdrant-only smoke uses a separate, owned Docker container, tmpfs storage and
+an automatically selected loopback port. It does not require MongoDB or access
+existing application data. Install the declared Python dependencies first; pull
+the exact image explicitly, then opt in from the repository root:
+
+~~~bash
+docker pull qdrant/qdrant:v1.16.3
+cd backend
+venv/bin/python tests/manual_qdrant_smoke.py --run-isolated-live
+~~~
+
+Without the flag it only describes the check. It never pulls implicitly or runs
+Compose. `--server-version 1.16.2` tests the earlier same-minor server in another
+disposable container if its exact image is cached; `--image` can select a cached
+official-image digest, whose running version is checked before use.
+
+The real application service stores and queries deterministic 3,072-dimensional
+synthetic vectors, checks document/workspace scoping and deletion, and exercises
+paginated scroll plus additive payload/index operations used by migration.
+Provider access is forbidden and SDK version checking stays enabled. Cleanup
+removes only the owned container and its temporary contents; the report checks
+that existing services and named volumes were preserved. This is client/API
+compatibility coverage, not an existing-store upgrade or full migration rehearsal.
+
 ## Source-foundation checks
 
 test_source_extraction.py exercises page inventories, exact line spans, stable
