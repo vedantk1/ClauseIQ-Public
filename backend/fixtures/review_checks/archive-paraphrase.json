@@ -1,0 +1,90 @@
+{
+  "case_id": "archive-paraphrase",
+  "case_version": "authored-check-v1",
+  "source_case_id": "managed-services-25p",
+  "source_sha256": "8ceb74201548b29a7f5c35d7443db7c58a10d2486b9b23cb3716affd5cfa23bd",
+  "scope": "Positive semantic-paraphrase control preserving material duration, trigger, scope and cost conditions.",
+  "context": {
+    "perspective": "customer",
+    "role": "Example Customer",
+    "priorities": "Understand the Archive-only transition extension: its duration anchor, request timing, service scope and whether new transition assistance is chargeable. This focused review does not cover verification, deletion or liability."
+  },
+  "anchors": {
+    "base": {
+      "page": 22,
+      "heading_prefix": "64. Standard transition period"
+    },
+    "charges": {
+      "page": 22,
+      "heading_prefix": "65. Transition plan and charges"
+    },
+    "extension": {
+      "page": 25,
+      "heading_prefix": "73. Archive transition extension"
+    },
+    "verification": {
+      "page": 25,
+      "heading_prefix": "74. Staged export and verification"
+    }
+  },
+  "overview_items": [
+    {
+      "text": "The Archive-only maximum is extended from sixty to 120 days after the effective end date if requested in the exit notice or within ten business days afterward. It remains subject to an agreed plan and approved new-assistance charges.",
+      "evidence": [
+        {
+          "anchor": "base",
+          "label": "Source provision"
+        },
+        {
+          "anchor": "extension",
+          "label": "Source provision"
+        },
+        {
+          "anchor": "charges",
+          "label": "Source provision"
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "archive-extension",
+      "title": "Archive extension remains conditional and chargeable",
+      "facts": "Archive can receive up to 120 days of post-end transition help in place of the usual sixty, counted from the effective end date. The customer must ask in its exit notice or within the following ten business days. An agreed transition plan and approved charges still apply: already-included deliverables are not charged twice, extra assistance uses approved plan rates, and correcting supplier-caused agreed-format export defects is not separately charged. The exception does not renew the operating term or require Portal and Indexing to stay active; the supplier must identify dependencies and propose the minimum extra arrangement needed.",
+      "interpretation": "",
+      "uncertainty": "Actual exit-notice dates, assistance rates and the plan are not supplied.",
+      "next_step": "",
+      "suggested_question": "Can the plan record the request date, effective end date, approved new-work rates and any technical dependencies?",
+      "evidence": [
+        {
+          "anchor": "base",
+          "label": "Source provision"
+        },
+        {
+          "anchor": "charges",
+          "label": "Source provision"
+        },
+        {
+          "anchor": "extension",
+          "label": "Source provision"
+        },
+        {
+          "anchor": "verification",
+          "label": "Source provision"
+        }
+      ],
+      "basis": "source_text",
+      "coverage_basis": ""
+    }
+  ],
+  "expectations": {
+    "claim_issues": [],
+    "priority_gaps": [],
+    "must_not_flag": [
+      "Recognize sixty versus 120 days as a replacement maximum, not an extra 120 days.",
+      "Treat 'within the following ten business days' as a faithful paraphrase of the exit-notice request window.",
+      "Do not demand the verification or deletion provisions that the brief explicitly excludes.",
+      "Do not confuse approved new-work charges with double billing or separately charging supplier-caused export defects."
+    ]
+  }
+}

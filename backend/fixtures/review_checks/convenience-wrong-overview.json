@@ -1,0 +1,75 @@
+{
+  "case_id": "convenience-wrong-overview",
+  "case_version": "authored-check-v1",
+  "source_case_id": "managed-services-25p",
+  "source_sha256": "8ceb74201548b29a7f5c35d7443db7c58a10d2486b9b23cb3716affd5cfa23bd",
+  "scope": "A focused convenience-exit overview with its correct wording attached to the wrong adjacent clause.",
+  "context": {
+    "perspective": "customer",
+    "role": "Example Customer",
+    "priorities": "Understand the customer's convenience-exit notice conditions and charges through exit. This focused review does not cover transition operations or other termination grounds."
+  },
+  "anchors": {
+    "cause": {
+      "page": 21,
+      "heading_prefix": "62. Termination for cause"
+    },
+    "convenience": {
+      "page": 21,
+      "heading_prefix": "63. Convenience and consequences"
+    }
+  },
+  "overview_items": [
+    {
+      "text": "Convenience exit is available to the customer after the first three months on sixty days of written notice, with properly incurred charges through the effective date and previously identified approved noncancelable commitments payable; all future recurring fees are not automatically due.",
+      "evidence": [
+        {
+          "anchor": "cause",
+          "label": "Source provision"
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "convenience",
+      "title": "Convenience exit has notice and cost conditions",
+      "facts": "The customer may end all or part of the services for convenience on sixty days of written notice after the first three months. It owes properly incurred charges through the effective date and approved noncancelable commitments identified before they were entered into. There is no automatic charge for all remaining future recurring fees.",
+      "interpretation": "",
+      "uncertainty": "No actual notice date, incurred charges or approved commitments are established by this supplied agreement.",
+      "next_step": "",
+      "suggested_question": "Which commitments were approved before they were entered into, and what would be the effective date for a proposed notice?",
+      "evidence": [
+        {
+          "anchor": "convenience",
+          "label": "Source provision"
+        }
+      ],
+      "basis": "source_text",
+      "coverage_basis": ""
+    }
+  ],
+  "expectations": {
+    "claim_issues": [
+      {
+        "target": {
+          "kind": "overview",
+          "index": 0
+        },
+        "field": "text",
+        "exact_claim": "Convenience exit is available to the customer after the first three months on sixty days of written notice, with properly incurred charges through the effective date and previously identified approved noncancelable commitments payable; all future recurring fees are not automatically due.",
+        "category": "own_evidence_missing",
+        "reason": "The overview cites cause clause 62 rather than the convenience right and cost conditions in clause 63; the finding's evidence does not repair the overview.",
+        "source_anchors": [
+          "cause",
+          "convenience"
+        ]
+      }
+    ],
+    "priority_gaps": [],
+    "must_not_flag": [
+      "Do not flag the finding's clause 63 support as missing.",
+      "Do not label the overview's sixty-day convenience-exit rule false in the whole source; it is incorrectly supported in that item."
+    ]
+  }
+}

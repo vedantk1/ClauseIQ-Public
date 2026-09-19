@@ -1,0 +1,117 @@
+{
+  "case_id": "archive-qualification",
+  "case_version": "authored-check-v1",
+  "source_case_id": "managed-services-25p",
+  "source_sha256": "8ceb74201548b29a7f5c35d7443db7c58a10d2486b9b23cb3716affd5cfa23bd",
+  "scope": "A finding overstates the Archive extension despite attaching the complete base, timing and charge passages.",
+  "context": {
+    "perspective": "customer",
+    "role": "Example Customer",
+    "priorities": "Understand the Archive-only transition extension: its duration anchor, request timing, service scope and whether new transition assistance is chargeable. This focused review does not cover verification, deletion or liability."
+  },
+  "anchors": {
+    "base": {
+      "page": 22,
+      "heading_prefix": "64. Standard transition period"
+    },
+    "charges": {
+      "page": 22,
+      "heading_prefix": "65. Transition plan and charges"
+    },
+    "extension": {
+      "page": 25,
+      "heading_prefix": "73. Archive transition extension"
+    },
+    "verification": {
+      "page": 25,
+      "heading_prefix": "74. Staged export and verification"
+    }
+  },
+  "overview_items": [
+    {
+      "text": "The Archive-only maximum is extended from sixty to 120 days after the effective end date if requested in the exit notice or within ten business days afterward. It remains subject to an agreed plan and approved new-assistance charges.",
+      "evidence": [
+        {
+          "anchor": "base",
+          "label": "Source provision"
+        },
+        {
+          "anchor": "extension",
+          "label": "Source provision"
+        },
+        {
+          "anchor": "charges",
+          "label": "Source provision"
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "archive-extension",
+      "title": "Archive transition extension",
+      "facts": "The customer can count on 120 days of Archive transition assistance whenever it decides to request it.",
+      "interpretation": "This provides a guaranteed four-month support period without needing to budget for new assistance.",
+      "uncertainty": "",
+      "next_step": "",
+      "suggested_question": "Who will coordinate the Archive handover?",
+      "evidence": [
+        {
+          "anchor": "base",
+          "label": "Source provision"
+        },
+        {
+          "anchor": "charges",
+          "label": "Source provision"
+        },
+        {
+          "anchor": "extension",
+          "label": "Source provision"
+        },
+        {
+          "anchor": "verification",
+          "label": "Source provision"
+        }
+      ],
+      "basis": "source_text",
+      "coverage_basis": ""
+    }
+  ],
+  "expectations": {
+    "claim_issues": [
+      {
+        "target": {
+          "kind": "finding",
+          "id": "archive-extension"
+        },
+        "field": "facts",
+        "exact_claim": "The customer can count on 120 days of Archive transition assistance whenever it decides to request it.",
+        "category": "qualification_missing",
+        "reason": "The maximum is not a guaranteed duration or available on any request date: it is up to 120 days after the effective end date, only for Archive, with a request in the notice or within ten business days afterward and an agreed plan.",
+        "source_anchors": [
+          "base",
+          "extension"
+        ]
+      },
+      {
+        "target": {
+          "kind": "finding",
+          "id": "archive-extension"
+        },
+        "field": "interpretation",
+        "exact_claim": "without needing to budget for new assistance",
+        "category": "source_conflict",
+        "reason": "Approved charges remain payable for new work; only specified already-included duties and supplier-caused agreed-format corrections avoid an additional charge.",
+        "source_anchors": [
+          "charges",
+          "verification"
+        ]
+      }
+    ],
+    "priority_gaps": [],
+    "must_not_flag": [
+      "Do not let the accurate overview repair the unconditional finding.",
+      "Do not flag the Archive-only 120-day maximum itself as fabricated or add sixty days to it."
+    ]
+  }
+}

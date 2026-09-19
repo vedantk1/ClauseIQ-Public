@@ -1,0 +1,57 @@
+{
+  "case_id": "format-narrow-question",
+  "case_version": "authored-check-v1",
+  "source_case_id": "managed-services-25p",
+  "source_sha256": "8ceb74201548b29a7f5c35d7443db7c58a10d2486b9b23cb3716affd5cfa23bd",
+  "scope": "Positive narrowed-absence, real-world uncertainty and practical-question control.",
+  "context": {
+    "perspective": "customer",
+    "role": "Example Customer",
+    "priorities": "Understand whether this supplied PDF names a specific export file format or schema, and what to ask before arranging an export. Other transition issues are outside this focused review."
+  },
+  "anchors": {
+    "export": {
+      "page": 12,
+      "heading_prefix": "36. Export and data correction"
+    }
+  },
+  "overview_items": [
+    {
+      "text": "Clause 36 refers to exports in agreed formats, including enough structural information to associate documents with identifiers, versions and recorded permissions.",
+      "evidence": [
+        {
+          "anchor": "export",
+          "label": "Source provision"
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "export-format",
+      "title": "Locate the format specification",
+      "facts": "Clause 36 refers to exports in agreed formats, including enough structural information to associate documents with identifiers, versions and recorded permissions.",
+      "interpretation": "",
+      "uncertainty": "This supplied PDF does not name a specific export file format or schema. That does not establish whether a format has already been agreed elsewhere.",
+      "next_step": "Ask for any applicable agreed format specification and check a sample export before arranging the operational handover.",
+      "suggested_question": "Can you share any agreed format specification and a sample showing identifiers, versions and recorded permissions?",
+      "evidence": [
+        {
+          "anchor": "export",
+          "label": "Source provision"
+        }
+      ],
+      "basis": "not_found",
+      "coverage_basis": "All 25 supplied pages were reviewed for a named export file format or schema. Clause 36 refers to agreed formats; no separate format specification is included in this supplied PDF."
+    }
+  ],
+  "expectations": {
+    "claim_issues": [],
+    "priority_gaps": [],
+    "must_not_flag": [
+      "The absence claim is limited to this supplied PDF and does not assert that no agreement exists.",
+      "The practical request for a specification/sample is a proposal, not a claim of an additional contractual duty.",
+      "Do not turn unspecified operational records into a source contradiction."
+    ]
+  }
+}

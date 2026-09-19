@@ -1,0 +1,84 @@
+{
+  "case_id": "change-approval-priority-gap",
+  "case_version": "authored-check-v1",
+  "source_case_id": "service-terms-conflict",
+  "source_sha256": "1c78e881d719328ab5807b306c94595482d86c0c05b349b0777629e5c640b759",
+  "scope": "Payment conflict is discussed, while a priority-relevant written-approval protection appears only in attached evidence.",
+  "context": {
+    "perspective": "customer",
+    "role": "Example Customer",
+    "priorities": "Understand payment timing and protection against unapproved extra work or charge changes."
+  },
+  "anchors": {
+    "master": {
+      "page": 1,
+      "heading_prefix": "2. Fees and payment"
+    },
+    "timing": {
+      "page": 2,
+      "heading_prefix": "A2. Invoice timing"
+    },
+    "changes": {
+      "page": 2,
+      "heading_prefix": "A3. Change requests"
+    }
+  },
+  "overview_items": [
+    {
+      "text": "The source gives conflicting invoice-payment periods: clause 2 says thirty days from receipt and Schedule A says seven days from receipt, without a stated priority rule resolving them.",
+      "evidence": [
+        {
+          "anchor": "master",
+          "label": "Source provision"
+        },
+        {
+          "anchor": "timing",
+          "label": "Source provision"
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "payment-conflict",
+      "title": "Resolve the payment deadline",
+      "facts": "The source gives conflicting invoice-payment periods: clause 2 says thirty days from receipt and Schedule A says seven days from receipt, without a stated priority rule resolving them.",
+      "interpretation": "",
+      "uncertainty": "Actual invoice-receipt dates are not supplied.",
+      "next_step": "",
+      "suggested_question": "Will the parties confirm the controlling payment period in writing?",
+      "evidence": [
+        {
+          "anchor": "master",
+          "label": "Source provision"
+        },
+        {
+          "anchor": "timing",
+          "label": "Source provision"
+        },
+        {
+          "anchor": "changes",
+          "label": "Source provision"
+        }
+      ],
+      "basis": "source_text",
+      "coverage_basis": ""
+    }
+  ],
+  "expectations": {
+    "claim_issues": [],
+    "priority_gaps": [
+      {
+        "brief_quote": "protection against unapproved extra work or charge changes",
+        "reason": "A3 requires both parties' written agreement to scope, dates or charge changes before additional work starts. This is not usefully surfaced in candidate prose; an attached quotation alone is not priority coverage.",
+        "source_anchors": [
+          "changes"
+        ]
+      }
+    ],
+    "must_not_flag": [
+      "Do not invent an unsupported claim issue merely because the candidate omits A3 from its prose.",
+      "Do not demand the liability cap or confidentiality survival in this tightly scoped payment/change-control review."
+    ]
+  }
+}

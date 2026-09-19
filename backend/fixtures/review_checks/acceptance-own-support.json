@@ -1,0 +1,83 @@
+{
+  "case_id": "acceptance-own-support",
+  "case_version": "authored-check-v1",
+  "source_case_id": "service-terms-conflict",
+  "source_sha256": "1c78e881d719328ab5807b306c94595482d86c0c05b349b0777629e5c640b759",
+  "scope": "A payment/acceptance comparison whose attached invoice provision does not support the acceptance half.",
+  "context": {
+    "perspective": "customer",
+    "role": "Example Customer",
+    "priorities": "Compare invoice-receipt payment timing with the delivery-triggered acceptance window. This focused review does not cover total charges, change control or exit."
+  },
+  "anchors": {
+    "master": {
+      "page": 1,
+      "heading_prefix": "2. Fees and payment"
+    },
+    "acceptance": {
+      "page": 1,
+      "heading_prefix": "3. Acceptance"
+    },
+    "timing": {
+      "page": 2,
+      "heading_prefix": "A2. Invoice timing"
+    }
+  },
+  "overview_items": [
+    {
+      "text": "The source gives conflicting invoice-payment periods: clause 2 says thirty days from receipt and Schedule A says seven days from receipt, without a stated priority rule resolving them.",
+      "evidence": [
+        {
+          "anchor": "master",
+          "label": "Source provision"
+        },
+        {
+          "anchor": "timing",
+          "label": "Source provision"
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "acceptance-payment",
+      "title": "Payment and acceptance use different triggers",
+      "facts": "Schedule A permits invoicing when each deliverable is submitted and gives seven days from invoice receipt. Separately, the customer has ten business days after delivery to identify a material failure against the written scope, followed by supplier correction and resubmission.",
+      "interpretation": "",
+      "uncertainty": "The thirty-day versus seven-day payment conflict remains unresolved; actual delivery and invoice-receipt dates are not supplied.",
+      "next_step": "",
+      "suggested_question": "Can the parties clarify the applicable payment period and record the delivery and invoice-receipt dates separately?",
+      "evidence": [
+        {
+          "anchor": "timing",
+          "label": "Source provision"
+        }
+      ],
+      "basis": "source_text",
+      "coverage_basis": ""
+    }
+  ],
+  "expectations": {
+    "claim_issues": [
+      {
+        "target": {
+          "kind": "finding",
+          "id": "acceptance-payment"
+        },
+        "field": "facts",
+        "exact_claim": "the customer has ten business days after delivery to identify a material failure against the written scope, followed by supplier correction and resubmission.",
+        "category": "own_evidence_missing",
+        "reason": "The acceptance claim is true in clause 3 but the finding attaches only A2. Evidence attached to a different item cannot support this claim.",
+        "source_anchors": [
+          "acceptance",
+          "timing"
+        ]
+      }
+    ],
+    "priority_gaps": [],
+    "must_not_flag": [
+      "Do not mark the ten-business-day acceptance rule as a source conflict.",
+      "Do not infer a payment deadline from the delivery dates or treat the practical clarification question as a contractual assertion."
+    ]
+  }
+}

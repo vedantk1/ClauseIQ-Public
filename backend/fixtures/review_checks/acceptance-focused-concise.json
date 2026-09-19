@@ -1,0 +1,57 @@
+{
+  "case_id": "acceptance-focused-concise",
+  "case_version": "authored-check-v1",
+  "source_case_id": "service-terms-conflict",
+  "source_sha256": "1c78e881d719328ab5807b306c94595482d86c0c05b349b0777629e5c640b759",
+  "scope": "Positive concise-review control: acceptance only, with irrelevant payment, liability and confidentiality details omitted.",
+  "context": {
+    "perspective": "customer",
+    "role": "Example Customer",
+    "priorities": "Understand the acceptance window and correction/resubmission process only. Payment, change control, termination, liability and confidentiality are outside this focused review."
+  },
+  "anchors": {
+    "acceptance": {
+      "page": 1,
+      "heading_prefix": "3. Acceptance"
+    }
+  },
+  "overview_items": [
+    {
+      "text": "The customer has ten business days after delivery to identify a material failure against the written scope. The supplier must correct an identified failure and resubmit the deliverable.",
+      "evidence": [
+        {
+          "anchor": "acceptance",
+          "label": "Source provision"
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "acceptance",
+      "title": "Record delivery and any material scope failure",
+      "facts": "The customer has ten business days after delivery to identify a material failure against the written scope. The supplier must correct an identified failure and resubmit the deliverable.",
+      "interpretation": "",
+      "uncertainty": "The supplied agreement does not establish actual delivery dates or a defined business-day calendar.",
+      "next_step": "Record the actual delivery date and describe any material failure against the written scope.",
+      "suggested_question": "When was the deliverable received, and which written scope requirement needs correction?",
+      "evidence": [
+        {
+          "anchor": "acceptance",
+          "label": "Source provision"
+        }
+      ],
+      "basis": "source_text",
+      "coverage_basis": ""
+    }
+  ],
+  "expectations": {
+    "claim_issues": [],
+    "priority_gaps": [],
+    "must_not_flag": [
+      "Do not invent deemed acceptance, a refund or a fixed correction deadline.",
+      "Do not flag absence of low-relevance liability or confidentiality terms, or other topics explicitly outside this brief, as priority gaps.",
+      "A practical question about actual delivery is not an assertion that delivery has happened."
+    ]
+  }
+}
