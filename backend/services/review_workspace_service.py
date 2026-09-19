@@ -98,17 +98,68 @@ class ReviewWorkspaceService:
                     raise ValueError("Evidence source mismatch")
                 personal = state.personal.get(run.id)
                 if personal:
-                    if not (set(personal.drafts) | set(personal.saved_questions) | set(personal.markers) | set(personal.opened_finding_ids)).issubset(finding_ids):
+                    if not (set(personal.drafts) | set(personal.ask_drafts) | set(personal.saved_questions) | set(personal.markers) | set(personal.opened_finding_ids)).issubset(finding_ids):
                         raise ValueError("Personal state finding mismatch")
                     self._position(run, personal.position)
+            self._ask_integrity(document, state)
             fixture = self._fixture()
             state.fixture_available = bool(
                 fixture and document.get("source_sha256") == fixture.source_sha256
                 and document.get("extraction_status") == "complete"
             )
             return state
-        except (ValueError, ValidationError, ReviewWorkspaceError):
+        except (KeyError, ValueError, ValidationError, ReviewWorkspaceError):
             raise ReviewWorkspaceError("REVIEW_STATE_INVALID", "Saved review state does not match this source. It has not been changed.") from None
+
+    def _ask_integrity(self, document, state):
+        """Fail closed on cross-scope histories or altered stored answer citations.
+
+        This is a read-only check on new Ask records; old workspaces with no Ask
+        records keep their existing lazy-read behavior and are never migrated.
+        """
+        if not state.ask_turns:
+            return
+        source = SourceExtraction.model_validate(document["source_extraction"])
+        if source.content_sha256 != document.get("source_sha256"):
+            raise ValueError("Ask extraction does not match stored source")
+        pages = {page.page_number: page for page in source.pages}
+        previous = {}
+        processing = 0
+        for turn in state.ask_turns:
+            if turn.id in previous or turn.source_revision_id != state.source_revision_id:
+                raise ValueError("Ask source or identity mismatch")
+            run = self._run(state, turn.run_id)
+            self._finding(run, turn.finding_id)
+            if run.status not in ("ready", "incomplete"):
+                raise ValueError("Ask requires an available review")
+            if len(set(turn.history_turn_ids)) != len(turn.history_turn_ids):
+                raise ValueError("Duplicate Ask history")
+            if not turn.include_history and (turn.history_turn_ids or turn.history_truncated):
+                raise ValueError("Fresh Ask cannot carry conversation history")
+            for history_id in turn.history_turn_ids:
+                older = previous.get(history_id)
+                if (older is None or older.run_id != turn.run_id or older.finding_id != turn.finding_id
+                        or older.status not in ("ready", "incomplete") or not older.answer):
+                    raise ValueError("Ask history does not belong to this conversation")
+            if turn.history_turn_ids != [key for key in previous if key in turn.history_turn_ids]:
+                raise ValueError("Ask history must preserve conversation order")
+            if turn.coverage.page_count != source.page_count:
+                raise ValueError("Ask coverage does not match the source")
+            for item in turn.answer:
+                for evidence in item.evidence:
+                    page = pages.get(evidence.page_number)
+                    if evidence.source_revision_id != state.source_revision_id or page is None:
+                        raise ValueError("Ask evidence source mismatch")
+                    anchors = {span.id: span for span in page.spans}
+                    first = anchors.get(evidence.span_id)
+                    last = anchors.get(evidence.end_span_id or evidence.span_id)
+                    if (first is None or last is None or first.start > last.start
+                            or page.text[first.start:last.end] != evidence.quote):
+                        raise ValueError("Ask evidence is not an exact source passage")
+            previous[turn.id] = turn
+            processing += turn.status == "processing"
+        if processing > 1:
+            raise ValueError("Multiple simultaneous Ask attempts")
 
     async def read(self, document_id, workspace_id):
         return self._state(await self._document(document_id, workspace_id))
@@ -188,6 +239,8 @@ class ReviewWorkspaceService:
                 finding = self._finding(run, operation.finding_id)
                 if operation.type == "set_draft":
                     personal.drafts[finding.id] = operation.text
+                elif operation.type == "set_ask_draft":
+                    personal.ask_drafts[finding.id] = operation.text
                 elif operation.type == "save_question":
                     if not operation.text.strip():
                         raise ReviewWorkspaceError("INVALID_QUESTION", "Enter a question before saving it.", 422)

@@ -2,12 +2,11 @@
 Rate limiting middleware for API protection.
 """
 import time
-from typing import Dict, Optional
-from fastapi import Request, HTTPException, status
-from fastapi.responses import Response
+from typing import Dict
+from fastapi import Request, HTTPException
 import hashlib
-import json
 import logging
+import re
 
 
 logger = logging.getLogger(__name__)
@@ -23,7 +22,7 @@ class RateLimiter:
 
     def get_client_key(self, request: Request) -> str:
         """Generate unique client identifier."""
-        # FND-007: Use proxy-aware IP extraction
+        # Use the direct peer: this local installation has no trusted proxy.
         client_ip = get_real_client_ip(request)
         user_agent = request.headers.get("user-agent", "")
 
@@ -93,8 +92,25 @@ class RateLimitConfig:
 
 def _normalize_path(path: str) -> str:
     """Strip /api/v1 (or /api/vN) prefix so rate-limit rules match both versioned and unversioned paths (FND-006)."""
-    import re
-    return re.sub(r"^/api/v\d+", "", path)
+    return re.sub(r"^/api/v\d+(?=/|$)", "", path).rstrip("/")
+
+
+def get_rate_limit_rule(method: str, path: str) -> tuple[str, Dict[str, int]]:
+    """Choose a fixed operation bucket, never one per document or request ID."""
+    path = _normalize_path(path)
+    if method == "POST":
+        if path in {"/documents/import", "/extract-text"}:
+            return "upload", RateLimitConfig.UPLOAD
+        # Legacy analyze accepts an upload, but also invokes paid AI, so it
+        # shares the same AI budget as the other paid entry points.
+        if path == "/analysis/analyze" or any(re.fullmatch(pattern, path) for pattern in (
+            r"/analysis/clauses/[^/]+/rewrite",
+            r"/documents/[^/]+/review-workspace/generate",
+            r"/documents/[^/]+/review-workspace/runs/[^/]+/findings/[^/]+/ask",
+            r"/chat/[^/]+/message",
+        )):
+            return "ai", RateLimitConfig.AI_ANALYSIS
+    return "default", RateLimitConfig.DEFAULT
 
 
 def get_real_client_ip(request: Request) -> str:
@@ -105,20 +121,12 @@ def get_real_client_ip(request: Request) -> str:
 async def rate_limit_middleware(request: Request, call_next):
     """Rate limiting middleware."""
     try:
-        # FND-006: Normalize path to match both /api/v1/* and bare paths
-        path = _normalize_path(request.url.path)
-
-        if path.startswith("/documents/") and request.method == "POST":
-            config = RateLimitConfig.UPLOAD
-        elif path.startswith("/analysis/"):
-            config = RateLimitConfig.AI_ANALYSIS
-        else:
-            config = RateLimitConfig.DEFAULT
+        bucket, config = get_rate_limit_rule(request.method, request.url.path)
 
         # Check rate limit
         client_key = rate_limiter.get_client_key(request)
         allowed, info = rate_limiter.is_allowed(
-            client_key,
+            f"{client_key}:{bucket}",
             config["limit"],
             config["window"]
         )

@@ -87,6 +87,50 @@ class ReviewFailure(ReviewModel):
     message: str = Field(max_length=2000)
 
 
+class ReviewAskAnswerItem(ReviewModel):
+    text: str = Field(min_length=1, max_length=5000)
+    evidence: list[ReviewEvidence] = Field(default_factory=list, max_length=10)
+
+
+class ReviewAskTurn(ReviewModel):
+    """One explicit paid attempt, separate from saved questions and review output."""
+
+    id: ReviewId
+    run_id: ReviewId
+    finding_id: ReviewId
+    source_revision_id: ReviewId
+    question: str = Field(min_length=1, max_length=5000)
+    created_at: str
+    status: Literal["processing", "ready", "incomplete", "failed", "interrupted"] = "processing"
+    completed_at: str | None = None
+    answer: list[ReviewAskAnswerItem] = Field(default_factory=list, max_length=20)
+    limitations: list[Annotated[str, Field(max_length=2000)]] = Field(default_factory=list, max_length=20)
+    generation: ReviewGeneration
+    coverage: ReviewCoverage
+    failure: ReviewFailure | None = None
+    history_turn_ids: list[ReviewId] = Field(default_factory=list, max_length=6)
+    include_history: bool = True
+    history_truncated: bool = False
+
+    @model_validator(mode="after")
+    def check_answer_state(self):
+        if not self.question.strip():
+            raise ValueError("Ask requires a nonblank question")
+        if len(set(self.history_turn_ids)) != len(self.history_turn_ids) or self.id in self.history_turn_ids:
+            raise ValueError("Ask history must contain distinct earlier attempts")
+        if not self.include_history and (self.history_turn_ids or self.history_truncated):
+            raise ValueError("A fresh question cannot include earlier answers")
+        if self.status in ("processing", "failed", "interrupted") and self.answer:
+            raise ValueError("Unfinished or failed attempts cannot publish an answer")
+        if self.status == "ready" and (not self.answer or self.failure or self.coverage.omitted_pages):
+            raise ValueError("Ready answers require output and no known incomplete state")
+        if self.status == "processing" and (self.completed_at is not None or self.failure is not None):
+            raise ValueError("Processing attempts cannot have terminal metadata")
+        if self.status != "processing" and self.completed_at is None:
+            raise ValueError("Terminal answers require a completion timestamp")
+        return self
+
+
 class ReviewRun(ReviewModel):
     id: ReviewId
     kind: Literal["fixture", "ai"]
@@ -132,6 +176,7 @@ class SavedReviewQuestion(ReviewModel):
 
 class ReviewPersonalState(ReviewModel):
     drafts: dict[ReviewId, Annotated[str, Field(max_length=5000)]] = Field(default_factory=dict, max_length=100)
+    ask_drafts: dict[ReviewId, Annotated[str, Field(max_length=5000)]] = Field(default_factory=dict, max_length=100)
     saved_questions: dict[ReviewId, SavedReviewQuestion] = Field(default_factory=dict, max_length=100)
     markers: dict[ReviewId, ReviewMarker] = Field(default_factory=dict, max_length=100)
     opened_finding_ids: list[ReviewId] = Field(default_factory=list, max_length=100)
@@ -145,6 +190,7 @@ class ReviewWorkspaceResponse(ReviewModel):
     brief: ReviewBrief = Field(default_factory=ReviewBrief)
     runs: list[ReviewRun] = Field(default_factory=list, max_length=100)
     personal: dict[ReviewId, ReviewPersonalState] = Field(default_factory=dict, max_length=100)
+    ask_turns: list[ReviewAskTurn] = Field(default_factory=list, max_length=100)
     fixture_available: bool = False
 
 
@@ -155,6 +201,13 @@ class SetBrief(ReviewModel):
 
 class SetDraft(ReviewModel):
     type: Literal["set_draft"]
+    run_id: ReviewId
+    finding_id: ReviewId
+    text: str = Field(max_length=5000)
+
+
+class SetAskDraft(ReviewModel):
+    type: Literal["set_ask_draft"]
     run_id: ReviewId
     finding_id: ReviewId
     text: str = Field(max_length=5000)
@@ -181,7 +234,7 @@ class SetPosition(ReviewModel):
 
 
 ReviewWorkspaceOperation = Annotated[
-    Union[SetBrief, SetDraft, SaveQuestion, SetMarker, SetPosition], Field(discriminator="type"),
+    Union[SetBrief, SetDraft, SetAskDraft, SaveQuestion, SetMarker, SetPosition], Field(discriminator="type"),
 ]
 
 
@@ -202,3 +255,17 @@ class StartReviewRequest(ReviewModel):
 
 class InterruptReviewRequest(ReviewModel):
     expected_revision: int = Field(ge=0)
+
+
+class StartAskRequest(ReviewModel):
+    expected_revision: int = Field(ge=0)
+    request_id: ReviewId
+    model_id: str = Field(min_length=1, max_length=100)
+    question: str = Field(min_length=1, max_length=5000)
+    include_history: bool = True
+
+    @model_validator(mode="after")
+    def check_question(self):
+        if not self.question.strip():
+            raise ValueError("Ask requires a nonblank question")
+        return self

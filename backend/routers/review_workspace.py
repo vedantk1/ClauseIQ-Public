@@ -6,12 +6,13 @@ from fastapi.responses import JSONResponse
 
 from clauseiq_types.review import (
     FixtureReviewRequest, InterruptReviewRequest, ReviewWorkspaceResponse,
-    ReviewWorkspaceUpdate, StartReviewRequest,
+    ReviewWorkspaceUpdate, StartReviewRequest, StartAskRequest,
 )
 from database.service import get_document_service
 from middleware.api_standardization import APIResponse, create_error_response
 from services.review_workspace_service import ReviewWorkspaceError, ReviewWorkspaceService
 from services.review_generation_service import ReviewGenerationService
+from services.review_ask_service import ReviewAskService
 from workspace import get_workspace_id
 
 
@@ -62,3 +63,13 @@ async def interrupt_review(document_id: str, run_id: str, body: InterruptReviewR
     return await _response(ReviewGenerationService(get_document_service()).interrupt(
         document_id, workspace_id, run_id, body.expected_revision,
     ), document_id)
+
+
+@router.post("/documents/{document_id}/review-workspace/runs/{run_id}/findings/{finding_id}/ask", response_model=APIResponse[ReviewWorkspaceResponse])
+async def ask_review_finding(document_id: str, run_id: str, finding_id: str, body: StartAskRequest, workspace_id: str = Depends(get_workspace_id)):
+    return await _response(ReviewAskService(get_document_service()).start(document_id, workspace_id, run_id, finding_id, body), document_id)
+
+
+@router.post("/documents/{document_id}/review-workspace/ask/{turn_id}/interrupt", response_model=APIResponse[ReviewWorkspaceResponse])
+async def interrupt_review_ask(document_id: str, turn_id: str, body: InterruptReviewRequest, workspace_id: str = Depends(get_workspace_id)):
+    return await _response(ReviewAskService(get_document_service()).interrupt(document_id, workspace_id, turn_id, body.expected_revision), document_id)

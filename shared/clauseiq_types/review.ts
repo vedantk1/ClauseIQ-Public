@@ -50,6 +50,30 @@ export interface ReviewGeneration {
   duration_ms: number | null;
 }
 
+export interface ReviewAskAnswerItem {
+  text: string;
+  evidence: ReviewEvidence[];
+}
+
+export interface ReviewAskTurn {
+  id: string;
+  run_id: string;
+  finding_id: string;
+  source_revision_id: string;
+  question: string;
+  created_at: string;
+  status: "processing" | "ready" | "incomplete" | "failed" | "interrupted";
+  completed_at: string | null;
+  answer: ReviewAskAnswerItem[];
+  limitations: string[];
+  generation: ReviewGeneration;
+  coverage: ReviewCoverage;
+  failure: { code: string; message: string } | null;
+  history_turn_ids: string[];
+  include_history: boolean;
+  history_truncated: boolean;
+}
+
 export interface ReviewRun {
   id: string;
   kind: "fixture" | "ai";
@@ -82,6 +106,8 @@ export interface SavedReviewQuestion {
 
 export interface ReviewPersonalState {
   drafts: Record<string, string>;
+  /** Optional for existing snapshots; independent of saved-question drafts. */
+  ask_drafts?: Record<string, string>;
   saved_questions: Record<string, SavedReviewQuestion>;
   markers: Record<string, ReviewMarker>;
   opened_finding_ids: string[];
@@ -95,12 +121,14 @@ export interface ReviewWorkspaceResponse {
   brief: ReviewBrief;
   runs: ReviewRun[];
   personal: Record<string, ReviewPersonalState>;
+  /** Old snapshots have no Ask attempts. Reading never starts a request. */
+  ask_turns?: ReviewAskTurn[];
   fixture_available: boolean;
 }
 
 export type ReviewWorkspaceOperation =
   | { type: "set_brief"; brief: ReviewBrief }
-  | { type: "set_draft" | "save_question"; run_id: string; finding_id: string; text: string }
+  | { type: "set_draft" | "set_ask_draft" | "save_question"; run_id: string; finding_id: string; text: string }
   | { type: "set_marker"; run_id: string; finding_id: string; marker: ReviewMarker }
   | { type: "set_position"; run_id: string; position: ReviewPosition };
 
@@ -117,4 +145,12 @@ export interface StartReviewRequest {
   expected_revision: number;
   request_id: string;
   model_id: string;
+}
+
+export interface StartAskRequest {
+  expected_revision: number;
+  request_id: string;
+  model_id: string;
+  question: string;
+  include_history: boolean;
 }
