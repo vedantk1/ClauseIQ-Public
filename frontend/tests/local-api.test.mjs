@@ -19,7 +19,7 @@ function createClient(fetch, globals = {}) {
       return { default: { error() {}, success() {} } };
     },
     process: { env: { NEXT_PUBLIC_API_URL: "http://127.0.0.1:8000" } },
-    fetch, FormData, AbortController, URLSearchParams, setTimeout, clearTimeout, Error,
+    fetch, FormData, AbortController, URLSearchParams, setTimeout, clearTimeout, Error, TypeError, SyntaxError,
     console: { error() {}, warn() {} },
     ...globals,
   });
@@ -192,4 +192,80 @@ test("workspace-state body failures have readable phase diagnostics without resp
   assert.equal(fields.phase, "body");
   assert.equal(fields.status, 200);
   assert.doesNotMatch(JSON.stringify(messages), /private|response text|\/documents/);
+});
+
+test("workspace body transport failures are distinct from invalid JSON and retain status safely", async () => {
+  for (const [error, code, category] of [
+    [new TypeError("private body stream detail"), "NETWORK_ERROR", "network"],
+    [new SyntaxError("private response JSON excerpt"), "PARSE_ERROR", "response-format"],
+  ]) {
+    const messages = [];
+    let calls = 0;
+    const client = createClient(async () => {
+      calls++;
+      return { status: 200, ok: true, json: async () => { throw error; } };
+    }, { console: { error: (...args) => messages.push(args) } });
+    const result = await client.get("/documents/private-id/source", undefined,
+      { diagnosticScope: "workspace-source" });
+    assert.equal(result.error.code, code);
+    assert.equal(result.error.details.status, 200);
+    const fields = JSON.parse(messages.find(([label]) => label === "Workspace read failed")[1]);
+    assert.equal(fields.category, category);
+    assert.equal(fields.phase, "body");
+    assert.equal(fields.status, 200);
+    assert.equal(calls, 1);
+    assert.doesNotMatch(JSON.stringify(messages), /private|stream detail|JSON excerpt|\/documents/);
+    if (code === "NETWORK_ERROR") {
+      assert.equal(result.error.message, "The local API response could not be fully read.");
+      assert.deepEqual(Object.keys(result.error.details), ["status"]);
+    }
+  }
+});
+
+test("legacy body failures and invalid decoded envelopes keep response-format semantics", async () => {
+  for (const workspaceRead of [false, true]) {
+    const client = createClient(async () => ({ status: 200, ok: true, json: async () => {
+      if (!workspaceRead) throw new TypeError("legacy body detail");
+      return null;
+    } }));
+    const result = await client.get("/fixture", undefined,
+      workspaceRead ? { diagnosticScope: "workspace-source" } : undefined);
+    assert.equal(result.error.code, "PARSE_ERROR");
+    assert.equal(result.error.details.status, 200);
+    if (!workspaceRead) assert.equal(result.error.details.parseError, "legacy body detail");
+  }
+});
+
+test("body transport classification does not swallow caller cancellation or read timeout", async () => {
+  for (const cancellation of ["caller", "timeout"]) {
+    const controller = new AbortController();
+    const messages = [];
+    let timeout;
+    let calls = 0;
+    const client = createClient(async (_url, { signal }) => {
+      calls++;
+      return { status: 200, ok: true, json: () => new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(new TypeError("private interrupted body")));
+      }) };
+    }, {
+      setTimeout(callback) { timeout = callback; return 1; }, clearTimeout() {},
+      console: { error: (...args) => messages.push(args) },
+    });
+    const pending = client.get("/documents/private-id/source", undefined, {
+      signal: controller.signal, timeout: 20000, diagnosticScope: "workspace-source",
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    if (cancellation === "caller") controller.abort();
+    else timeout();
+    const result = await pending;
+    assert.equal(result.error.code, cancellation === "caller" ? "REQUEST_CANCELLED" : "REQUEST_TIMEOUT");
+    assert.equal(calls, 1);
+    if (cancellation === "caller") assert.deepEqual(messages, []);
+    else {
+      const fields = JSON.parse(messages[0][1]);
+      assert.equal(fields.category, "timeout");
+      assert.equal(fields.phase, "body");
+    }
+    assert.doesNotMatch(JSON.stringify(messages), /private|interrupted body|\/documents/);
+  }
 });

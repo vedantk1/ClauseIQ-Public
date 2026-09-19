@@ -115,7 +115,7 @@ class APIClient {
       // Keep existing write/legacy timeout semantics unchanged. Workspace reads
       // alone keep their bounded timer through response-body consumption.
       if (!diagnosticScope && timeoutId) clearTimeout(timeoutId);
-      const parsed = await this.parseResponse<T>(response, fetchOptions.signal);
+      const parsed = await this.parseResponse<T>(response, fetchOptions.signal, !!diagnosticScope);
       reportWorkspaceReadFailure(diagnosticScope, parsed, startedAt, phase, response.status);
       return parsed;
     } catch (error) {
@@ -158,10 +158,12 @@ class APIClient {
     }
   }
 
-  private async parseResponse<T>(response: Response, signal?: AbortSignal | null): Promise<APIResponse<T>> {
-
+  private async parseResponse<T>(response: Response, signal?: AbortSignal | null,
+    workspaceRead = false): Promise<APIResponse<T>> {
+    let bodyReadComplete = false;
     try {
       const data = await response.json();
+      bodyReadComplete = true;
 
 
       // Check if response follows our standardized format
@@ -188,6 +190,19 @@ class APIClient {
     } catch (parseError) {
       // Let request distinguish deliberate cleanup from its own timeout.
       if (signal?.aborted) throw parseError;
+      // A body stream can fail after fetch has returned successful headers.
+      // Keep that separate from invalid JSON, without logging exception text or
+      // changing legacy callers' response-format behavior.
+      if (workspaceRead && !bodyReadComplete && parseError instanceof TypeError) {
+        return {
+          success: false,
+          error: {
+            code: "NETWORK_ERROR",
+            message: "The local API response could not be fully read.",
+            details: { status: response.status },
+          },
+        };
+      }
       console.error("Failed to parse API response");
 
       return {

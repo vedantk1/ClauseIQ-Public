@@ -127,13 +127,13 @@ and independent source/metadata read recovery, run:
 node --test frontend/tests/journeyShell.test.mjs frontend/tests/workspaceShell.test.mjs frontend/tests/workspaceSummaries.test.mjs frontend/tests/reviewWorkspace.test.mjs frontend/tests/workspaceReads.test.mjs frontend/tests/sourceReadNotice.test.mjs frontend/tests/local-api.test.mjs
 ~~~
 
-These cover saved settings, explicit legacy dispatch, question/draft separation,
+These cover saved settings, retired-entry redirects, question/draft separation,
 exact source-return navigation, independent failures, one in-flight read per
 resource, cancellation/deadlines and safe diagnostics. Read retries are bounded
 GETs only; they never dispatch AI, restart extraction or reset the write controller.
 Do not treat deterministic failure simulation as diagnosis of an observed browser
 transport error. A combined unpaid browser checkpoint should exercise Library →
-workspace → My review → source → return, plus Settings and the legacy entry,
+workspace → My review → source → return, plus Settings and retained earlier results,
 without changing saved settings or starting paid actions.
 
 Reliability regressions in these tests also cover a controller remount while its
@@ -143,6 +143,14 @@ GET is bounded as well as source/metadata reads. PDF navigation tests cover
 non-animated physical page targeting; they do not certify all viewport-resize
 behavior, particularly zoomed-out single-page mode. Keep historical browser
 observations separate from mechanisms demonstrated by deterministic tests.
+
+Workspace-read diagnostics distinguish network failure before headers from a
+failed response-body stream, malformed JSON, explicit timeout and HTTP failure.
+A body-stream network failure can retain status 200: server middleware timing
+records header completion, not proof that the browser received the full body.
+Diagnostics exclude document content, URLs, identifiers and raw error messages.
+This distinction improves investigation; it does not diagnose an intermittent
+failure without a matching observation, and does not add automatic retries.
 
 The Findings layout retains all navigation items and shows the selected quotation
 above compact reference selectors. Excerpt/passage labels do not certify a complete
@@ -207,7 +215,8 @@ workspace request per agreement. Its inspector follows the visible selection;
 Continue reviewing is independent of filters and chooses an eligible latest run
 by recorded review activity. The resume link restores the saved view, finding and
 evidence locally; it does not enqueue a save or dispatch AI. Import links continue
-to /import and legacy upload remains at / until a separate entry-flow change.
+to /import; retired /legacy-analysis bookmarks also redirect there. Earlier saved
+results remain accessible at /review.
 
 Focused checks:
 
@@ -281,8 +290,9 @@ paid quality evaluation:
    sending it. Reload and resume; confirm all three remain distinct and intact.
 5. Import a short fixture without an authored example. Confirm it remains an
    unreviewed source instead of acquiring unrelated fixture findings.
-6. Delete only records created for the check, using the in-app confirmation for
-   at least one deletion. Keep repository fixture files and existing data intact.
+6. Keep existing records and repository fixtures intact. Retain newly created
+   test records when requested; test deletion only with explicitly disposable
+   data and the required in-app confirmation.
 
 Do not click Start review or Send question to AI during this unpaid walkthrough.
 Provider answers, paid failures and live output quality require their own approved

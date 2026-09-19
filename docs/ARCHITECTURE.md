@@ -184,6 +184,8 @@ actions until a successful read; they do not remove saved review output.
 The workspace-state GET uses the same 20-second read deadline. Diagnostics are
 serialized allowlisted JSON and distinguish failure before headers from failure
 during response-body handling, so log collectors do not lose the fields.
+Body-stream network failures retain the received HTTP status and are distinguished
+from malformed JSON; a 200 header alone does not establish complete delivery.
 
 Ordinary writes already dispatched by a retiring controller are tracked by transport
 and document in the current JavaScript runtime. A replacement controller waits for
