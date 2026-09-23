@@ -119,9 +119,9 @@ test("file sizes are readable and recovery/workspace identities are encoded", ()
 test("initial import is key-free, explicit and separates source import from paid review", () => {
   const app = harness({ importSource: () => assert.fail("Rendering cannot import") });
   const html = app.html();
-  assert.match(html, /Importing makes no AI call and needs no API key/);
+  assert.match(html, /Import is local and needs no API key/);
   assert.match(html, /does not perform OCR and is not a completed review/);
-  assert.match(html, /AI review is a separate, deliberate next step using your key and may incur charges/);
+  assert.match(html, /AI review is a separate paid action that you start explicitly/);
   assert.match(html, /Up to 3 MB/);
   assert.match(html, /<details><summary>Try the synthetic example/);
   assert.equal(button(app.render(), "Import agreement").props.disabled, true);

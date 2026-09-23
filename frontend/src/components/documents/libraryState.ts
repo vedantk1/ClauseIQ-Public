@@ -66,6 +66,19 @@ export function libraryDate(value: string | null | undefined): string {
   return date ? new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" }).format(date) : "Date unavailable";
 }
 
+export function libraryDateTime(value: string | null | undefined): string {
+  const date = timestamp(value);
+  return date ? new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(date) : "Date unavailable";
+}
+
+export function duplicateIdentity(document: DocumentItem, documents: DocumentItem[]): string | null {
+  const siblings = documents.filter(item => item.filename === document.filename);
+  if (siblings.length < 2) return null;
+  let length = 6;
+  while (length < document.id.length && siblings.some(item => item.id !== document.id && item.id.slice(-length) === document.id.slice(-length))) length++;
+  return `Imported ${libraryDateTime(document.upload_date)} · ${document.id.slice(-length)}`;
+}
+
 export function continuingDocument(documents: DocumentItem[]): DocumentItem | null {
   return documents.filter(document => canOpenWorkspace(document) &&
     document.review_summary?.can_resume &&
@@ -73,7 +86,7 @@ export function continuingDocument(documents: DocumentItem[]): DocumentItem | nu
     .sort((a, b) => timestamp(b.review_summary?.last_activity_at) - timestamp(a.review_summary?.last_activity_at) || a.id.localeCompare(b.id))[0] || null;
 }
 
-/** Keep the inspector in the visible list after filtering, refreshing or deletion. */
+/** Close details when their record leaves the visible list; never substitute another. */
 export function selectedLibraryDocument(documents: DocumentItem[], selectedId: string): DocumentItem | null {
-  return documents.find(document => document.id === selectedId) || documents[0] || null;
+  return documents.find(document => document.id === selectedId) || null;
 }

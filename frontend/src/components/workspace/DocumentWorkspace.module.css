@@ -1,0 +1,60 @@
+.workspace {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+.heading { display: flex; align-items: center; justify-content: space-between; gap: 12px 20px; padding: 11px 22px; flex-shrink: 0; border-bottom: 1px solid var(--border-muted); }
+.contextHeading { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.contextHeading h2 { font-size: 14px; font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.eyebrow { font-size: 11px; font-weight: 500; letter-spacing: .055em; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; }
+.actions { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+.actions button { font-size: 12px; min-height: 30px; white-space: nowrap; }
+.returnButton { color: var(--text-secondary); }
+.returnButton:hover { color: var(--text-primary); }
+.textToggle { border: 1px solid var(--border-muted); border-radius: 5px; padding: 4px 10px; min-height: 32px; font-size: 12px; white-space: nowrap; color: var(--text-secondary); background: var(--bg-surface); }
+.textToggle[aria-expanded="true"] { border-color: var(--accent-subtle); color: var(--text-primary); }
+.context { flex-shrink: 0; border-bottom: 1px solid var(--border-muted); background: var(--bg-surface); }
+.context summary { display: flex; justify-content: space-between; gap: 12px; padding: 8px 22px; font-size: 12px; color: var(--text-secondary); list-style: none; }
+.context summary::-webkit-details-marker { display: none; }
+.context summary > span { color: var(--text-muted); }
+.context summary > span::after { content: " +"; }
+.context[open] summary > span::after { content: " −"; }
+.contextBody { padding: 4px 22px 16px; max-height: 24dvh; overflow-y: auto; overscroll-behavior: contain; }
+.contextBody > p, .contextBody blockquote { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.65; color: var(--text-secondary); }
+.contextBody blockquote { padding-left: 13px; border-left: 2px solid var(--border-muted); margin-top: 9px; }
+.contextBody .contextLabel { margin-top: 12px; font-size: 12px; font-weight: 550; color: var(--text-primary); }
+.contextBody .note, .note { color: var(--text-muted); font-size: 12px; line-height: 1.6; margin-top: 10px; }
+.readingArea { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1; min-height: 0; overflow: hidden; }
+.withText { grid-template-columns: minmax(0, 1fr) minmax(280px, 330px); }
+.pdfPane { height: 100%; min-height: 0; min-width: 0; overflow: hidden; }
+.extraction { min-height: 0; overflow-y: auto; overscroll-behavior: contain; border-left: 1px solid var(--border-muted); padding: 22px; background: var(--bg-surface); }
+.extractionHeading { display: flex; justify-content: space-between; align-items: center; }
+.extractionHeading h3 { margin-top: 5px; font-size: 18px; font-weight: 550; }
+.extractionHeading button { width: 32px; height: 32px; font-size: 23px; color: var(--text-muted); border-radius: 5px; }
+.extractionHeading button:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.extractionText { margin-top: 22px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.85; color: var(--text-secondary); }
+.navigationError { padding: 9px 22px; font-size: 13px; color: var(--text-secondary); border-bottom: 1px solid var(--border-muted); }
+
+@media (max-width: 1000px) {
+  .heading { padding: 9px 14px; gap: 8px; }
+  .contextHeading { display: block; }
+  .contextHeading .eyebrow { display: block; margin-bottom: 3px; }
+  .actions { gap: 10px; }
+  .withText { grid-template-columns: minmax(0, 1fr) 280px; }
+  .extraction { padding: 17px; }
+}
+
+@media (max-width: 700px) {
+  .heading { align-items: start; flex-wrap: wrap; }
+  .contextHeading { width: 100%; }
+  .actions { width: 100%; justify-content: space-between; }
+  .readingArea { position: relative; }
+  .withText { grid-template-columns: minmax(0, 1fr); }
+  .extraction { position: absolute; inset: 0 0 0 auto; width: min(88%, 340px); z-index: 15; box-shadow: -8px 0 28px rgb(0 0 0 / 16%); }
+  .context summary, .contextBody { padding-left: 14px; padding-right: 14px; }
+}

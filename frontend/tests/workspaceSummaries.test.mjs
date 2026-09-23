@@ -34,9 +34,11 @@ const imports = {
   "./WorkspaceControls": controls, "./EvidenceSourcePane": evidence, "./workspaceState": helpers,
   "./ReviewBriefExport": { ReviewBriefExport: () => null },
   "./WorkspaceSummaries.module.css": { summaries: "workspace-summaries" },
+  "./MyReview.module.css": { review: "my-review" },
+  "@/components/ui/Modal": () => null,
 };
 const { AgreementOverview } = loadModule("../src/components/workspace/AgreementOverview.tsx", imports);
-const { MyReview } = loadModule("../src/components/workspace/MyReview.tsx", imports);
+const { MyReview } = loadModule("../src/components/workspace/MyReview.tsx", { ...imports, react: { ...React, useState: value => [value, () => {}] } });
 const render = (Component, props) => renderToStaticMarkup(React.createElement(Component, props));
 
 // Inspect component output/callbacks without claiming mounted layout or browser focus coverage.
@@ -98,7 +100,7 @@ test("overview leads with saved agreement output and keeps new-review controls s
   const before = JSON.stringify(props);
   const html = render(AgreementOverview, props);
   assert.match(html, /Authored synthetic example/);
-  assert.match(html, /Customer perspective · Customer role — the context saved with this run/);
+  assert.doesNotMatch(html, /the context saved with this run/);
   assert.match(html, /The agreement offers a conditional extension/);
   assert.doesNotMatch(html, /Legacy summary wording/);
   assert.match(html, /2 example findings in this run/);
@@ -114,9 +116,10 @@ test("overview leads with saved agreement output and keeps new-review controls s
 test("overview counts only selected-run activity, deduplicates opened items and avoids completion claims", () => {
   const { props } = fixture();
   const html = render(AgreementOverview, props);
-  assert.match(html, /1 opened · 1 to revisit · 1 saved questions/);
+  assert.match(html, /1 saved question · 1 to revisit/);
+  assert.match(html, /1 findings opened/);
   assert.match(html, /Personal activity, not review completeness/);
-  assert.match(html, /Saved position: Findings — Plan the handover/);
+  assert.doesNotMatch(html, /Continue from saved position|Saved position:/);
   assert.doesNotMatch(html, /Question outside the selected run|Recovery draft only|Unsent paid Ask wording/);
   props.personal.position.finding_id = "other-run-finding";
   assert.doesNotMatch(render(AgreementOverview, props), /Saved position: Findings —/);
@@ -125,9 +128,9 @@ test("overview counts only selected-run activity, deduplicates opened items and 
 test("overview navigation invokes only its explicit callbacks and source preserves summary context", () => {
   const { props, calls, reference } = fixture();
   const tree = AgreementOverview(props);
-  for (const label of ["Open original", "Explore findings", "Continue from saved position", "Plan the handover", "Open My review", "Read page 1 in the original"])
+  for (const label of ["Open original", "Explore findings", "Plan the handover", "Open My review", "View page 1"])
     button(tree, label).props.onClick();
-  assert.deepEqual(calls, [["original"], ["explore"], ["resume"], ["finding", "finding-1"], ["my-review"],
+  assert.deepEqual(calls, [["original"], ["explore"], ["finding", "finding-1"], ["my-review"],
     ["source", "The agreement offers a conditional extension.", reference]]);
 });
 
@@ -142,9 +145,9 @@ test("overview source states remain distinct without hiding saved output or runn
     const html = render(AgreementOverview, props);
     assert.ok(html.includes(message));
     assert.match(html, /The agreement offers a conditional extension/);
-    assert.equal(button(AgreementOverview(props), "Read page 1 in the original").props.disabled, true);
+    assert.equal(button(AgreementOverview(props), "View page 1").props.disabled, true);
     // Guard the callback too: a stale event must not navigate using unchecked source.
-    button(AgreementOverview(props), "Read page 1 in the original").props.onClick();
+    button(AgreementOverview(props), "View page 1").props.onClick();
     assert.deepEqual(calls, []);
   }
 });
@@ -157,7 +160,7 @@ test("overview evidence never enables navigation for a different revision or alt
   ]) {
     const { props, calls } = fixture();
     invalidate(props);
-    const action = button(AgreementOverview(props), "Read page 1 in the original");
+    const action = button(AgreementOverview(props), "View page 1");
     assert.equal(action.props.disabled, true);
     action.props.onClick();
     assert.deepEqual(calls, []);
@@ -231,10 +234,10 @@ test("My review renders only confirmed questions belonging to the selected run",
   const { props, calls } = fixture();
   const before = JSON.stringify(props);
   const html = render(MyReview, props);
-  assert.match(html, /Your saved work · selected run only/);
+  assert.match(html, /Questions and personal markers · selected run only/);
   assert.match(html, /1 confirmed question/);
   assert.match(html, /Confirm the minimum handover period/);
-  assert.match(html, /Saving does not send a message, accept a term or resolve a finding/);
+  assert.match(html, /Saving never sends a message, accepts a term or resolves a finding/);
   assert.doesNotMatch(html, /Question outside the selected run|Unsaved edited handover wording|Recovery draft only|Unsent paid Ask wording/);
   assert.equal(JSON.stringify(props), before);
   assert.deepEqual(calls, []);
@@ -255,12 +258,12 @@ test("My review markers remain personal activity and navigate without changing s
   const { props, calls } = fixture();
   const tree = MyReview(props);
   const html = render(MyReview, props);
-  assert.match(html, /Markers describe your activity, not legal safety or review completeness/);
+  assert.match(html, /Markers are personal activity, not legal safety or completeness/);
   assert.match(html, /Reviewed by me/);
   const before = JSON.stringify(props.personal);
-  for (const label of ["Explore findings", "Return to finding and edit", "Plan the handover", "Clarify the missing exit plan"])
+  for (const label of ["Explore findings", "Plan the handover", "Clarify the missing exit plan"])
     button(tree, label).props.onClick();
-  assert.deepEqual(calls, [["explore"], ["finding", "finding-1"], ["finding", "finding-1"], ["finding", "finding-2"]]);
+  assert.deepEqual(calls, [["explore"], ["finding", "finding-1"], ["finding", "finding-2"]]);
   assert.equal(JSON.stringify(props.personal), before);
 });
 
@@ -299,7 +302,8 @@ test("My review handles no-source findings without inventing citations or absenc
   assert.match(html, /Ask for the exit plan/);
   assert.match(html, /No source reference accompanies this finding/);
   assert.match(html, /A not-found claim is limited to the recorded review scope/);
-  assert.doesNotMatch(html, /Finding source|Open source/);
+  // All findings remain visible for triage, including another finding's valid source.
+  assert.match(html, /Finding source/);
 });
 
 test("My review without a run ignores stale personal state and routes back to setup", () => {

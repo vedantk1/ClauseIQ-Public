@@ -1,11 +1,10 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { ChevronRight, FileText, Info } from "lucide-react";
+import { FileText, Info } from "lucide-react";
 import type { DocumentSourceResponse, ReviewEvidence, ReviewFinding } from "@clauseiq/shared-types";
-import PDFViewer from "@/components/PDFViewer";
 import { presentEvidence, type EvidencePresentation } from "./evidencePresentation";
-import { Action, Panel } from "./WorkspaceControls";
+import { Action } from "./WorkspaceControls";
 
 function sameEvidenceReference(left: ReviewEvidence, right: ReviewEvidence) {
   return left.source_revision_id === right.source_revision_id && left.span_id === right.span_id &&
@@ -35,9 +34,10 @@ function SourceContext({ presentation }: { presentation: EvidencePresentation })
   </details>;
 }
 
-export function EvidenceSourcePane({ finding, source, onOpen, selectedEvidence, onSelect }: {
+export function EvidenceSourcePane({ finding, source, onOpen, selectedEvidence, onSelect, heading = "Related evidence" }: {
   finding: ReviewFinding; source: DocumentSourceResponse | null; onOpen: (evidence: ReviewEvidence) => void;
   selectedEvidence?: ReviewEvidence | null; onSelect?: (evidence: ReviewEvidence) => void;
+  heading?: string;
 }) {
   const [localSelection, setLocalSelection] = useState<{ findingId: string; evidence: ReviewEvidence } | null>(null);
   const detailHeading = useRef<HTMLHeadingElement>(null);
@@ -62,7 +62,7 @@ export function EvidenceSourcePane({ finding, source, onOpen, selectedEvidence, 
   }, [finding.id, finding.evidence, selected, localSelection]);
   const presentation = selected ? presentEvidence(selected, source) : null;
   return <section className="cw-evidence-pane" aria-label="Related evidence">
-    <h2 className="cw-evidence-heading">Related evidence</h2>
+    <h2 className="cw-evidence-heading">{heading}</h2>
     {selected && presentation ? <article className="cw-evidence-detail">
       <h3 ref={detailHeading} tabIndex={-1} className="cw-evidence-detail-heading">{selected.label} · page {selected.page_number}</h3>
       <p className="cw-evidence-scope">{presentation.scope} · may begin or end mid-clause</p>
@@ -71,13 +71,13 @@ export function EvidenceSourcePane({ finding, source, onOpen, selectedEvidence, 
         {presentation.matchLabel}
       </p>
       <Action className="cw-evidence-open" disabled={!presentation.matched} onClick={() => onOpen(selected)}>
-        Open original · page {selected.page_number}
+        View page {selected.page_number}
       </Action>
       <SourceContext key={`${finding.id}-${finding.evidence.indexOf(selected)}-${evidenceContextKey(selected)}`} presentation={presentation} />
     </article> : <p className="cw-evidence-empty">No source quotation accompanies this finding. Any not-found claim is limited to its stated reviewed scope, not proof that a term is absent.</p>}
     {!!finding.evidence.length && <h3 className="cw-evidence-references-heading">References ({finding.evidence.length})</h3>}
     {!!finding.evidence.length && <ul className="cw-evidence-list" aria-label="Evidence references">
-      {finding.evidence.map((evidence, index) => <li key={`${evidence.span_id}-${index}`}>
+      {finding.evidence.map((evidence, index) => <li className="cw-evidence-row" key={`${evidence.span_id}-${index}`}>
         <button type="button" className="cw-evidence-selector" aria-pressed={selected === evidence}
           onClick={() => {
             const intent = { findingId: finding.id, evidence };
@@ -88,22 +88,25 @@ export function EvidenceSourcePane({ finding, source, onOpen, selectedEvidence, 
           <FileText className="cw-evidence-icon" size={19} aria-hidden="true" />
           <span className="cw-evidence-reference">
             <span className="cw-evidence-label">{evidence.label}</span>
-            <span className="cw-evidence-page">Page {evidence.page_number}</span>
+            <span className="cw-evidence-page">Page {evidence.page_number} · Preview excerpt</span>
             {!presentEvidence(evidence, source).matched && <span className="cw-evidence-unmatched">Source not matched</span>}
           </span>
-          <ChevronRight className="cw-evidence-chevron" size={18} aria-hidden="true" />
         </button>
+        <button type="button" className="cw-reference-open" aria-label={`View page ${evidence.page_number} · ${evidence.label}`}
+          title={`Open original PDF at page ${evidence.page_number}`} disabled={!presentEvidence(evidence, source).matched}
+          onClick={() => { if (presentEvidence(evidence, source).matched) onOpen(evidence); }}>View page {evidence.page_number}</button>
       </li>)}
     </ul>}
     <div className="cw-evidence-disclaimer">
       <Info size={19} aria-hidden="true" />
-      <p>Matching confirms wording and location—not the finding&apos;s correctness or completeness. Read the rule and its qualifications together; relationship labels are interpretation, not proof of legal effect.</p>
+      <p>A source match locates wording; it does not verify the interpretation. Read qualifications in context.</p>
     </div>
   </section>;
 }
 
-export function EvidenceList({ evidence, source, onOpen }: {
+export function EvidenceList({ evidence, source, onOpen, preview = false }: {
   evidence: ReviewEvidence[]; source: DocumentSourceResponse | null; onOpen: (evidence: ReviewEvidence) => void;
+  preview?: boolean;
 }) {
   return <div className="mt-4 space-y-4">
       {evidence.map((evidence, index) => {
@@ -113,52 +116,9 @@ export function EvidenceList({ evidence, source, onOpen }: {
           <p className="mt-1 text-xs text-text-secondary">Page {evidence.page_number} · {presentation.matchLabel}</p>
           <p className="cw-evidence-scope">{presentation.scope} · may begin or end mid-clause</p>
           <blockquote className="my-3 whitespace-pre-wrap break-words border-l-2 border-accent-purple pl-3 text-sm leading-relaxed">{evidence.quote}</blockquote>
-          <Action disabled={!presentation.matched} onClick={() => onOpen(evidence)}>Read page {evidence.page_number} in the original</Action>
+          <Action disabled={!presentation.matched} onClick={() => onOpen(evidence)}>{preview ? `Preview excerpt · page ${evidence.page_number}` : `View page ${evidence.page_number}`}</Action>
           <SourceContext key={evidenceContextKey(evidence)} presentation={presentation} />
         </article>;
       })}
     </div>;
-}
-
-export function DocumentSourceView({ documentId, filename, source, finding, evidence, navigationRequest, onReturn, overviewText, answerText, returnLabel }: {
-  documentId: string; filename: string; source: DocumentSourceResponse | null;
-  finding: ReviewFinding | null; evidence: ReviewEvidence | null;
-  navigationRequest: { requestId: number; pageNumber: number } | undefined;
-  onReturn: () => void;
-  overviewText?: string;
-  answerText?: string;
-  returnLabel?: string;
-}) {
-  const [pageNumber, setPageNumber] = useState(navigationRequest?.pageNumber || 1);
-  const [navigationError, setNavigationError] = useState<string | null>(null);
-  const page = source?.source_extraction?.pages.find(item => item.page_number === pageNumber);
-  const presentation = evidence ? presentEvidence(evidence, source) : null;
-  return <div className="space-y-4">
-    {answerText && <Panel><h2 className="font-semibold">Source context for Ask answer</h2><p className="mt-2 whitespace-pre-wrap text-sm">{answerText}</p><p className="mt-2 text-xs text-text-secondary">This AI answer may cite a passage beyond the original finding&apos;s evidence. Matching is not legal verification.</p></Panel>}
-    {overviewText && <Panel><h2 className="font-semibold">Source context for agreement overview</h2><p className="my-2 text-sm">{overviewText}</p><Action onClick={onReturn}>Return to overview</Action></Panel>}
-    {finding && <Panel>
-      <p className="text-sm text-text-secondary">Source context for</p>
-      <h2 className="mt-1 text-lg font-semibold">{finding.title}</h2>
-      <p className="my-2 text-sm">{finding.facts}</p>
-      <Action onClick={onReturn}>{returnLabel || "Return to this finding"}</Action>
-    </Panel>}
-    {evidence && presentation?.matched && <Panel>
-      <h3 className="font-semibold">{evidence.label} · page {evidence.page_number}</h3>
-      <p className="cw-evidence-scope">{presentation.scope} · may begin or end mid-clause</p>
-      <blockquote className="mt-2 whitespace-pre-wrap text-sm">{evidence.quote}</blockquote>
-      <p className="mt-2 text-xs text-text-secondary">{evidence.end_span_id ? "Passage" : "Quote"} matched to extracted source. The PDF opens at the physical page; no guessed highlight is applied.</p>
-      <SourceContext key={evidenceContextKey(evidence)} presentation={presentation} />
-    </Panel>}
-    {navigationError && <p role="alert" className="text-sm">{navigationError}</p>}
-    {/* A definite height lets the PDF viewer scroll internally instead of growing with every page. */}
-    <div className="h-[75vh] min-h-[360px] max-h-[900px] overflow-hidden">
-      <PDFViewer documentId={documentId} fileName={filename} sourceRevisionId={source?.source_revision_id || undefined}
-        navigationRequest={navigationRequest} onPageChange={setPageNumber} onNavigationError={setNavigationError} />
-    </div>
-    <details className="rounded-lg border border-border-muted bg-bg-surface p-4">
-      <summary className="cursor-pointer font-medium">Extracted text on page {pageNumber}</summary>
-      <p className="mt-2 text-xs text-text-secondary">This is extraction output, not a reproduction of the PDF layout.</p>
-      <p className="mt-3 whitespace-pre-wrap break-words text-sm">{page?.text || "No extracted text is available on this page."}</p>
-    </details>
-  </div>;
 }

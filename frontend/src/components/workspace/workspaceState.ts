@@ -225,6 +225,16 @@ export class ReviewWorkspaceController {
     this.enqueue({ type: "save_question", run_id: runId, finding_id: findingId, text });
   }
 
+  /** Confirmed removal never clears recovery drafts or bypasses unresolved writes. */
+  removeQuestion(runId: string, findingId: string) {
+    const workspace = this.current.workspace;
+    if (this.stopped || !workspace || this.current.status !== "saved" || this.current.pending > 0 ||
+        paidActionBusy(this.current) || hasProcessing(workspace) ||
+        !workspace.runs.some(run => run.id === runId && run.findings.some(finding => finding.id === findingId)) ||
+        !workspace.personal[runId]?.saved_questions[findingId]) return;
+    this.enqueue({ type: "remove_question", run_id: runId, finding_id: findingId });
+  }
+
   setAskDraft(runId: string, findingId: string, text: string) {
     const key = draftKey(runId, findingId);
     this.emit({ localAskDrafts: { ...this.current.localAskDrafts, [key]: text } });

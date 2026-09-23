@@ -167,13 +167,15 @@ The Findings layout retains all navigation items and shows the selected quotatio
 above compact reference selectors. Excerpt/passage labels do not certify a complete
 clause. Optional surrounding extracted text is display-only and stays separate
 from the unchanged saved citation. Unchanged, confirmed saved questions use quiet
-status; edited wording restores the save action. Ask only opens a separate pane
-until the person explicitly sends through the existing paid controls.
+status; edited wording restores the save action. Review and Ask switch in the
+centre column while evidence stays available. Opening/copying a question never
+sends through the paid controls. My review defaults to confirmed questions and
+marked findings; All findings remains available without affecting export scope.
 
 Focused checks, from the repository root:
 
 ~~~bash
-node --test frontend/tests/evidencePresentation.test.mjs frontend/tests/evidenceSelection.test.mjs frontend/tests/findingReview.test.mjs frontend/tests/reviewWorkspace.test.mjs frontend/tests/themePalette.test.mjs
+node --test frontend/tests/evidencePresentation.test.mjs frontend/tests/evidenceSelection.test.mjs frontend/tests/findingReview.test.mjs frontend/tests/reviewWorkspace.test.mjs frontend/tests/themePalette.test.mjs frontend/tests/readerViewState.test.mjs frontend/tests/pdfPageNavigation.test.mjs frontend/tests/pdfJsRenderer.test.mjs frontend/tests/myReviewChecklist.test.mjs frontend/tests/library.test.mjs
 npm --prefix frontend run typecheck
 npm --prefix frontend run lint
 ~~~
@@ -185,6 +187,12 @@ check token contrast, not a complete accessibility assessment. A scoped existing
 synthetic-record layout check can supplement these; batch broader keyboard,
 responsive, theme and PDF navigation checks with the other entry-flow changes.
 No paid AI request or regeneration is needed to validate these presentation changes.
+The combined browser checkpoint should include reading-position restoration after
+tab switching and reload, fresh citation precedence, fit modes, Ask/evidence,
+question-editor focus, Library details dismissal/focus return, both themes and
+1280×800 plus a narrower layout. Browser reader preferences contain no source
+text and are scoped by document/revision; clearing browser storage clears these
+preferences, not server-stored review work. There is no reader-state migration.
 
 ## Import and review-setup checks
 
@@ -250,7 +258,7 @@ responsive tests check CSS contracts, not a browser layout engine.
 At batched walkthroughs, include multiple records, long filenames, both
 themes, keyboard navigation and deletion confirmations. No AI key is required.
 
-## My review brief export checks
+## My review checklist and export checks
 
 ~~~bash
 node --test frontend/tests/reviewBrief.test.mjs frontend/tests/reviewBriefExport.test.mjs frontend/tests/workspaceSummaries.test.mjs frontend/tests/reviewWorkspace.test.mjs
@@ -265,6 +273,27 @@ are generated from saved state in the browser; they make no API or paid call.
 At a batched UI checkpoint, use a retained synthetic review, copy/download its
 brief and compare it with My review. Do not export private source records as test
 artifacts or treat a successful copy as legal validation.
+
+Checklist edits use the existing revisioned workspace queue. Include inline
+edit/cancel/save, direct markers, Revisit/Saved questions filters, remove-confirm
+and cancel, absent-question replay and cross-tab conflict checks. Removal must
+preserve newer/empty drafts, recover wording only when no draft exists, and leave
+other findings/runs unchanged. Backend coverage lives in test_review_workspace.py;
+manual_review_workspace_smoke.py checks persisted removal and fresh-connection
+readback in its isolated fixture database. Never delete retained review work for
+a visual check.
+
+For document-reader and layout changes:
+
+~~~bash
+node --test frontend/tests/documentWorkspace.test.mjs frontend/tests/pdfPageNavigation.test.mjs frontend/tests/pdfJsRenderer.test.mjs frontend/tests/workspaceDensity.test.mjs frontend/tests/libraryResponsive.test.mjs
+~~~
+
+At one batched browser checkpoint, inspect Library, Overview, Findings, Document
+and My review in Black/Graphite. Check physical-page entry and source-return,
+zoom/mode switching, the optional extraction panel, narrow viewport scrolling and
+keyboard focus. CSS contract tests guard layout intent; they are not a substitute
+for visual inspection or a measured accessibility assessment.
 
 ## Finding-scoped Ask checks
 

@@ -16,18 +16,15 @@ export interface AgreementOverviewProps {
   onSource: (text: string, evidence: ReviewEvidence) => void;
   onOriginal: () => void;
   onExplore: () => void;
-  onResume: () => void;
   onMyReview?: () => void;
   children?: React.ReactNode;
   controlsOpen?: boolean;
 }
 
-const viewNames = { overview: "Overview", findings: "Findings", document: "Document", my_review: "My review" };
-const perspectiveNames = { neutral: "Neutral", customer: "Customer", provider: "Provider", other: "Other role" };
 
 /** Saved agreement output leads; preparing another paid run stays secondary. */
 export function AgreementOverview({ run, personal, source, sourceLoading = false, sourceError = null,
-  onFinding, onSource, onOriginal, onExplore, onResume, onMyReview, children, controlsOpen = false,
+  onFinding, onSource, onOriginal, onExplore, onMyReview, children, controlsOpen = false,
 }: AgreementOverviewProps) {
   const status = runStatus(run);
   const hasOutput = status === "ready" || status === "incomplete";
@@ -40,7 +37,6 @@ export function AgreementOverview({ run, personal, source, sourceLoading = false
   const saved = Object.keys(personal.saved_questions).filter(id => findingIds.has(id));
   const opened = new Set(personal.opened_finding_ids.filter(id => findingIds.has(id))).size;
   const revisits = run.findings.filter(finding => personal.markers[finding.id] === "revisit");
-  const resumeFinding = run.findings.find(finding => finding.id === personal.position.finding_id);
   const emptyMessage = status === "processing" ? "This review is still processing. No final agreement summary is available yet."
     : status === "failed" ? "No usable agreement summary was completed for this run. Your original and earlier saved runs remain available."
     : status === "interrupted" ? "This run was interrupted. No final agreement summary is available; it will not restart automatically."
@@ -49,13 +45,15 @@ export function AgreementOverview({ run, personal, source, sourceLoading = false
   return <div className={styles.summaries}>
     <header className="co-heading">
       <div><p className="co-eyebrow">{run.kind === "fixture" ? "Authored synthetic example" : "Saved AI review"}</p>
-        <h2>Agreement overview</h2><p>{perspectiveNames[run.context.perspective]} perspective{run.context.role ? ` · ${run.context.role}` : ""} — the context saved with this run.</p>
+        <h2>Agreement overview</h2>
       </div>
       <Action className="co-secondary-action" onClick={onOriginal}><FileText size={17} aria-hidden="true" />Open original</Action>
     </header>
 
     <div className="co-overview-grid">
+      <div className="co-overview-main">
       <section className="co-agreement-summary" aria-label="Agreement summary">
+        <h3 className="co-summary-heading">Agreement summary</h3>
         {hasOutput && run.overview_items?.length ? <div className="co-summary-items">{run.overview_items.map((item, index) => <article key={index}>
           <p className="co-reading">{item.text}</p>
           <details className="co-overview-evidence"><summary>Supporting source · {item.evidence.length} {item.evidence.length === 1 ? "reference" : "references"}</summary>
@@ -72,20 +70,8 @@ export function AgreementOverview({ run, personal, source, sourceLoading = false
         </div>
       </section>
 
-      <aside className="co-activity" aria-labelledby="review-activity-heading">
-        <h3 id="review-activity-heading">Your review activity</h3>
-        <p className="co-activity-counts">{opened} opened · {revisits.length} to revisit · {saved.length} saved questions</p>
-        <p className="co-note">Personal activity, not review completeness.</p>
-        {hasOutput && <div className="co-resume"><p>Saved position: {viewNames[personal.position.view]}{resumeFinding ? ` — ${resumeFinding.title}` : ""}</p>
-          <Action onClick={onResume}>Continue from saved position<ArrowRight size={16} aria-hidden="true" /></Action>
-        </div>}
-        {revisits.length > 0 && <div className="co-revisit"><h4>Left for later</h4><ul>{revisits.map(finding => <li key={finding.id}><button type="button" onClick={() => onFinding(finding.id)}>{finding.title}<ArrowRight size={15} aria-hidden="true" /></button></li>)}</ul></div>}
-        {onMyReview && <button type="button" className="co-text-action" onClick={onMyReview}><BookOpen size={16} aria-hidden="true" />Open My review</button>}
-      </aside>
-    </div>
-
     <section className="co-source-coverage" aria-labelledby="overview-source-heading">
-      <div className="co-section-heading"><h3 id="overview-source-heading">Source and coverage</h3><span className="co-note">Text supplied is not proof that every provision was understood.</span></div>
+      <div className="co-section-heading"><h3 id="overview-source-heading">Source and coverage</h3></div>
       {sourceLoading ? <p role="status">Loading source details…</p>
         : sourceError ? <p role="alert">Source details could not be loaded. Use the source recovery controls above to retry; saved review work remains unchanged.</p>
         : !matchingSource ? <p role="alert">Source details are unavailable or do not match this run. Evidence cannot be checked against them.</p>
@@ -98,12 +84,22 @@ export function AgreementOverview({ run, personal, source, sourceLoading = false
         {run.coverage.limitations.length > 0 && <ul className="co-limitations">{run.coverage.limitations.map((limitation, index) => <li key={index}>{limitation}</li>)}</ul>}
         <details className="co-source-details"><summary>Pages supplied to this run</summary><p>{run.coverage.extracted_pages.join(", ") || "None"}</p></details>
       </>}
-      <details className="co-source-details"><summary>Source identity</summary><dl><dt>Run source revision</dt><dd>{run.source_revision_id}</dd><dt>SHA-256</dt><dd>{matchingSource?.source_sha256 || "Unavailable"}</dd><dt>Extractor</dt><dd>{extraction?.extraction_version || "Unavailable"}</dd></dl></details>
+      <details className="co-source-details"><summary>Source details and limitations</summary><p>Text supplied is not proof that every provision was understood.</p><dl><dt>Run source revision</dt><dd>{run.source_revision_id}</dd><dt>SHA-256</dt><dd>{matchingSource?.source_sha256 || "Unavailable"}</dd><dt>Extractor</dt><dd>{extraction?.extraction_version || "Unavailable"}</dd></dl></details>
     </section>
 
     {children && <details className="co-review-controls" open={controlsOpen}>
       <summary><span>Review brief and another run</span><span>Changing the brief does not update these saved findings.</span></summary>
       <div className="co-review-controls-content">{children}</div>
     </details>}
+      </div>
+      <aside className="co-activity" aria-labelledby="review-activity-heading">
+        <h3 id="review-activity-heading">Your review activity</h3>
+        <p className="co-activity-counts">{saved.length} saved {saved.length === 1 ? "question" : "questions"} · {revisits.length} to revisit</p>
+        <p className="co-note">Personal activity, not review completeness.</p>
+        <details className="co-source-details"><summary>Reading activity</summary><p>{opened} findings opened. Opening a finding does not mark it reviewed.</p></details>
+        {revisits.length > 0 && <div className="co-revisit"><h4>Left for later</h4><ul>{revisits.map(finding => <li key={finding.id}><button type="button" onClick={() => onFinding(finding.id)}>{finding.title}<ArrowRight size={15} aria-hidden="true" /></button></li>)}</ul></div>}
+        {onMyReview && <button type="button" className="co-text-action" onClick={onMyReview}><BookOpen size={16} aria-hidden="true" />Open My review</button>}
+      </aside>
+    </div>
   </div>;
 }

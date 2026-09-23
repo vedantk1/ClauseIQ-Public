@@ -90,6 +90,7 @@ function harness() {
       return tree;
     },
     buttons() { return elements(tree, node => node.type === "button" && "aria-pressed" in node.props); },
+    openButtons() { return elements(tree, node => node.type === "button" && node.props.className === "cw-reference-open"); },
     quote() { return elements(tree, node => node.type === "blockquote")[0]?.props.children; },
     action() { return elements(tree, node => node.type === controls.Action)[0]; },
     html() { return renderToStaticMarkup(tree); },
@@ -108,8 +109,8 @@ test("all evidence references remain available while only the first exact quotat
   assert.ok(html.indexOf("<blockquote") < html.indexOf('aria-label="Evidence references"'));
   assert.match(html, /Saved excerpt · may begin or end mid-clause/);
   assert.match(html, /Inspect surrounding text · page 22/);
-  assert.match(html, /Matching confirms wording and location/);
-  assert.match(html, /relationship labels are interpretation/);
+  assert.match(html, /A source match locates wording/);
+  assert.match(html, /does not verify the interpretation/);
 });
 
 test("selecting a reference only changes the detail; original navigation requires its own action", () => {
@@ -124,6 +125,21 @@ test("selecting a reference only changes the detail; original navigation require
   h.action().props.onClick();
   assert.equal(h.opened[0], finding.evidence[1]);
   assert.equal(h.opened[0].page_number, 25);
+});
+
+test("every reference distinguishes preview from a direct original-page action", () => {
+  const h = harness(); const { finding, source } = fixture();
+  h.render({ finding, source });
+  assert.match(h.html(), /Preview excerpt/);
+  assert.equal(h.openButtons().length, finding.evidence.length);
+  h.openButtons()[1].props.onClick();
+  assert.equal(h.opened[0], finding.evidence[1]);
+  assert.deepEqual(h.selected, [], "direct page opening does not first require preview selection");
+  assert.match(h.openButtons()[1].props["aria-label"], /View page 25 · Archive exception/);
+  h.render({ source: null });
+  assert.ok(h.openButtons().every(button => button.props.disabled));
+  h.openButtons()[0].props.onClick();
+  assert.equal(h.opened.length, 1, "even a stale handler cannot open unmatched evidence");
 });
 
 test("controlled selection uses a canonical reference and follows its owner", () => {

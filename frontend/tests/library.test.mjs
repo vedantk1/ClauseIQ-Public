@@ -27,6 +27,9 @@ const icon = props => React.createElement("svg", props);
 const Link = ({ children, ...props }) => React.createElement("a", props, children);
 const { LibraryContent, AgreementInspector, ContinueReviewing } = loadModule("../src/components/documents/LibraryContent.tsx", {
   react: React, "next/link": Link, "./libraryState": state, "@/utils/documentUtils": documentUtils,
+  "@/lib/sourceStatus": sourceStatus,
+  "@/components/ui/Modal": ({ isOpen, children }) => isOpen ? React.createElement("div", { role: "dialog" }, children) : null,
+  "./Library.module.css": { library: "library", detailsPanel: "details-panel" },
   "lucide-react": { ArrowRight: icon, FileText: icon, RefreshCw: icon, Search: icon, Trash2: icon, Upload: icon },
 });
 
@@ -127,12 +130,23 @@ test("destinations encode document identities and only source workspaces accept 
   assert.equal(state.documentDestination(legacy, true), `/review?documentId=${encodeURIComponent(id)}`);
 });
 
-test("inspector selection follows visible records after filtering or deletion", () => {
+test("duplicate names have stable distinct import identity and modern imports do not invent legacy results", () => {
+  const first = document("record-aaaaaa", { filename: "same.pdf" });
+  const second = document("record-bbbbbb", { filename: "same.pdf" });
+  assert.notEqual(state.duplicateIdentity(first, [first, second]), state.duplicateIdentity(second, [first, second]));
+  assert.match(state.duplicateIdentity(first, [first, second]), /Imported.*aaaaaa/);
+  assert.equal(state.duplicateIdentity(first, [first]), null);
+  assert.doesNotMatch(render(AgreementInspector, { document: first, onDelete() {}, deleting: false }), /Earlier analysis &amp; original/);
+  assert.match(render(AgreementInspector, { document: { ...first, analysis_status: "ready" }, onDelete() {}, deleting: false }), /Earlier analysis &amp; original/);
+  assert.doesNotMatch(render(LibraryContent, contentProps({ selectedId: "" }).props), /role="dialog"/);
+});
+
+test("inspector selection closes after filtering or deletion rather than substituting another record", () => {
   const first = document("first"), second = document("second");
   assert.equal(state.selectedLibraryDocument([first, second], second.id), second);
-  assert.equal(state.selectedLibraryDocument([first], second.id), first);
-  assert.equal(state.selectedLibraryDocument([second], first.id), second);
-  assert.equal(state.selectedLibraryDocument([first, second], "missing"), first);
+  assert.equal(state.selectedLibraryDocument([first], second.id), null);
+  assert.equal(state.selectedLibraryDocument([second], first.id), null);
+  assert.equal(state.selectedLibraryDocument([first, second], "missing"), null);
   assert.equal(state.selectedLibraryDocument([], second.id), null);
 });
 
@@ -200,7 +214,7 @@ test("loading, request error, empty inventory and search-empty are distinct view
   const unmatched = render(LibraryContent, filtered.props);
   assert.match(unmatched, /No matching agreements/);
   assert.match(unmatched, /0 of 2 agreements/);
-  assert.match(unmatched, /Select an agreement to see its details/);
+  assert.doesNotMatch(unmatched, /role="dialog"/);
   assert.doesNotMatch(unmatched, /Your agreements belong here/);
   button(LibraryContent(filtered.props), "Clear filters").props.onClick();
   assert.deepEqual(filtered.calls, [["search", ""], ["type", ""]]);
@@ -224,9 +238,8 @@ test("row selection is distinct from free open and resume links", () => {
   const chosen = document("one/with?query");
   const { props, calls } = contentProps({ documents: [chosen] });
   const tree = LibraryContent(props);
-  const row = nodes(tree).find(node => node.type === "button" && node.props.className === "cl-document-row");
-  assert.equal(row.props["aria-pressed"], true);
-  assert.equal(row.props["aria-controls"], "agreement-inspector");
+  const row = nodes(tree).find(node => node.type === "button" && node.props.className === "cl-details-button");
+  assert.equal(row.props["aria-haspopup"], "dialog");
   assert.equal(row.props.href, undefined);
   row.props.onClick();
   assert.deepEqual(calls, [["select", chosen.id]]);
@@ -234,7 +247,8 @@ test("row selection is distinct from free open and resume links", () => {
   const href = label => links.find(node => text(node).trim() === label)?.props.href;
   assert.equal(href("Open workspace"), state.documentDestination(chosen));
   assert.equal(href("Resume review"), state.documentDestination(chosen, true));
-  assert.equal(href("Earlier analysis & original"), `/review?documentId=${encodeURIComponent(chosen.id)}`);
+  assert.equal(href("Earlier analysis & original"), undefined);
+  assert.equal(links.find(node => node.props.className === "cl-document-name").props.href, state.documentDestination(chosen));
   assert.equal(href("Import agreement"), "/import");
 });
 
@@ -243,7 +257,7 @@ test("filtering affects inspector selection, not the latest saved resume shortcu
   const { props } = contentProps({ documents: [shown, hiddenRecent], filteredDocuments: [shown], selectedId: hiddenRecent.id });
   const tree = LibraryContent(props);
   assert.equal(nodes(tree).find(node => node.type === ContinueReviewing).props.document, hiddenRecent);
-  assert.equal(nodes(tree).find(node => node.type === AgreementInspector).props.document, shown);
+  assert.equal(nodes(tree).find(node => node.type === AgreementInspector), undefined);
 });
 
 test("search, sort, contract type and refresh controls invoke only their explicit callbacks", () => {
@@ -358,9 +372,8 @@ test("delete and bulk actions are explicit callbacks, with independent inspector
   for (const label of ["Select all shown", "Clear selection", "Delete selected (1)", "Delete all agreements", "Done", "Delete agreement"])
     button(tree, label).props.onClick();
   assert.deepEqual(calls, [["toggle-selection", "two"], ["select-all"], ["clear-selection"],
-    ["delete-selected"], ["delete-all"], ["toggle-mode"], ["delete", props.documents[0]]]);
-  const selectedRow = nodes(tree).find(node => node.type === "button" && node.props["aria-pressed"] === true);
-  assert.match(text(selectedRow), /Agreement one.pdf/);
+    ["delete-selected"], ["delete-all"], ["toggle-mode"], ["select", ""], ["delete", props.documents[0]]]);
+  assert.equal(nodes(tree).find(node => node.type === AgreementInspector).props.document.id, "one");
 });
 
 test("busy or empty bulk selections disable destructive controls without hiding recovery navigation", () => {

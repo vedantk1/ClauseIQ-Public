@@ -29,6 +29,8 @@ function harness(overrides = {}, { trackEffects = false } = {}) {
   const effectDependencies = [];
   const mountedNodes = new Map();
   const calls = [];
+  const stateSlots = [];
+  let stateIndex = 0;
   const findings = Array.from({ length: 7 }, (_, index) => ({
     id: `finding-${index + 1}`, title: `Finding title ${index + 1}`, facts: `Source facts ${index + 1}`,
     interpretation: `Interpretation ${index + 1}`, uncertainty: `Uncertainty ${index + 1}`,
@@ -48,6 +50,8 @@ function harness(overrides = {}, { trackEffects = false } = {}) {
     onShowEvidence: () => calls.push({ method: "onShowEvidence", args: [] }), onSettings() {}, ...overrides };
   const components = loadModule("../src/components/workspace/FindingReview.tsx", {
     react: { ...React,
+      useState(initial) { const index = stateIndex++; if (!(index in stateSlots)) stateSlots[index] = initial;
+        return [stateSlots[index], value => { stateSlots[index] = typeof value === "function" ? value(stateSlots[index]) : value; }]; },
       useEffect(callback, dependencies) {
         if (!trackEffects) return;
         const index = effectIndex++;
@@ -67,7 +71,7 @@ function harness(overrides = {}, { trackEffects = false } = {}) {
     "./FindingAsk": { FindingAsk: () => React.createElement("p", null, "Explicit paid Ask controls") },
   });
   const tree = () => {
-    refIndex = 0; effectIndex = 0; pendingEffects = [];
+    refIndex = 0; effectIndex = 0; stateIndex = 0; pendingEffects = [];
     return components.FindingReview(props);
   };
   return { calls, props, findings, tree, html: () => renderToStaticMarkup(tree()),
@@ -107,7 +111,8 @@ test("finding reading retains full long content and next-step details", () => {
     uncertainty: `${long}UNCERTAINTY END`, next_step: `${long}NEXT STEP END` });
   const html = h.html();
   for (const property of ["facts", "interpretation", "uncertainty", "next_step"]) assert.ok(html.includes(h.props.finding[property]), property);
-  assert.match(html, /<details class="cw-finding-details"><summary>Possible next step and marker meaning/);
+  assert.match(html, /<h3>Possible next step<\/h3>/);
+  assert.match(html, /<summary>About your status/);
   assert.doesNotMatch(html, /line-clamp/);
 });
 
@@ -124,22 +129,45 @@ test("all findings are visible immediately without a five-item gate", () => {
   assert.match(text(railButtons(h)[6]), /^07Finding title 7/);
 });
 
-test("opening Ask only switches the companion panel and never sends or changes local work", () => {
+test("opening Ask switches the centre panel while evidence stays visible and sends nothing", () => {
   const h = harness();
   assert.deepEqual(h.calls, []);
-  assert.equal(button(h, "Ask AI").props.className, "cw-ask-action");
-  assert.match(button(h, "Ask AI").props.title, /Nothing is sent until you choose Send/);
-  assert.equal(button(h, "Ask AI").props["aria-expanded"], false);
-  button(h, "Ask AI").props.onClick();
+  assert.equal(button(h, "Ask").props["aria-pressed"], false);
+  button(h, "Ask").props.onClick();
   assert.deepEqual(h.calls, [{ method: "onShowAsk", args: [] }]);
   h.props.showAsk = true;
-  assert.equal(button(h, "Ask AI").props["aria-expanded"], true);
+  assert.equal(button(h, "Ask").props["aria-pressed"], true);
   const companion = nodes(h.tree()).find(node => node.props?.id === "finding-companion");
-  assert.equal(companion.props["aria-label"], "Ask about the selected finding");
+  assert.equal(companion.props["aria-label"], "Evidence for the selected finding");
   const evidencePane = nodes(companion).find(node => node.type === "div" && node.props.hidden === true);
-  assert.ok(evidencePane);
-  button(h, "Back to evidence").props.onClick();
+  assert.equal(evidencePane, undefined);
+  button(h, "Review").props.onClick();
   assert.deepEqual(h.calls.map(call => call.method), ["onShowAsk", "onShowEvidence"]);
+});
+
+test("question editor is deliberately opened and closed while saved work and separate Ask remain available", () => {
+  const h = harness();
+  const editor = () => nodes(h.tree()).find(node => node.props.className === "cw-question");
+  assert.equal(editor().props.hidden, true);
+  button(h, "Keep question").props.onClick();
+  assert.equal(editor().props.hidden, false);
+  button(h, "Close editor").props.onClick();
+  assert.equal(editor().props.hidden, true);
+  assert.deepEqual(h.calls.map(call => call.method), ["onShowEvidence", "flushDrafts"]);
+});
+
+test("answer references preview in the evidence companion before an explicit original-page jump", () => {
+  const h = harness({ showAsk: true });
+  function raw(node) { if (!React.isValidElement(node)) return []; return [node, ...React.Children.toArray(node.props.children).flatMap(raw)]; }
+  const ask = raw(h.tree()).find(node => node.props.reviewQuestion !== undefined);
+  const evidence = { span_id: "answer-span", page_number: 22, quote: "Unchanged source words", label: "Answer reference" };
+  ask.props.onEvidence("The answer's actual claim", evidence);
+  assert.deepEqual(h.calls, []);
+  const pane = raw(h.tree()).find(node => node.props.heading === "Answer evidence");
+  assert.equal(pane.props.finding.evidence[0], evidence);
+  assert.ok(button(h, "← Finding evidence"));
+  button(h, "← Finding evidence").props.onClick();
+  assert.equal(raw(h.tree()).find(node => node.props.heading === "Answer evidence"), undefined);
 });
 
 test("draft edits and explicit saved questions use local controller operations only", () => {
@@ -204,7 +232,7 @@ test("failed saves retain local and last confirmed wording without a success cla
   assert.match(h.html(), /<blockquote class="cw-saved-wording">Last confirmed question<\/blockquote>/);
   assert.doesNotMatch(h.html(), /Saved in My review/);
   assert.equal(button(h, "Update saved question").props.disabled, true);
-  button(h, "Ask AI").props.onClick();
+  button(h, "Ask").props.onClick();
   assert.deepEqual(h.calls, [{ method: "onShowAsk", args: [] }]);
 });
 
@@ -212,7 +240,7 @@ test("markers remain explicit and navigation does not mark a finding reviewed", 
   const h = harness();
   railButtons(h)[1].props.onClick();
   assert.deepEqual(h.calls.map(call => call.method), ["onFinding"]);
-  const marker = nodes(h.tree()).find(node => node.type === "select");
+  const marker = nodes(h.tree()).find(node => node.type === "select" && node.props.className === "cw-marker");
   assert.equal(marker.props.value, "not_marked");
   marker.props.onChange({ target: { value: "reviewed_by_me" } });
   assert.equal(h.calls[1].method, "enqueue");
@@ -221,7 +249,7 @@ test("markers remain explicit and navigation does not mark a finding reviewed", 
   }]);
   assert.match(h.html(), /Opening or saving does not set it/);
   h.props.blocked = true;
-  assert.equal(nodes(h.tree()).find(node => node.type === "select").props.disabled, true);
+  assert.equal(nodes(h.tree()).find(node => node.type === "select" && node.props.className === "cw-marker").props.disabled, true);
   assert.equal(button(h, "Save question").props.disabled, true);
 });
 
@@ -274,7 +302,7 @@ test("reading and companion scroll reset for a different finding or run, not nor
   assert.equal(companion.scrollTop, 0);
 });
 
-test("opening and closing Ask resets only companion scrolling", () => {
+test("opening and closing Ask preserves reading and evidence scroll positions", () => {
   const h = harness({}, { trackEffects: true });
   const mounted = h.commit();
   const reading = mounted.get("cw-finding-body");
@@ -283,11 +311,11 @@ test("opening and closing Ask resets only companion scrolling", () => {
   h.props.showAsk = true;
   h.commit();
   assert.equal(reading.scrollTop, 640);
-  assert.equal(companion.scrollTop, 0);
+  assert.equal(companion.scrollTop, 330);
   companion.scrollTop = 900;
   h.props.showAsk = false;
   h.commit();
   assert.equal(reading.scrollTop, 640);
-  assert.equal(companion.scrollTop, 0);
+  assert.equal(companion.scrollTop, 900);
   assert.deepEqual(h.calls, []);
 });

@@ -9,8 +9,10 @@ passwords, email verification, or admin roles. AI features use the OpenAI API
 with your own key, entered in Settings. This is not an offline AI application
 or a public, application-funded service.
 
-> ClauseIQ is an engineering project, not legal advice. AI output can be
-> incomplete or wrong and must be checked against the source.
+> ClauseIQ is an experimental engineering project, not legal advice. AI output
+> can be incomplete or wrong and must be checked against the source. A synthetic
+> 25-page check missed a material pricing ambiguity and some handover detail;
+> matched citations are not a completeness or correctness guarantee.
 
 ## Technology
 
@@ -55,8 +57,9 @@ and reports remain usable without an AI key.
 Appearance offers Black and Graphite dark themes through the navigation theme
 switch. The choice is saved in this browser; light mode is no longer offered.
 
-The app opens into the Library at /documents, which combines an agreement list, selected-agreement details
-and Continue reviewing for the latest eligible saved review activity. Review
+The app opens into the Library at /documents, which combines direct agreement
+links, on-demand details and Continue reviewing for the latest eligible saved
+review activity. Review
 status is separate from source extraction and earlier analysis; examples remain
 labelled. Resume restores the latest run's saved view without starting AI. Search,
 sorting, contract-type filters and confirmed deletion remain available. About is
@@ -88,12 +91,24 @@ are labelled as potentially partial; separately disclosed surrounding source tex
 helps inspect context without changing the quotation or claiming a complete clause.
 Incomplete extraction, invalid output and interrupted requests remain visible.
 Draft recovery, explicit saved questions, personal markers and resume position
-remain separate. My review collects only confirmed questions from the selected run,
-with finding context, source links and reversible personal markers; drafts and AI
-answers are not promoted into it. Copy brief and Download Markdown take confirmed
+remain separate. My review opens on Saved work (confirmed questions and personal
+markers), with All findings, Revisit and Saved questions filters, inline question
+editing, explicit save/removal and
+reversible personal markers. Removing a saved question keeps its recoverable draft
+and marker; drafts and AI answers never become confirmed questions automatically.
+The Document view prioritizes the original PDF, with page/zoom controls, Fit width/
+Fit page and optional source context and extracted text. Page, within-page position,
+zoom and reading mode are remembered per document/source revision in this browser;
+explicit citation clicks still open their exact source page. Copy brief and
+Download Markdown take confirmed
 questions and markers out of My review, with finding context, source-page references
-and the selected run's limitations. Export is local and makes no AI call.
-Finding-scoped Ask uses the selected review's original perspective
+and the selected run's limitations, regardless of the checklist filter. Export is
+local and makes no AI call.
+Finding-scoped Ask occupies the centre column beside evidence, with Review/Ask
+switching and deliberate question editing. Use review question copies wording into
+the separate Ask draft; replacing different wording requires confirmation and never
+sends automatically. Answer references preview alongside the conversation.
+Ask uses the selected review's original perspective
 and extracted source, with its own recoverable draft and saved answer history.
 Sending is an explicit paid action; opening answers or saving drafts is not.
 Answers include source links, model attribution and any input limitations.

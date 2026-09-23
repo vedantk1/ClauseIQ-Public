@@ -154,6 +154,23 @@ function harness() {
   };
 }
 
+test("fit modes use PDF.js scaling, restore page coordinates and refit on resize without reloading", async () => {
+  const changes = [];
+  const h = harness();
+  h.render({ scale: "page-width", initialPage: 23, initialLocation: { pageNumber: 24, left: 12, top: 345 }, onViewChange: location => changes.push(location) });
+  await h.flush(); await h.loaded();
+  assert.equal(h.viewers[0].currentScaleValue, "page-width");
+  assert.equal(h.viewers[0].jumps[0].pageNumber, 24);
+  assert.equal(h.viewers[0].jumps[0].destArray[3], 345);
+  h.render({ scale: "page-fit" }); await h.flush();
+  assert.equal(h.viewers[0].currentScaleValue, "page-fit");
+  h.container.clientWidth = 700; h.observers[0].callback();
+  for (const callback of h.frames.values()) callback();
+  assert.equal(h.tasks.length, 1);
+  assert.ok(changes.length);
+  h.cleanup();
+});
+
 test("renderer imports only after mount, loads versioned local assets and disables executable/editable PDF features", async () => {
   const h = harness();
   h.render();

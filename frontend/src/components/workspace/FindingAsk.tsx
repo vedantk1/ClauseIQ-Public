@@ -8,14 +8,16 @@ import { Action, fieldClass, Panel } from "./WorkspaceControls";
 import { EvidenceList } from "./EvidenceSourcePane";
 import { askHistorySummary, draftKey, paidActionBusy, runStatus, type ReviewWorkspaceController, type WorkspaceSaveState } from "./workspaceState";
 
-export function FindingAsk({ run, finding, state, controller, source, sourceReady, onEvidence, onSettings }: {
+export function FindingAsk({ run, finding, state, controller, source, sourceReady, onEvidence, onSettings, reviewQuestion = "" }: {
   run: ReviewRun; finding: ReviewFinding; state: WorkspaceSaveState; controller: ReviewWorkspaceController;
   source: DocumentSourceResponse | null; sourceReady: boolean;
   onEvidence: (text: string, evidence: ReviewEvidence) => void; onSettings: () => void;
+  reviewQuestion?: string;
 }) {
   const { settings, isLoading, error, refresh } = useWorkspace();
   const [includeHistory, setIncludeHistory] = useState(true);
   const [interruptId, setInterruptId] = useState<string | null>(null);
+  const [replacement, setReplacement] = useState<string | null>(null);
   const turns = (state.workspace?.ask_turns || []).filter(turn => turn.run_id === run.id && turn.finding_id === finding.id);
   const savedDraft = state.workspace?.personal[run.id]?.ask_drafts?.[finding.id];
   const draft = state.localAskDrafts?.[draftKey(run.id, finding.id)] ?? savedDraft ?? "";
@@ -27,11 +29,13 @@ export function FindingAsk({ run, finding, state, controller, source, sourceRead
     !!state.workspace?.runs.some(item => runStatus(item) === "processing");
   const history = askHistorySummary(turns, run.id, finding.id);
 
-  return <Panel>
+  return <Panel className="cw-conversation">
+    <div className="cw-conversation-history">
     <h2 className="text-lg font-semibold">Ask about this finding</h2>
-    <p className="mt-2 text-sm">Send a question with this finding, its original review perspective and the extracted document text to OpenAI using your key. API charges apply only when you explicitly send.</p>
-    {run.kind === "fixture" && <p className="mt-2 text-sm font-medium">The finding is a saved synthetic example. Ask generates a real, paid AI answer; it is not a prewritten fixture response.</p>}
+    <p className="mt-1 text-sm text-text-secondary">{finding.title}</p>
     <details className="mt-3 text-sm"><summary className="cursor-pointer">Context used for this conversation</summary>
+      <p className="mt-2">Sends this finding, its original review perspective and extracted document text to OpenAI using your key.</p>
+      {run.kind === "fixture" && <p className="mt-2">This finding is a synthetic example. Ask produces a real paid AI answer, not a prewritten response.</p>}
       <p className="mt-2">Finding: {finding.title}</p><p>Reviewing for: {run.context.role || run.context.perspective}</p>
       <p className="whitespace-pre-wrap">Priorities: {run.context.priorities || "No extra priorities supplied."}</p>
       <p className="mt-2 text-text-secondary">This conversation keeps the selected run&apos;s context. Editing the review brief does not change it. Saved questions, markers and unsent drafts are not included.</p>
@@ -40,25 +44,38 @@ export function FindingAsk({ run, finding, state, controller, source, sourceRead
       {turns.length ? turns.map(turn => <AskTurn key={turn.id} turn={turn} source={source} onEvidence={onEvidence}
         onRefresh={() => void controller.reloadSaved()} onInterrupt={() => setInterruptId(turn.id)}
         controlsDisabled={paidActionBusy(state) || blocked || state.pending > 0} />)
-        : <p className="text-sm text-text-secondary">No questions have been sent for this finding. Existing conversations reopen here without running AI.</p>}
+        : <p className="cw-ask-empty">Ask about a qualification, exception or uncertainty in this finding. Your answer history will appear here.</p>}
     </div>
-    <label htmlFor="ask-draft" className="mt-5 block text-sm font-medium">Question to ask AI</label>
-    <textarea id="ask-draft" className={`${fieldClass} mt-2`} rows={4} maxLength={5000} value={draft}
+    </div>
+    <div className="cw-ask-composer">
+    <div className="cw-composer-heading"><label htmlFor="ask-draft" className="text-sm font-medium">Question to ask AI</label>
+      {reviewQuestion.trim() && <Action disabled={blocked || paidActionBusy(state)} onClick={() => {
+        if (blocked || paidActionBusy(state)) return;
+        if (draft.trim() && draft !== reviewQuestion) setReplacement(reviewQuestion);
+        else controller.setAskDraft(run.id, finding.id, reviewQuestion);
+      }}>Use review question</Action>}
+    </div>
+    <textarea id="ask-draft" className={`${fieldClass} mt-2`} rows={3} maxLength={5000} value={draft}
       onChange={event => controller.setAskDraft(run.id, finding.id, event.target.value)}
       onBlur={() => controller.flushDrafts()} placeholder="For example, does another clause qualify this finding?" />
-    <p className="mt-1 text-xs text-text-secondary">This draft saves locally, separately from Keep a question and My review. Typing and saving never send it to AI. Sent wording stays here until you edit it.</p>
+    <p className="mt-1 text-xs text-text-secondary">Separate Ask draft · nothing is sent until you choose Send.</p>
     {state.status === "review" && savedDraft !== undefined && savedDraft !== draft && <div className="mt-3 rounded border border-border-muted p-3 text-sm">
       <h3 className="font-semibold">Latest saved Ask draft</h3><p className="mt-2 whitespace-pre-wrap">{savedDraft || "Empty draft"}</p>
       <p className="mt-2">Your local wording remains above. Compare both before applying pending changes.</p>
     </div>}
+    <details className="cw-ask-options"><summary>Conversation options · {includeHistory ? `${history.count} recent answers` : "fresh question"}</summary>
     <label className="mt-3 flex items-start gap-2 text-sm"><input type="checkbox" checked={includeHistory} disabled={paidActionBusy(state)}
       onChange={event => setIncludeHistory(event.target.checked)} />Include recent answers for this finding</label>
     <p className="mt-1 text-xs text-text-secondary">{includeHistory
       ? `Up to the last 6 usable question-and-answer turns from this finding since the latest successful fresh question are included (${history.count} currently available). Earlier AI answers can be wrong and are not source evidence.`
       : "Fresh question: no earlier Ask turns are included. The finding, original perspective and extracted source are still included."}</p>
     {history.truncated && includeHistory && <p className="mt-1 text-xs text-text-secondary">Older turns stay visible but are omitted from this request. Restate older details when needed.</p>}
-    <p className="mt-3 text-sm">Selected model: <strong>{settings?.model_id || "Unavailable"}</strong></p>
-    <p className="mt-1 text-xs text-text-secondary">{isLoading ? "Loading model and key status…" : settings?.has_api_key && !settings.api_key_needs_reentry ? "Your API key is saved." : "Add or re-enter your API key in Settings. Reading saved answers remains available."}</p>
+    <p className="mt-2 text-xs text-text-secondary">Drafts save locally and stay separate from confirmed questions in My review. Sent wording remains until you edit it.</p>
+    <div className="mt-2 flex gap-2"><Action disabled={working} onClick={onSettings}>Open Settings</Action>
+      <Action disabled={working || isLoading} onClick={() => void refresh()}>Refresh model and key status</Action></div>
+    </details>
+    <div className="cw-send-meta"><span>{settings?.model_id || "Model unavailable"}</span><span>Send uses your key · API charges apply{run.kind === "fixture" ? " · live AI, not an example answer" : ""}.</span></div>
+    {(isLoading || !settings?.has_api_key || settings.api_key_needs_reentry) && <p className="mt-1 text-xs text-text-secondary">{isLoading ? "Loading model and key status…" : <>Add or re-enter your API key in <button type="button" className="underline" onClick={onSettings}>Settings</button>. Saved answers remain available.</>}</p>}
     {error && <p role="alert" className="mt-2 text-sm">Settings could not be confirmed. {error}</p>}
     <div className="mt-3 flex flex-wrap gap-2">
       <Action disabled={paidActionBusy(state) || blocked || processing || !draft.trim() || !sourceReady ||
@@ -66,8 +83,6 @@ export function FindingAsk({ run, finding, state, controller, source, sourceRead
         onClick={() => settings && void controller.startAsk(run.id, finding.id, draft, settings.model_id, crypto.randomUUID(), includeHistory)}>
         {ownAction && action.status === "preparing" ? "Confirming saved question…" : ownAction && action.status === "generating" ? "Answer request in progress…" : "Send question to AI"}
       </Action>
-      <Action disabled={working} onClick={onSettings}>Open Settings</Action>
-      <Action disabled={working || isLoading} onClick={() => void refresh()}>Refresh model and key status</Action>
     </div>
     {!sourceReady && <p className="mt-2 text-sm">The matching extracted source must be loaded before sending.</p>}
     {blocked && <p className="mt-2 text-sm">Resolve pending save errors or compare local changes before sending.</p>}
@@ -78,6 +93,13 @@ export function FindingAsk({ run, finding, state, controller, source, sourceRead
       <Action disabled={state.status === "loading"} onClick={() => void controller.reloadSaved()}>Check saved Ask state</Action>
       {action.canRetryRequest && <div><p className="mb-2">No turn with this request ID was found. Resending is an explicit paid action using the original question, model, history choice and revision. If already accepted, the server returns that turn without another provider call.</p><Action disabled={state.status === "loading"} onClick={() => void controller.retryAskRequest()}>Resend same Ask request (API charges may apply)</Action></div>}
     </div>}
+    </div>
+    <Modal isOpen={replacement !== null} onClose={() => setReplacement(null)} title="Replace the Ask draft?" footer={<>
+      <Action onClick={() => setReplacement(null)}>Keep Ask draft</Action>
+      <Action disabled={blocked || paidActionBusy(state)} onClick={() => {
+        if (replacement !== null && !blocked && !paidActionBusy(state)) { controller.setAskDraft(run.id, finding.id, replacement); setReplacement(null); }
+      }}>Replace Ask draft</Action>
+    </>}><p>Your different unsent Ask draft will be replaced with the review question. The saved review question and earlier answers stay unchanged. Nothing is sent to AI.</p></Modal>
     <Modal isOpen={!!interruptId} onClose={() => setInterruptId(null)} title="Mark this answer interrupted?" footer={<>
       <Action onClick={() => setInterruptId(null)}>Keep waiting</Action>
       <Action onClick={() => { if (interruptId) void controller.interruptAsk(interruptId); setInterruptId(null); }}>Mark interrupted</Action>
@@ -95,7 +117,7 @@ export function AskTurn({ turn, source, onEvidence, onRefresh, onInterrupt, cont
     <p className="mt-3 text-xs font-semibold uppercase tracking-wide">AI answer — {turn.status}</p>
     {turn.answer.map((item, index) => <div className="mt-3 text-sm" key={index}>
       <p className="whitespace-pre-wrap leading-relaxed">{item.text}</p>
-      <EvidenceList evidence={item.evidence} source={source} onOpen={evidence => onEvidence(item.text, evidence)} />
+      <EvidenceList preview evidence={item.evidence} source={source} onOpen={evidence => onEvidence(item.text, evidence)} />
     </div>)}
     {turn.status === "processing" && <div className="mt-3 space-y-2 text-sm"><p>No final answer is recorded yet. Reopening does not retry it.</p><div className="flex flex-wrap gap-2"><Action disabled={controlsDisabled} onClick={onRefresh}>Refresh saved answer status</Action><Action disabled={controlsDisabled} onClick={onInterrupt}>Mark this answer interrupted</Action></div></div>}
     {turn.status === "incomplete" && <p className="mt-3 text-sm font-medium">This answer is incomplete. Consider the source and output limitations below; missing material has not been checked.</p>}

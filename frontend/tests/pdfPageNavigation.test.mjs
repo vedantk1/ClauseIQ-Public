@@ -22,6 +22,41 @@ test("physical PDF pages use validated one-based to zero-based conversion", () =
   for (const count of [0, -1, 1.5, NaN]) assert.equal(pdfPageIndex(1, count), null);
 });
 
+test("browser bookmark restores page, coordinates, zoom and mode; fresh source jumps take precedence", async () => {
+  const bookmark = { version: 1, pageNumber: 24, location: { pageNumber: 24, left: 0, top: 345 }, zoom: "page-fit", mode: "single" };
+  for (const restore of [true, false]) {
+    const remembered = [];
+    const h = viewerHarness({ bookmark, remembered });
+    h.render({ documentId: "doc", sourceRevisionId: "rev", rememberView: true, navigationRequest: { requestId: 1, pageNumber: 15, restore } });
+    await h.flush(); h.render();
+    assert.equal(h.viewer().initialPage, 23);
+    assert.equal(h.viewer().initialLocation, bookmark.location);
+    assert.equal(h.viewer().scale, "page-fit"); assert.equal(h.viewer().viewMode, "single");
+    h.viewer().onReady(h.controller, 25);
+    assert.deepEqual(h.jumps, restore ? [] : [14]);
+    const pageNumber = restore ? 24 : 15;
+    h.viewer().onPageChange(pageNumber - 1);
+    h.viewer().onViewChange({ pageNumber, left: 0, top: 300 }, .8);
+    h.unmount();
+    assert.equal(remembered.at(-1)[1].pageNumber, pageNumber);
+    assert.equal(remembered.at(-1)[1].location.top, 300);
+    assert.equal(remembered.at(-1)[2], undefined, "unmount flushes the latest preference to durable storage");
+  }
+});
+
+test("a resume anchor remains available without a browser bookmark and invalid citations remain errors", async () => {
+  const errors = [];
+  const h = viewerHarness();
+  const props = { documentId: "doc", sourceRevisionId: "rev", rememberView: true, onNavigationError: message => errors.push(message) };
+  h.render({ ...props, navigationRequest: { requestId: 1, pageNumber: 15, restore: true } });
+  await h.flush(); h.render(); h.viewer().onReady(h.controller, 25);
+  assert.deepEqual(h.jumps, [14]);
+  h.render({ ...props, navigationRequest: { requestId: 2, pageNumber: 40 } });
+  await h.flush();
+  assert.deepEqual(h.jumps, [14]); assert.match(errors[0], /outside this PDF/);
+  h.unmount();
+});
+
 test("only the latest request is applied after the PDF loads", () => {
   const session = new PdfPageNavigationSession("source-1", "continuous");
   assert.equal(session.request({ requestId: 1, pageNumber: 20 }), null);
@@ -90,7 +125,7 @@ function findElement(element, predicate) {
   return null;
 }
 
-function viewerHarness({ fetchPdf } = {}) {
+function viewerHarness({ fetchPdf, bookmark = null, remembered = [] } = {}) {
   const slots = [];
   let cursor = 0;
   let effects = [];
@@ -146,10 +181,12 @@ function viewerHarness({ fetchPdf } = {}) {
     "@/lib/api": { LOCAL_API_HEADERS: { "X-ClauseIQ-Local": "1" } },
     "@/utils/pdfHighlightUtils": { getRiskHighlightColor: () => "transparent", getRiskBorderColor: () => "transparent" },
     "@/lib/pdfPageNavigation": helpers,
+    "@/lib/readerViewState": { readReaderView: () => bookmark, rememberReaderView: (...args) => remembered.push(args) },
   };
   const exports = {};
   vm.runInNewContext(compile("../src/components/PDFViewer.tsx"), {
-    exports, console: { error() {}, warn() {} }, AbortController,
+    exports, console: { error() {}, warn() {} }, AbortController, setTimeout, clearTimeout,
+    window: { addEventListener() {}, removeEventListener() {} },
     URL: {
       createObjectURL() { const url = `blob:synthetic-${createdUrls.length + 1}`; createdUrls.push(url); return url; },
       revokeObjectURL: (url) => revokedUrls.push(url),
@@ -159,6 +196,7 @@ function viewerHarness({ fetchPdf } = {}) {
       return fetchPdf ? fetchPdf(url, options) : { ok: true, blob: async () => ({}) };
     },
     require(name) {
+      if (name.endsWith(".module.css")) return new Proxy({}, { get: (_, key) => key === "__esModule" ? false : `pdf-${String(key)}` });
       if (name.endsWith(".css")) return {};
       assert.ok(name in imports, `Unexpected dependency: ${name}`);
       return imports[name];
@@ -173,10 +211,14 @@ function viewerHarness({ fetchPdf } = {}) {
     viewer() { return findElement(tree, (item) => item.type === PdfJsRenderer)?.props; },
     text() { return JSON.stringify(tree); },
     unmount() { slots.forEach((slot) => slot.cleanup?.()); },
-    toggleMode() { findElement(tree, (item) => item.type === Button && item.props.title?.startsWith("Switch to")).props.onClick(); },
+    toggleMode() { const input = findElement(tree, item => item.type === "select" && item.props["aria-label"] === "PDF reading mode"); input.props.onChange({ target: { value: input.props.value === "continuous" ? "single" : "continuous" } }); },
+    setZoom(value) { findElement(tree, item => item.type === "select" && item.props["aria-label"] === "PDF zoom").props.onChange({ target: { value: String(value) } }); },
     zoomIn() { findElement(tree, (item) => item.type === Button && item.props.title === "Zoom in").props.onClick(); },
     click(title) { findElement(tree, (item) => item.type === Button && item.props.title === title).props.onClick(); },
     clickText(text) { findElement(tree, (item) => item.type === Button && item.props.children === text).props.onClick(); },
+    pageInput() { return findElement(tree, item => item.type === "input" && item.props["aria-label"] === "PDF page number")?.props; },
+    enterPage(value) { this.pageInput().onChange({ target: { value } }); },
+    submitPage() { findElement(tree, item => item.type === "form").props.onSubmit({ preventDefault() {} }); },
   };
 }
 
@@ -371,8 +413,85 @@ test("page and zoom controls stay bounded and do not refetch the source", async 
   assert.equal(harness.viewer().scale, 3);
   for (let index = 0; index < 20; index += 1) { harness.click("Zoom out"); harness.render(); }
   assert.equal(harness.viewer().scale, 0.5);
-  harness.click("Reset zoom");
+  harness.setZoom(1);
   harness.render();
   assert.equal(harness.viewer().scale, 1);
   assert.equal(harness.requests.length, 1);
+});
+
+test("compact reader preserves the full-height canvas and groups reading controls", async () => {
+  const harness = viewerHarness();
+  const tree = harness.render({ documentId: "doc-1", fileName: "synthetic.pdf" });
+  assert.equal(tree.type, "section");
+  assert.equal(tree.props["aria-label"], "PDF reader: synthetic.pdf");
+  assert.match(tree.props.className, /pdf-reader/);
+  assert.ok(findElement(tree, item => item.props?.className === "pdf-canvas"));
+  assert.ok(findElement(tree, item => item.props?.["aria-label"] === "PDF reading controls"));
+  assert.ok(findElement(tree, item => item.props?.role === "group" && item.props["aria-label"] === "Page navigation"));
+  assert.ok(findElement(tree, item => item.props?.role === "group" && item.props["aria-label"] === "PDF zoom"));
+  assert.equal(harness.pageInput().disabled, true);
+  assert.equal(findElement(tree, item => item.type === "h3" && item.props.children === "synthetic.pdf"), null);
+  const css = readFileSync(new URL("../src/components/pdf/PDFReader.module.css", import.meta.url), "utf8");
+  assert.match(css, /\.reader\s*\{[^}]*height:\s*100%[^}]*min-height:\s*0/);
+  assert.match(css, /\.canvas\s*\{[^}]*flex:\s*1[^}]*min-height:\s*0/);
+});
+
+test("optional document actions share the reader toolbar and survive PDF failure", async () => {
+  const action = React.createElement("button", { "aria-label": "Extracted text" }, "Extracted text");
+  const harness = viewerHarness();
+  let tree = harness.render({ documentId: "doc-1", toolbarActions: action });
+  let toolbar = findElement(tree, item => item.props?.className === "pdf-toolbar");
+  assert.ok(findElement(toolbar, item => item.props?.["aria-label"] === "Extracted text"));
+  await harness.flush();
+  harness.render();
+  harness.viewer().onError("Unable to render");
+  tree = harness.render();
+  toolbar = findElement(tree, item => item.props?.className === "pdf-toolbar");
+  assert.ok(findElement(toolbar, item => item.props?.["aria-label"] === "Extracted text"), "extraction remains reachable if rendering fails");
+});
+
+test("direct page entry is physical, range-checked and independent of text search", async () => {
+  const harness = viewerHarness();
+  harness.render({ documentId: "source-doc", sourceRevisionId: "revision-1" });
+  await harness.flush();
+  harness.render();
+  const viewer = harness.viewer();
+  viewer.onReady(harness.controller, 25);
+  viewer.onPageChange(0);
+  harness.render();
+  assert.equal(harness.pageInput().disabled, false);
+  harness.enterPage("25");
+  harness.render();
+  harness.submitPage();
+  assert.deepEqual(harness.jumps, [24]);
+  viewer.onPageChange(24);
+  harness.render();
+  assert.equal(harness.pageInput().value, "25");
+  for (const value of ["0", "26", "1.5", "one", "", "-1", "Infinity"]) {
+    harness.enterPage(value);
+    harness.render();
+    harness.submitPage();
+    harness.render();
+    assert.equal(harness.pageInput()["aria-invalid"], true, value);
+    assert.match(harness.text(), /Enter a page number from 1 to 25/);
+  }
+  assert.deepEqual(harness.jumps, [24]);
+  assert.ok(harness.searches.every(query => !query));
+  assert.equal(harness.requests.length, 1);
+});
+
+test("failed direct page entry gives a safe inline error and preserves the reader", async () => {
+  const harness = viewerHarness();
+  harness.render({ documentId: "doc-1" });
+  await harness.flush();
+  harness.render();
+  harness.viewer().onReady({ ...harness.controller, jumpToPage() { throw new Error("private renderer detail"); } }, 25);
+  harness.render();
+  harness.enterPage("2");
+  harness.render();
+  harness.submitPage();
+  harness.render();
+  assert.match(harness.text(), /That page could not be opened/);
+  assert.doesNotMatch(harness.text(), /private renderer detail/);
+  assert.ok(harness.viewer());
 });

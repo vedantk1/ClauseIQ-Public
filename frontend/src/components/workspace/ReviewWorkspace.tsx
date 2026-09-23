@@ -8,7 +8,7 @@ import Modal from "@/components/ui/Modal";
 import { useReviewWorkspace } from "@/hooks/useReviewWorkspace";
 import { draftKey, emptyPersonal, hasUnconfirmedChanges, paidActionBusy, sameBrief, runLabel, runStatus, safeReviewPosition, libraryResumePosition } from "./workspaceState";
 import { Action, BriefForm, Panel, SaveFeedback } from "./WorkspaceControls";
-import { DocumentSourceView } from "./EvidenceSourcePane";
+import { DocumentWorkspace } from "./DocumentWorkspace";
 import { ReviewGenerationControls, ReviewRunSummary } from "./ReviewGenerationControls";
 import { FindingReview } from "./FindingReview";
 import { WorkspaceHeader } from "./WorkspaceHeader";
@@ -36,7 +36,7 @@ export default function ReviewWorkspace({ documentId, resumeOnOpen = false }: { 
   const [askSource, setAskSource] = useState<{ runId: string; text: string; evidence: ReviewEvidence } | null>(null);
   const [askPanelTarget, setAskPanelTarget] = useState<{ runId: string; findingId: string } | null>(null);
   const [reviewSourceRunId, setReviewSourceRunId] = useState<string | null>(null);
-  const [navigationRequest, setNavigationRequest] = useState<{ runId: string; requestId: number; pageNumber: number }>();
+  const [navigationRequest, setNavigationRequest] = useState<{ runId: string; requestId: number; pageNumber: number; restore?: boolean }>();
   const [leaveWarning, setLeaveWarning] = useState(false);
   const [leaveDestination, setLeaveDestination] = useState("/documents");
   const workspace = state?.workspace;
@@ -52,7 +52,7 @@ export default function ReviewWorkspace({ documentId, resumeOnOpen = false }: { 
     setView(target.position.view);
     setSelectedFinding(target.position.finding_id);
     setSelectedEvidence(target.position.evidence_span_id);
-    if (target.pageNumber) setNavigationRequest({ runId: target.runId, requestId: 1, pageNumber: target.pageNumber });
+    if (target.pageNumber) setNavigationRequest({ runId: target.runId, requestId: 1, pageNumber: target.pageNumber, restore: true });
   }, [resumeOnOpen, workspace]);
 
   if (!state || !controller) return <p className="p-8" role="status">Loading review workspace…</p>;
@@ -92,11 +92,15 @@ export default function ReviewWorkspace({ documentId, resumeOnOpen = false }: { 
   const draft = finding && run ? state.localDrafts[draftKey(run.id, finding.id)] ?? personal.drafts[finding.id] ?? personal.saved_questions[finding.id]?.text ?? "" : "";
   const savedQuestion = finding ? personal.saved_questions[finding.id] : undefined;
 
-  function navigate(nextView: ReviewPosition["view"], findingId = finding?.id || null, evidenceId = evidence?.span_id || null) {
+  function navigate(nextView: ReviewPosition["view"], findingId = finding?.id || null, evidenceId = evidence?.span_id || null, sourceOpened = false) {
     setReviewSourceRunId(null);
     setOverviewSource(null);
     setAskSource(null);
     setView(nextView);
+    if (nextView === "document" && !sourceOpened) {
+      setNavigationRequest(undefined);
+      evidenceId = null; // A later Library resume must not revive the cleared citation.
+    }
     const position = run ? safeReviewPosition(run, nextView, findingId, evidenceId) : null;
     setSelectionRunId(run?.id || "");
     setSelectedFinding(position?.finding_id || null);
@@ -106,7 +110,7 @@ export default function ReviewWorkspace({ documentId, resumeOnOpen = false }: { 
 
   function openEvidence(item: ReviewEvidence) {
     setNavigationRequest(previous => ({ runId: run?.id || "", requestId: (previous?.requestId || 0) + 1, pageNumber: item.page_number }));
-    navigate("document", finding?.id || null, item.span_id);
+    navigate("document", finding?.id || null, item.span_id, true);
     if (run && finding) setEvidenceChoice({ runId: run.id, findingId: finding.id, index: finding.evidence.indexOf(item) });
   }
 
@@ -135,20 +139,12 @@ export default function ReviewWorkspace({ documentId, resumeOnOpen = false }: { 
     // Keep this transient: set_position permits finding evidence anchors only.
   }
 
-  function resume() {
-    const position = personal.position;
-    const previousFinding = run?.findings.find(item => item.id === position.finding_id);
-    const previousEvidence = previousFinding?.evidence.find(item => item.span_id === position.evidence_span_id);
-    if (previousEvidence) setNavigationRequest(previous => ({ runId: run?.id || "", requestId: (previous?.requestId || 0) + 1, pageNumber: previousEvidence.page_number }));
-    navigate(position.view, position.finding_id, position.evidence_span_id);
-  }
-
   const openFinding = (findingId: string) => navigate("findings", findingId, null);
   function openMyReviewEvidence(findingId: string, item: ReviewEvidence) {
     const target = run?.findings.find(entry => entry.id === findingId);
     const index = target?.evidence.indexOf(item) ?? -1;
     if (!run || !target || index < 0) return;
-    navigate("document", findingId, item.span_id);
+    navigate("document", findingId, item.span_id, true);
     setEvidenceChoice({ runId: run.id, findingId, index });
     setNavigationRequest(previous => ({ runId: run.id, requestId: (previous?.requestId || 0) + 1, pageNumber: item.page_number }));
     setReviewSourceRunId(run.id);
@@ -181,7 +177,7 @@ export default function ReviewWorkspace({ documentId, resumeOnOpen = false }: { 
 
     <nav aria-label="Agreement workspace views" className="cw-tabs">
       {(Object.keys(viewNames) as ReviewPosition["view"][]).map(item => <button type="button" key={item} aria-current={view === item ? "page" : undefined}
-        onClick={() => navigate(item)}>{item === "overview" && !run ? "Review setup" : viewNames[item]}{item === "my_review" && saved.length > 0 && <span className="cw-tab-count">{saved.length}<span className="sr-only"> saved questions</span></span>}</button>)}
+        onClick={() => navigate(item)}>{item === "overview" && !run ? "Review setup" : viewNames[item]}{item === "my_review" && saved.length > 0 && <span className="cw-tab-count">{saved.length} saved {saved.length === 1 ? "question" : "questions"}</span>}</button>)}
       {workspace.runs.length > 1 && <label className="cw-run-selector">Review run <select className="ml-2 rounded border border-border-muted bg-bg-surface p-2" value={run?.id || ""} onChange={event => {
         setSelectedRun(event.target.value); setSelectionRunId(event.target.value); setSelectedFinding(null); setSelectedEvidence(null); setOverviewSource(null); setAskSource(null); setReviewSourceRunId(null); setView("overview");
       }}>{workspace.runs.map((item, index) => <option key={item.id} value={item.id}>{index + 1}. {runLabel(item)}{item.generation ? ` · ${item.generation.model_id}` : ""}</option>)}</select></label>}
@@ -195,7 +191,7 @@ export default function ReviewWorkspace({ documentId, resumeOnOpen = false }: { 
     {view === "overview" && run && <AgreementOverview run={run} personal={personal} source={source}
       sourceLoading={sourceStatus === "loading"} sourceError={sourceError}
       onFinding={openFinding} onSource={openOverviewEvidence} onOriginal={() => navigate("document")}
-      onExplore={() => navigate("findings")} onResume={resume} onMyReview={() => navigate("my_review")}
+      onExplore={() => navigate("findings")} onMyReview={() => navigate("my_review")}
       controlsOpen={briefDirty || (state.reviewAction?.status || "idle") !== "idle" || workspace.runs.some(item => runStatus(item) === "processing")}>
       <BriefForm brief={brief} dirty={briefDirty} pending={blocked || state.pending > 0 || paidActionBusy(state)} onChange={value => controller.setBriefDraft(value)} onSave={() => controller.saveBrief()} />
         <ReviewGenerationControls state={state} controller={controller} sourceReady={!!source && source.source_revision_id === workspace.source_revision_id && extractedPages > 0 && !sourceError} onSettings={() => leave("/settings")} />
@@ -203,7 +199,7 @@ export default function ReviewWorkspace({ documentId, resumeOnOpen = false }: { 
         {!workspace.runs.some(item => item.kind === "fixture") && workspace.fixture_available && <Panel><p className="mb-3 text-sm text-text-secondary">This source matches the supported synthetic fixture. Load the labelled customer-perspective example to exercise saved work. Your brief is not used to generate it.</p><Action disabled={blocked || state.pending > 0 || paidActionBusy(state)} onClick={() => controller.createFixture()}>Load synthetic customer-perspective example</Action></Panel>}
     </AgreementOverview>}
 
-    {view === "findings" && (run && finding ? <FindingReview run={run} finding={finding} personal={personal} state={state} controller={controller}
+    {view === "findings" && (run && finding ? <FindingReview key={draftKey(run.id, finding.id)} run={run} finding={finding} personal={personal} state={state} controller={controller}
       source={source} sourceReady={!!source && source.source_revision_id === run.source_revision_id && extractedPages > 0 && !sourceError}
       draft={draft} savedQuestion={savedQuestion} blocked={blocked} selectedEvidence={evidence}
       showAsk={askPanelTarget?.runId === run.id && askPanelTarget.findingId === finding.id}
@@ -212,12 +208,14 @@ export default function ReviewWorkspace({ documentId, resumeOnOpen = false }: { 
       onShowEvidence={() => setAskPanelTarget(null)} onSettings={() => leave("/settings")} />
       : <Panel><h2 className="text-lg font-semibold">{run ? "No usable findings in this run" : "No review run yet"}</h2><p className="mt-2 text-sm">An empty finding list is not proof that the agreement has no issues. Check the run status and coverage on Overview.</p><Action className="mt-3" onClick={() => navigate("overview")}>Return to overview</Action></Panel>)}
 
-    {view === "document" && <DocumentSourceView documentId={documentId} filename={filename} source={source} finding={activeOverviewSource ? null : finding} evidence={activeOverviewSource?.evidence || activeAskSource?.evidence || evidence}
+    {view === "document" && <DocumentWorkspace documentId={documentId} filename={filename} source={source}
+      finding={activeOverviewSource || activeAskSource || navigationRequest?.runId !== run?.id ? null : finding}
+      evidence={activeOverviewSource?.evidence || activeAskSource?.evidence || (navigationRequest?.runId === run?.id ? evidence : null)}
       overviewText={activeOverviewSource?.text} answerText={activeAskSource?.text} navigationRequest={navigationRequest?.runId === run?.id ? navigationRequest : undefined}
-      returnLabel={reviewSourceRunId === run?.id ? "Return to My review" : undefined}
+      returnLabel={activeAskSource ? "Return to Ask" : reviewSourceRunId === run?.id ? "Return to My review" : undefined}
       onReturn={() => navigate(activeOverviewSource ? "overview" : reviewSourceRunId === run?.id ? "my_review" : "findings")} />}
 
-    {view === "my_review" && <MyReview filename={filename} run={run} personal={personal} source={sourceError ? null : source}
+    {view === "my_review" && <MyReview key={run?.id || "no-run"} filename={filename} run={run} personal={personal} source={sourceError ? null : source} state={state} controller={controller}
       exportUnavailable={blocked || state.pending > 0 || state.status === "saving" || paidActionBusy(state)
         ? "Finish saving or resolve pending changes before exporting."
         : metadataStatus !== "ready" ? "Load the agreement details before exporting." : undefined}

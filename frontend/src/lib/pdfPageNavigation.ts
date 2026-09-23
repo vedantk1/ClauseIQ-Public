@@ -2,6 +2,8 @@
 export interface PdfNavigationRequest {
   requestId: number;
   pageNumber: number;
+  /** Saved resume anchor, not a fresh citation click; a browser bookmark wins. */
+  restore?: boolean;
 }
 
 export type PdfNavigationResult = { pageIndex: number } | { error: string } | null;

@@ -6,6 +6,7 @@ import type { PDFViewer } from "pdfjs-dist/web/pdf_viewer.mjs";
 import { securePdfDocumentOptions } from "@/lib/pdfPageNavigation";
 import "pdfjs-dist/web/pdf_viewer.css";
 import "@/styles/pdf-viewer.css";
+import type { PdfLocation, PdfZoom } from "@/lib/readerViewState";
 
 export interface PdfSearchState {
   current: number;
@@ -22,9 +23,11 @@ export interface PdfJsController {
 
 interface PdfJsRendererProps {
   fileUrl: string;
-  scale: number;
+  scale: PdfZoom;
   viewMode: "single" | "continuous";
   initialPage: number;
+  initialLocation?: PdfLocation;
+  onViewChange?: (location: PdfLocation, scale: number) => void;
   onReady: (controller: PdfJsController, numPages: number) => void;
   onPageChange: (zeroBased: number) => void;
   onSearchChange?: (state: PdfSearchState) => void;
@@ -166,12 +169,18 @@ export default function PdfJsRenderer(props: PdfJsRendererProps) {
         if (!isCurrent() || !active || active.ready) return;
         try {
           const { scale, initialPage } = callbacksRef.current;
-          if (!Number.isFinite(scale) || scale <= 0 || !Number.isInteger(initialPage) || initialPage < 0 || initialPage >= viewer.pagesCount) {
+          if ((typeof scale === "number" && (!Number.isFinite(scale) || scale <= 0)) || !Number.isInteger(initialPage) || initialPage < 0) {
             reportError(LOAD_ERROR);
             return;
           }
-          viewer.currentScale = scale;
-          viewer.scrollPageIntoView({ pageNumber: initialPage + 1, ignoreDestinationZoom: true });
+          if (typeof scale === "number") viewer.currentScale = scale;
+          else viewer.currentScaleValue = scale;
+          // An obsolete browser bookmark is optional; explicit source requests
+          // are validated separately and must never be silently clamped.
+          const pageNumber = initialPage < viewer.pagesCount ? initialPage + 1 : 1;
+          const location = callbacksRef.current.initialLocation;
+          viewer.scrollPageIntoView({ pageNumber, ignoreDestinationZoom: true,
+            ...(location?.pageNumber === pageNumber ? { destArray: [null, { name: "XYZ" }, location.left, location.top, null], allowNegativeOffset: true } : {}) });
           viewer.update();
           active.ready = true;
           // The parent may have a newer source jump queued during loading.
@@ -186,7 +195,10 @@ export default function PdfJsRenderer(props: PdfJsRendererProps) {
         if (isCurrent() && active?.ready) callbacksRef.current.onPageChange(pageNumber - 1);
       };
       const onViewArea = ({ location }: { location: PageLocation }) => {
-        if (isCurrent() && active) active.location = { ...location };
+        if (isCurrent() && active) {
+          active.location = { pageNumber: location.pageNumber, left: location.left, top: location.top };
+          if (active.ready) callbacksRef.current.onViewChange?.(active.location, viewer.currentScale);
+        }
       };
       const onFindCount = ({ matchesCount }: { matchesCount: { current: number; total: number } }) => {
         // The generated SDK declaration says state is always null, but the
@@ -229,6 +241,8 @@ export default function PdfJsRenderer(props: PdfJsRendererProps) {
         if (resizeFrame != null) cancelAnimationFrame(resizeFrame);
         resizeFrame = requestAnimationFrame(() => {
           resizeFrame = null;
+          const zoom = callbacksRef.current.scale;
+          if (active && typeof zoom === "string") active.viewer.currentScaleValue = zoom;
           active?.restoreLocation();
         });
       });
@@ -272,8 +286,11 @@ export default function PdfJsRenderer(props: PdfJsRendererProps) {
 
   useEffect(() => {
     const active = activeRef.current;
-    if (!active?.ready || !Number.isFinite(scale) || scale <= 0 || active.viewer.currentScale === scale) return;
-    active.viewer.currentScale = scale;
+    if (!active?.ready) return;
+    if (typeof scale === "number") {
+      if (!Number.isFinite(scale) || scale <= 0 || active.viewer.currentScale === scale) return;
+      active.viewer.currentScale = scale;
+    } else active.viewer.currentScaleValue = scale;
     active.restoreLocation();
   }, [scale]);
 

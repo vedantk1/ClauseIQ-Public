@@ -12,9 +12,10 @@ export interface ReviewBriefExportProps {
   personal: ReviewPersonalState;
   source: DocumentSourceResponse | null;
   unavailable?: string;
+  compact?: boolean;
 }
 
-export function ReviewBriefExport({ unavailable, ...input }: ReviewBriefExportProps) {
+export function ReviewBriefExport({ unavailable, compact = false, ...input }: ReviewBriefExportProps) {
   const brief = buildReviewBrief(input);
   const [feedback, setFeedback] = useState<{ markdown: string; message: string; manualCopy?: boolean; error?: boolean } | null>(null);
   const [copying, setCopying] = useState<string | null>(null);
@@ -54,10 +55,10 @@ export function ReviewBriefExport({ unavailable, ...input }: ReviewBriefExportPr
     }
   }
 
-  return <section className="co-export" aria-labelledby="review-brief-heading">
-    <div><h3 id="review-brief-heading">Take your review with you</h3>
+  return <section className="co-export" aria-label={compact ? "Export confirmed review brief" : undefined} aria-labelledby={compact ? undefined : "review-brief-heading"}>
+    {!compact && <div><h3 id="review-brief-heading">Take your review with you</h3>
       <p className="co-note">Confirmed questions, personal markers and finding context from this run. Drafts and Ask answers stay out. No AI call.</p>
-    </div>
+    </div>}
     <div className="co-export-actions">
       <Action disabled={disabled || activeCopy} onClick={() => void copy()}>{activeCopy ? "Copying…" : "Copy brief"}</Action>
       <Action disabled={disabled} onClick={download}>Download Markdown</Action>

@@ -110,7 +110,7 @@ export default function ImportAgreement() {
       <div className={styles.intro}>
         <p className={styles.eyebrow}>Add to your local library</p>
         <h1 id="import-title">Import an agreement</h1>
-        <p>Save the original PDF and prepare its text. Set up your review next, or come back later.</p>
+        <p>Save a PDF to your local library. Set up a review now or return later.</p>
       </div>
 
       <form onSubmit={submit} className={styles.form} aria-label="Import agreement" aria-busy={pending}>
@@ -154,12 +154,10 @@ export default function ImportAgreement() {
         </div>}
 
         <div className={styles.boundary} id="import-extraction-boundary">
-          <h2>Import first. Review when you’re ready.</h2>
-          <p>The original and extracted text stay in this local workspace. Importing makes no AI call and needs no API key.</p>
-          <p>Scanned or incomplete text is reported explicitly. Text extraction does not perform OCR and is not a completed review.</p>
+          <p>Import is local and needs no API key. AI review is a separate paid action that you start explicitly.</p>
+          <details><summary>Extraction limits</summary><p>Scanned or incomplete text is reported explicitly. Text extraction does not perform OCR and is not a completed review.</p></details>
         </div>
         <div className={styles.actions}>
-          <p>AI review is a separate, deliberate next step using your key and may incur charges.</p>
           <button type="submit" className="cl-button cl-primary" disabled={!file || pending || !!failure}>
             {pending ? <><LoaderCircle size={18} className={styles.spinner} aria-hidden="true" /> Importing agreement…</>
               : <>Import agreement<ArrowRight size={17} aria-hidden="true" /></>}

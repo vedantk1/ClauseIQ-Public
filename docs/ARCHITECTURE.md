@@ -53,8 +53,8 @@ run and saved-question timestamps provide activity ordering without introducing
 new writes, data migrations or automatic AI calls.
 
 The frontend / route redirects to /documents. The Library uses a shared navigation
-header with a selectable
-agreement list, details inspector and a Continue reviewing shortcut. Presentation
+header with direct
+agreement links, an on-demand accessible details drawer and a Continue reviewing shortcut. Presentation
 and pure state/destination helpers live in components/documents; the route retains
 existing fetch/filter/selection/deletion hooks and in-app confirmation modals.
 Continue chooses the latest eligible recorded activity across the library,
@@ -138,6 +138,9 @@ does not reinterpret existing findings. Personal data is scoped by run/finding:
 recoverable drafts, explicitly saved questions, explicit reversible markers and
 navigation/opened history are distinct. Reading a finding never marks it reviewed.
 Saving wording does not send it, accept a term or resolve a finding.
+An explicit remove_question operation removes only confirmed wording for the
+selected run/finding. Existing drafts and markers survive; absent drafts recover
+the removed wording. It uses the same revision/CAS checks as other personal writes.
 
 My review can produce a local Markdown brief through a pure selected-run serializer
 in components/workspace/reviewBrief.ts. It includes only findings with confirmed
@@ -182,11 +185,49 @@ For an existing run, AgreementOverview leads with the saved agreement summary,
 evidence and source/run coverage, alongside compact personal activity. The brief
 and another explicit generation sit in a secondary disclosure, opened for pending
 edits or recovery. Global changed-context, incomplete/failed-run and save-recovery
-warnings remain outside it. MyReview presents only confirmed questions belonging
-to the selected run, their finding context and matched source links, plus separate
-Revisit and Reviewed by me lists. Drafts and provider answers remain separate.
-Opening a source reference preserves its exact finding/reference selection and
-returns to My review without generating or accepting anything.
+warnings remain outside it. Source coverage sits with the summary independently
+of the activity sidebar's height. MyReview is a full-width selected-run checklist,
+defaulting to Saved work (confirmed questions or explicit personal markers),
+with All findings, Revisit and Saved questions filters, direct markers and inline
+question editing. Explicit Save changes confirmed wording; Cancel closes the
+editor but retains the recoverable draft. An in-app confirmation removes a saved
+question without removing its draft or marker. Drafts and provider answers remain
+separate. Filters never narrow the whole-run confirmed brief export. Pending,
+conflicted and paid-operation states retain the existing mutation/export guards.
+
+DocumentWorkspace gives the PDF the available viewport beneath compact controls.
+Plain document reading uses one toolbar: extraction access sits with page/zoom
+controls, without a separate placeholder header. Extraction access remains
+available when PDF loading/rendering fails.
+Matched source navigation offers an explicit return action and collapsed source
+context, while an ordinary Document tab opens without unrelated finding context.
+Extracted text is an optional side panel for the visible physical page, not a
+substitute for the original layout. PDFViewer groups page, zoom and viewing-mode
+controls, with bounded direct physical-page entry and explicit fit-width/fit-page
+zoom choices. A versioned browser-local reader bookmark stores only page/coordinates,
+zoom and mode per document/source revision. In-memory fallback survives component
+remounts when browser storage is unavailable. Preferences flush on unmount/pagehide;
+obsolete or malformed bookmarks are ignored. Fresh citation requests override a
+bookmark; Library's saved citation anchor is only a fallback on reopening. This
+does not change the backend review-position schema or persist document text.
+The local PDF.js renderer,
+source identity checks and quote-matching rules are unchanged. Opening a checklist
+reference preserves its exact finding/reference selection and returns to My review
+without generating or accepting anything.
+
+Finding reference rows explicitly distinguish excerpt preview from a direct View page
+action for the original physical page. Preview selects/focuses the passage in the
+evidence pane; View page retains exact reference identity and source-match guards.
+Review and Ask share the centre column without hiding the evidence companion.
+Their mounted views preserve independent scroll positions while switching; drafts,
+confirmed questions and conversations remain controller-owned and distinct.
+Question editing opens deliberately from the persistent action bar. Use review
+question copies current review wording into the Ask draft; replacing a different
+non-empty draft requires confirmation. Neither action dispatches a provider call.
+Answer references preview their own exact passage and can open Document with a
+return to the same finding's Ask conversation. No claim-level relationship is
+inferred from a finding's reference list. Overview omits same-page resume controls;
+its saved summary and source limitations remain unchanged.
 
 lib/workspaceReads.ts handles source and filename metadata independently from
 the persistent review controller. Each read has a 20-second deadline, explicit

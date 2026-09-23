@@ -20,6 +20,7 @@ export interface ModalProps {
   showCloseButton?: boolean;
   className?: string;
   footer?: React.ReactNode;
+  placement?: "center" | "right";
 }
 
 const Modal: React.FC<ModalProps> = ({
@@ -33,6 +34,7 @@ const Modal: React.FC<ModalProps> = ({
   showCloseButton = true,
   className,
   footer,
+  placement = "center",
 }) => {
   const modalRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -70,7 +72,7 @@ const Modal: React.FC<ModalProps> = ({
   const modalContent = (
     <div
       ref={overlayRef}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+      className={cn("fixed inset-0 z-50 flex bg-black/50 backdrop-blur-sm", placement === "right" ? "items-stretch justify-end" : "items-center justify-center p-4")}
       onClick={handleOverlayClick}
       data-testid="modal-backdrop"
     >
@@ -79,7 +81,8 @@ const Modal: React.FC<ModalProps> = ({
         className={cn(
           "relative w-full bg-bg-surface rounded-lg border border-border-muted shadow-lg focus:outline-none",
           sizeClasses[size],
-          className
+          className,
+          placement === "right" && "h-full overflow-y-auto rounded-none"
         )}
         tabIndex={-1}
         role="dialog"
