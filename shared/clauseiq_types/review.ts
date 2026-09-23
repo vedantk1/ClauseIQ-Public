@@ -129,6 +129,7 @@ export interface ReviewWorkspaceResponse {
 export type ReviewWorkspaceOperation =
   | { type: "set_brief"; brief: ReviewBrief }
   | { type: "set_draft" | "set_ask_draft" | "save_question"; run_id: string; finding_id: string; text: string }
+  | { type: "remove_question"; run_id: string; finding_id: string }
   | { type: "set_marker"; run_id: string; finding_id: string; marker: ReviewMarker }
   | { type: "set_position"; run_id: string; position: ReviewPosition };
 

@@ -117,6 +117,29 @@ async def run_smoke():
             assert await fresh_service.read(imported["id"], WORKSPACE) == current
             report["checks"].append("fresh service and connection restore all state; stale revision cannot overwrite newer text")
 
+            stage = "confirmed question removal preserves drafts and unrelated personal work"
+            before_remove = current
+            current = await change(current.revision, "remove_question", **scope)
+            assert finding.id not in current.personal[run.id].saved_questions
+            assert current.personal[run.id].drafts[finding.id] == "Synthetic newer draft"
+            assert current.personal[run.id].markers == before_remove.personal[run.id].markers
+            assert current.personal[run.id].position == before_remove.personal[run.id].position
+            assert current.runs == before_remove.runs and current.ask_turns == before_remove.ask_turns
+            assert await fresh_service.read(imported["id"], WORKSPACE) == current
+            await expect_error(change(before_remove.revision, "remove_question", **scope), "REVISION_CONFLICT")
+            assert await change(current.revision, "remove_question", **scope) == current
+            current = await change(current.revision, "save_question", **scope, text="Synthetic saved question")
+            assert current.personal[run.id].saved_questions[finding.id].id == saved_id
+
+            other_scope = {"run_id": run.id, "finding_id": run.findings[0].id}
+            current = await change(current.revision, "save_question", **other_scope, text="Synthetic recoverable wording")
+            assert other_scope["finding_id"] not in current.personal[run.id].drafts
+            current = await change(current.revision, "remove_question", **other_scope)
+            assert current.personal[run.id].drafts[other_scope["finding_id"]] == "Synthetic recoverable wording"
+            assert current.personal[run.id].saved_questions[finding.id].id == saved_id
+            assert await fresh_service.read(imported["id"], WORKSPACE) == current
+            report["checks"].append("confirmed question removal persists, preserves newer drafts/markers/run and rejects stale replay; missing draft recovers wording; fresh-revision replay is a no-op")
+
             stage = "competing real conditional writes"
             operations = [ReviewWorkspaceUpdate(expected_revision=current.revision, operation={
                 "type": "set_brief", "brief": {"perspective": "neutral", "role": "", "priorities": priority},

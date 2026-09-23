@@ -97,7 +97,7 @@ available original PDF. Extraction conflicts return 409. Actual byte length is
 limited by the smaller of the configured upload cap and the supported GridFS
 service cap; declared upload size alone is not trusted.
 
-POST /api/v1/analysis/analyze/ remains the current upload-and-analyze entry point.
+POST /api/v1/analysis/analyze/ remains a deprecated compatibility endpoint.
 It checks the personal key, imports the source before generation, requires complete
 extraction, and saves analysis back to the same document. Provider errors preserve
 their safe status/message and include X-Document-ID and error.details.document_id
@@ -106,8 +106,8 @@ Non-ready new records return REVIEW_NOT_READY from the stored-clauses endpoint;
 they are not represented as successfully reviewed documents with zero concerns.
 Reading sources, retrying
 local extraction, downloading originals and reading old reviews never spend AI
-tokens. The existing upload-and-analysis UI remains available; /import uses the
-key-free source endpoint and opens the separate workspace preview.
+tokens. The earlier upload-and-analysis UI is retired; /import uses the key-free
+source endpoint and opens review setup in the workspace.
 
 ## Review workspace
 
@@ -121,7 +121,8 @@ legacy analyses are left unchanged and require a separate PDF import.
   read-only; an untouched workspace has revision 0 and no runs/personal work.
 - PUT the same path accepts expected_revision and one operation. Supported types
   are set_brief (brief), set_draft/set_ask_draft/save_question (run_id, finding_id, text),
-  set_marker (run_id, finding_id, marker), and set_position (run_id, position).
+  remove_question (run_id, finding_id), set_marker (run_id, finding_id, marker),
+  and set_position (run_id, position).
 - POST /api/v1/documents/{document_id}/review-workspace/fixture accepts
   expected_revision and explicitly installs the synthetic customer-perspective
   example only for its exact source hash and complete extraction. Repeating the
@@ -135,6 +136,11 @@ validated against that run/finding. Opening history is navigation, not review
 completion. Resume stores the view, finding and evidence selection, not arbitrary
 PDF scroll pixels. A saved question has one stable ID per finding and changes only on
 an explicit save_question operation; draft updates do not add it to My review.
+Explicit remove_question removes only that run/finding's confirmed question. It
+preserves its marker and any existing draft, including an empty draft; if no draft
+exists, the saved wording becomes a recoverable draft. Generated findings and Ask
+remain unchanged. Removing an already absent question at the current revision is
+a no-op; stale revisions still return 409.
 
 Successful mutations return the updated workspace and confirmed revision.
 REVISION_CONFLICT returns 409 plus current_revision. A write with an uncertain

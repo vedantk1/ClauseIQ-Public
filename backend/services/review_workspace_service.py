@@ -229,6 +229,17 @@ class ReviewWorkspaceService:
             updated.brief = operation.brief.model_copy(deep=True)
         else:
             run = self._run(updated, operation.run_id)
+            if operation.type == "remove_question":
+                finding = self._finding(run, operation.finding_id)
+                personal = updated.personal.get(run.id)
+                if personal is None:
+                    return current
+                removed = personal.saved_questions.pop(finding.id, None)
+                if removed is not None:
+                    # An existing draft, including an intentionally empty one,
+                    # belongs to the person and must never be overwritten.
+                    personal.drafts.setdefault(finding.id, removed.text)
+                return await self._save(document, workspace_id, current, updated)
             personal = updated.personal.setdefault(run.id, ReviewPersonalState())
             if operation.type == "set_position":
                 self._position(run, operation.position)

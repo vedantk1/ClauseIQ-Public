@@ -220,6 +220,12 @@ class SaveQuestion(ReviewModel):
     text: str = Field(min_length=1, max_length=5000)
 
 
+class RemoveQuestion(ReviewModel):
+    type: Literal["remove_question"]
+    run_id: ReviewId
+    finding_id: ReviewId
+
+
 class SetMarker(ReviewModel):
     type: Literal["set_marker"]
     run_id: ReviewId
@@ -234,7 +240,7 @@ class SetPosition(ReviewModel):
 
 
 ReviewWorkspaceOperation = Annotated[
-    Union[SetBrief, SetDraft, SetAskDraft, SaveQuestion, SetMarker, SetPosition], Field(discriminator="type"),
+    Union[SetBrief, SetDraft, SetAskDraft, SaveQuestion, RemoveQuestion, SetMarker, SetPosition], Field(discriminator="type"),
 ]
 
 

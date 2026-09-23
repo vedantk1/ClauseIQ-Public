@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from clauseiq_types.review import ReviewEvidence, ReviewRun, ReviewWorkspaceUpdate
+from clauseiq_types.review import ReviewAskTurn, ReviewEvidence, ReviewRun, ReviewWorkspaceUpdate
 from middleware.api_standardization import add_api_standardization
 from routers import review_workspace
 from services.ai.text_extractor import TextExtractor
@@ -144,6 +144,152 @@ async def test_drafts_saved_questions_markers_and_position_persist_independently
     assert storage.document["user_interactions"] == {"old-clause": {"notes": ["Preserve legacy note"]}}
     state = await change(service, state.revision, "set_marker", **scope, marker="not_marked")
     assert state.personal[run.id].markers[finding.id] == "not_marked"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("draft", [None, "", "Newer unfinished wording"])
+async def test_remove_question_preserves_other_work_and_recovers_only_absent_draft(service, storage, draft):
+    state = await service.create_fixture("doc-1", WORKSPACE, 0)
+    run = state.runs[0]
+    finding, other_finding = run.findings[:2]
+    scope = {"run_id": run.id, "finding_id": finding.id}
+    state = await change(service, state.revision, "save_question", **scope, text="Confirmed wording to preserve")
+    state = await change(service, state.revision, "save_question", run_id=run.id,
+                         finding_id=other_finding.id, text="Unrelated confirmed wording")
+    state = await change(service, state.revision, "set_ask_draft", **scope, text="Independent Ask draft")
+    state = await change(service, state.revision, "set_marker", **scope, marker="revisit")
+    if draft is not None:
+        state = await change(service, state.revision, "set_draft", **scope, text=draft)
+    state = await change(service, state.revision, "set_position", run_id=run.id,
+                         position={"view": "my_review", "finding_id": finding.id})
+    # A different run uses the same finding IDs. Removal must not cross that boundary.
+    other_run = run.model_copy(update={"id": "other-run"}, deep=True)
+    state.runs.append(other_run)
+    state.personal[other_run.id] = state.personal[run.id].model_copy(deep=True)
+    state.ask_turns.append(ReviewAskTurn(
+        id="retained-answer", run_id=run.id, finding_id=finding.id, source_revision_id=state.source_revision_id,
+        question="Independent saved Ask question", created_at="synthetic-time", status="ready",
+        completed_at="synthetic-time", answer=[{"text": "Synthetic answer", "evidence": finding.evidence[:1]}],
+        coverage={"page_count": 25, "extracted_pages": list(range(1, 26)), "omitted_pages": []},
+        generation={"model_id": "gpt-5.6-terra", "reasoning_effort": "medium", "max_completion_tokens": 1000,
+                    "catalog_verified_on": "synthetic-date", "prompt_version": "synthetic-v1",
+                    "schema_version": "synthetic-v1", "extraction_version": "synthetic-v1", "estimated_input_tokens": 100},
+    ))
+    storage.document["review_workspace"] = state.model_dump(exclude={"fixture_available"})
+    before = deepcopy(storage.document)
+    writes = len(storage.writes)
+    removed = await change(service, state.revision, "remove_question", **scope)
+    personal = removed.personal[run.id]
+    assert finding.id not in personal.saved_questions
+    assert personal.drafts[finding.id] == ("Confirmed wording to preserve" if draft is None else draft)
+    assert personal.saved_questions[other_finding.id] == state.personal[run.id].saved_questions[other_finding.id]
+    assert personal.markers == state.personal[run.id].markers
+    assert personal.ask_drafts == state.personal[run.id].ask_drafts
+    assert personal.opened_finding_ids == state.personal[run.id].opened_finding_ids
+    assert personal.position == state.personal[run.id].position
+    assert removed.personal[other_run.id] == state.personal[other_run.id]
+    assert removed.runs == state.runs and removed.ask_turns == state.ask_turns and removed.brief == state.brief
+    assert removed.revision == state.revision + 1 and len(storage.writes) == writes + 1
+    assert {key: value for key, value in storage.document.items() if key != "review_workspace"} == {
+        key: value for key, value in before.items() if key != "review_workspace"
+    }
+    assert await ReviewWorkspaceService(storage).read("doc-1", WORKSPACE) == removed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("personal_kind", ["absent", "empty", "draft_and_marker"])
+async def test_remove_absent_question_is_a_true_noop(service, storage, personal_kind):
+    state = await service.create_fixture("doc-1", WORKSPACE, 0)
+    run = state.runs[0]
+    scope = {"run_id": run.id, "finding_id": run.findings[0].id}
+    if personal_kind == "absent":
+        state.personal.pop(run.id)
+        storage.document["review_workspace"] = state.model_dump(exclude={"fixture_available"})
+    elif personal_kind == "draft_and_marker":
+        state = await change(service, state.revision, "set_draft", **scope, text="Draft only")
+        state = await change(service, state.revision, "set_marker", **scope, marker="reviewed_by_me")
+    before = deepcopy(storage.document)
+    writes = len(storage.writes)
+    assert await change(service, state.revision, "remove_question", **scope) == state
+    assert await change(service, state.revision, "remove_question", **scope) == state
+    assert storage.document == before and len(storage.writes) == writes
+
+
+@pytest.mark.asyncio
+async def test_remove_uncertain_write_reconciles_without_redeleting_a_later_save(service, storage):
+    state = await service.create_fixture("doc-1", WORKSPACE, 0)
+    scope = {"run_id": state.runs[0].id, "finding_id": state.runs[0].findings[0].id}
+    state = await change(service, state.revision, "save_question", **scope, text="Original question")
+    old_revision = state.revision
+    storage.lose_confirmation = True
+    with pytest.raises(ReviewWorkspaceError) as caught:
+        await change(service, old_revision, "remove_question", **scope)
+    assert caught.value.code == "REVIEW_SAVE_UNCONFIRMED"
+    storage.lose_confirmation = False
+    restored = await service.read("doc-1", WORKSPACE)
+    assert restored.personal[scope["run_id"]].saved_questions == {}
+    assert restored.personal[scope["run_id"]].drafts[scope["finding_id"]] == "Original question"
+    writes = len(storage.writes)
+    assert await change(service, restored.revision, "remove_question", **scope) == restored
+    assert len(storage.writes) == writes
+    resaved = await change(service, restored.revision, "save_question", **scope, text="Later deliberate save")
+    with pytest.raises(ReviewWorkspaceError) as caught:
+        await change(service, old_revision, "remove_question", **scope)
+    assert caught.value.code == "REVISION_CONFLICT" and caught.value.current_revision == resaved.revision
+    assert await service.read("doc-1", WORKSPACE) == resaved
+
+
+@pytest.mark.asyncio
+async def test_failed_remove_keeps_confirmed_question_and_draft(service, storage):
+    state = await service.create_fixture("doc-1", WORKSPACE, 0)
+    scope = {"run_id": state.runs[0].id, "finding_id": state.runs[0].findings[0].id}
+    state = await change(service, state.revision, "save_question", **scope, text="Keep confirmed wording")
+    before = deepcopy(storage.document)
+    storage.fail = True
+    with pytest.raises(ReviewWorkspaceError) as caught:
+        await change(service, state.revision, "remove_question", **scope)
+    assert caught.value.code == "REVIEW_SAVE_UNCONFIRMED"
+    assert storage.document == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("first_operation", ["remove_question", "save_question"])
+async def test_concurrent_remove_and_save_have_one_winner(service, storage, first_operation):
+    state = await service.create_fixture("doc-1", WORKSPACE, 0)
+    scope = {"run_id": state.runs[0].id, "finding_id": state.runs[0].findings[0].id}
+    state = await change(service, state.revision, "save_question", **scope, text="Original")
+    operations = [{"type": "remove_question", **scope}, {"type": "save_question", **scope, "text": "New save"}]
+    if first_operation == "save_question":
+        operations.reverse()
+    results = await asyncio.gather(*[service.update("doc-1", WORKSPACE, update_request(state.revision, operation))
+                                     for operation in operations], return_exceptions=True)
+    assert sum(not isinstance(result, Exception) for result in results) == 1
+    error = next(result for result in results if isinstance(result, Exception))
+    assert isinstance(error, ReviewWorkspaceError) and error.code == "REVISION_CONFLICT"
+    stored = await service.read("doc-1", WORKSPACE)
+    assert stored == next(result for result in results if not isinstance(result, Exception))
+    assert stored.revision == state.revision + 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mutation,error_code", [
+    ("run", "RUN_NOT_FOUND"), ("finding", "FINDING_NOT_FOUND"), ("revision", "REVISION_CONFLICT"),
+    ("source", "REVIEW_STATE_INVALID"), ("document", "DOCUMENT_NOT_FOUND"), ("workspace", "DOCUMENT_NOT_FOUND"),
+])
+async def test_remove_rejects_invalid_or_stale_scope(service, storage, mutation, error_code):
+    state = await service.create_fixture("doc-1", WORKSPACE, 0)
+    operation = {"type": "remove_question", "run_id": state.runs[0].id, "finding_id": state.runs[0].findings[0].id}
+    if mutation in ("run", "finding"):
+        operation[mutation + "_id"] = "unknown"
+    if mutation == "source":
+        storage.document["source_revision_id"] = "changed-source"
+    before = deepcopy(storage.document)
+    with pytest.raises(ReviewWorkspaceError) as caught:
+        await service.update("unknown" if mutation == "document" else "doc-1",
+                             "elsewhere" if mutation == "workspace" else WORKSPACE,
+                             update_request(state.revision - (mutation == "revision"), operation))
+    assert caught.value.code == error_code
+    assert storage.document == before
 
 
 @pytest.mark.asyncio
@@ -344,6 +490,11 @@ async def test_fixture_and_saved_state_fail_closed_on_source_mismatch(service, s
     {"expected_revision": 0, "operation": {"type": "set_brief", "brief": {"perspective": "admin"}}},
     {"expected_revision": 0, "operation": {"type": "set_brief", "brief": {"role": "x" * 201}}},
     {"expected_revision": 0, "operation": {"type": "set_brief", "brief": {"priorities": "x" * 2001}}},
+    {"expected_revision": 0, "operation": {"type": "remove_question", "run_id": "r", "finding_id": "f", "text": "Not accepted"}},
+    {"expected_revision": 0, "operation": {"type": "remove_question", "run_id": "r", "finding_id": "f", "workspace_id": "other"}},
+    {"expected_revision": 0, "operation": {"type": "remove_question", "run_id": "", "finding_id": "f"}},
+    {"expected_revision": 0, "operation": {"type": "remove_question", "run_id": "r", "finding_id": 1}},
+    {"expected_revision": 0, "operation": {"type": "remove_question", "run_id": "r"}},
 ])
 def test_request_contract_forbids_identity_overrides_invalid_types_and_excess_text(payload):
     with pytest.raises(ValidationError):
@@ -373,6 +524,36 @@ def test_http_contract_errors_are_safe_and_revision_aware(monkeypatch, storage):
     assert invalid.status_code == 422 and "PRIVATE DRAFT" not in invalid.text
     assert "pdf_file_id" not in client.get(path).text
     assert client.get(path + "?workspace_id=other").json()["data"]["document_id"] == "doc-1"
+
+
+def test_http_remove_question_uses_revision_and_returns_recovered_draft(monkeypatch, storage):
+    monkeypatch.setattr(review_workspace, "get_document_service", lambda: storage)
+    app = add_api_standardization(FastAPI())
+    app.include_router(review_workspace.router, prefix="/api/v1")
+    client = TestClient(app)
+    path = "/api/v1/documents/doc-1/review-workspace"
+    state = client.post(path + "/fixture", json={"expected_revision": 0}).json()["data"]
+    run = state["runs"][0]
+    finding = run["findings"][0]
+    scope = {"run_id": run["id"], "finding_id": finding["id"]}
+    saved = client.put(path, json={"expected_revision": state["revision"], "operation": {
+        "type": "save_question", **scope, "text": "Saved question retained as draft",
+    }})
+    assert saved.status_code == 200
+    request = {"expected_revision": saved.json()["data"]["revision"],
+               "operation": {"type": "remove_question", **scope}}
+    removed = client.put(path, json=request)
+    assert removed.status_code == 200
+    state = removed.json()["data"]
+    assert state["personal"][run["id"]]["saved_questions"] == {}
+    assert state["personal"][run["id"]]["drafts"][finding["id"]] == "Saved question retained as draft"
+    assert state["runs"][0] == run
+    stale = client.put(path, json=request)
+    assert stale.status_code == 409 and stale.json()["error"]["code"] == "REVISION_CONFLICT"
+    assert "Saved question retained as draft" not in stale.text
+    request["expected_revision"] = state["revision"]
+    repeated = client.put(path, json=request)
+    assert repeated.status_code == 200 and repeated.json()["data"] == state
 
 
 @pytest.mark.asyncio
