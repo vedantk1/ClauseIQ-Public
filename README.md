@@ -27,8 +27,8 @@ Prerequisites: Node.js 24+, Python 3.13+, Docker with Docker Compose, and an
 OpenAI API key if you want to run AI features.
 
 ~~~bash
-cp backend/.env.example backend/.env
-cp frontend/.env.example frontend/.env.local
+cp -n backend/.env.example backend/.env
+cp -n frontend/.env.example frontend/.env.local
 npm ci
 npm run setup
 ~~~
@@ -37,7 +37,9 @@ No application secrets or email configuration need to be generated. Check that
 ports 3000, 8000, 27017, 6333 and 6334 are free or already running ClauseIQ.
 
 Existing installation? Read [Qdrant version and data guidance](DOCKER.md#qdrant-versions-and-existing-stores)
-before recreating its database container with a changed image.
+before recreating its database container with a changed image. Keep your existing
+environment files and database name; see [workspace continuity](docs/DEVELOPMENT.md#existing-workspace-continuity)
+before changing storage configuration.
 
 ~~~bash
 docker compose -f docker-compose.dev.yml up -d

@@ -42,7 +42,6 @@ services:
     environment:
       # Database
       - MONGODB_URI=mongodb://mongodb:27017
-      - MONGODB_DATABASE=clauseiq
       # Vector Store (Qdrant)
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333

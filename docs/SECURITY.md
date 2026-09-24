@@ -46,6 +46,12 @@ owner-only file permissions. WORKSPACE_STATE_DIR can change its directory;
 relative paths resolve from the backend directory. Full Compose persists it in
 the backend_credentials volume.
 
+The same private state directory stores `database-binding.json`, containing only
+the database name and collection prefix. Startup refuses mismatches before
+migration or cleanup; this protects against accidental workspace switching, not
+against a different MongoDB server using the same names. Keep the binding and
+credential state with the matching database backup.
+
 Protect both the database and credential directory. Encryption protects a
 database-only copy, not someone who can read both stores. Back up them together;
 if the key file is lost, restore it or explicitly re-enter the OpenAI key.

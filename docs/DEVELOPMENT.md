@@ -5,14 +5,39 @@
 Use Node.js 24+, Python 3.13+ and Docker with Docker Compose.
 
 ~~~bash
-cp backend/.env.example backend/.env
-cp frontend/.env.example frontend/.env.local
+cp -n backend/.env.example backend/.env
+cp -n frontend/.env.example frontend/.env.local
 npm ci
 npm run setup
 ~~~
 
 No JWT, SMTP or admin-email setup is needed. Do not put an OpenAI key in an
 environment file; enter it in the application's Settings when needed.
+
+### Existing workspace continuity
+
+Keep an existing `.env` rather than overwriting it with the example. The backend
+always loads `backend/.env`, independent of the launch directory; explicit process
+environment variables still take precedence. New installations default to the
+`clauseiq` MongoDB database in native and Compose setup. Existing installations
+may use another name, including the earlier `legal_ai`; keep their explicit
+`MONGODB_DATABASE` value. Changing the name selects a different database, **not**
+a rename or migration. Native and full-Compose stores are not automatically shared.
+
+On startup, `database-binding.json` in `WORKSPACE_STATE_DIR` pins the database
+name and collection prefix before migration, credential initialization or cleanup.
+A mismatch or corrupt marker stops startup instead of opening a different library.
+For older unbound installations with a credential file, the selected database must
+contain a saved credential or deliberate-removal record before binding it.
+The marker contains no URI, secrets or document content; it does not detect
+switching MongoDB servers with the same database name and prefix.
+
+If the library/key appears missing, check the configured database, process
+overrides and local state directory before adding another key. Restore the original
+configuration; do not delete the binding, rotate credential state, drop databases
+or merge records to bypass the check. Back up MongoDB and workspace state together.
+A deliberate separate installation needs separate state and data/vector stores;
+an intentional migration requires a reviewed backup/restore and rebinding plan.
 
 Check ports 3000, 8000, 27017, 6333 and 6334 before starting another service:
 

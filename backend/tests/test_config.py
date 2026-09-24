@@ -21,6 +21,34 @@ from config.environments import (
 )
 
 
+def test_database_default_matches_new_install_example_and_compose(monkeypatch):
+    from dotenv import dotenv_values
+    from config.environments import EnvironmentConfig
+    monkeypatch.delenv("MONGODB_DATABASE", raising=False)
+    config = EnvironmentConfig(_env_file=None)
+    example = dotenv_values(backend_dir / ".env.example")
+    assert config.mongodb_database == example["MONGODB_DATABASE"] == "clauseiq"
+    # Compose must honor the env_file instead of overriding an existing store.
+    compose = (backend_dir.parent / "docker-compose.yml").read_text()
+    assert "- MONGODB_DATABASE=" not in compose
+
+
+def test_env_file_is_backend_relative_not_launch_directory(monkeypatch, tmp_path):
+    from config.environments import EnvironmentConfig
+    expected = backend_dir / ".env"
+    assert EnvironmentConfig.model_config["env_file"] == expected
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("MONGODB_DATABASE=unrelated_workspace\n")
+    monkeypatch.delenv("MONGODB_DATABASE", raising=False)
+    # Use an isolated stand-in at the configured absolute path in this test.
+    intended = tmp_path / "backend.env"
+    intended.write_text("MONGODB_DATABASE=existing_workspace\n")
+    monkeypatch.setitem(EnvironmentConfig.model_config, "env_file", intended)
+    assert EnvironmentConfig().mongodb_database == "existing_workspace"
+    monkeypatch.setenv("MONGODB_DATABASE", "explicit_workspace")
+    assert EnvironmentConfig().mongodb_database == "explicit_workspace"
+
+
 class TestDatabaseConfig:
     """Test DatabaseConfig validation."""
 

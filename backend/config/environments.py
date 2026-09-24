@@ -3,6 +3,7 @@ Environment-specific configuration management for ClauseIQ.
 Provides configuration validation and environment-aware settings.
 """
 from enum import Enum
+from pathlib import Path
 from urllib.parse import urlsplit
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field, field_validator, validator
@@ -108,7 +109,7 @@ class EnvironmentConfig(BaseSettings):
 
     # Database - Environment variables mapped directly
     mongodb_uri: str = Field(default="mongodb://localhost:27017/", description="MongoDB local connection URI")
-    mongodb_database: str = Field(default="legal_ai", description="MongoDB database name")
+    mongodb_database: str = Field(default="clauseiq", description="MongoDB database name")
     mongodb_collection: str = Field(default="documents", description="MongoDB collection name")
     mongodb_collection_prefix: str = Field(default="", description="MongoDB collection prefix for multi-tenancy")
 
@@ -157,7 +158,7 @@ class EnvironmentConfig(BaseSettings):
     storage_dir: str = Field(default="./documents_storage", description="Storage directory")
 
     model_config = {
-        "env_file": ".env",
+        "env_file": Path(__file__).resolve().parents[1] / ".env",
         "env_file_encoding": "utf-8",
         "extra": "ignore"
     }

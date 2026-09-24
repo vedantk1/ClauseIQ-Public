@@ -30,6 +30,9 @@ Settings through request-scoped client handling.
 - Prefer modular services and configurable values over hard-coded behavior.
 - Use in-app modals, not browser-native alert or confirm dialogs.
 - Check whether local services are already running before starting them.
+- Before restarting an existing installation, preserve its database selection
+  and workspace state. Verify library continuity and safe key-status flags;
+  never replace its environment file with the example or bypass a binding error.
 - Run application servers in development mode during local development.
 - Update relevant documentation whenever behavior or setup changes.
 - Use focused automated tests for routine changes, plus affected type/lint checks.

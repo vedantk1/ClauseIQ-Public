@@ -104,6 +104,8 @@ async def lifespan(app: FastAPI):
     logger.info("Database connection established successfully")
 
     # Preflight ownership across all stores before any migration or cleanup.
+    from services.workspace_binding import ensure_workspace_database_binding
+    await ensure_workspace_database_binding(get_environment_config(), await db_factory.get_database())
     from database.workspace_migration import initialize_workspace
     from services.workspace_service import get_workspace_service
     migration = await initialize_workspace()

@@ -40,6 +40,12 @@ that does not authorize exposing host ports externally.
 
 ## Persistence
 
+The backend loads `MONGODB_DATABASE` from `backend/.env` when present, otherwise
+using the same `clauseiq` default as native development. Keep an existing
+installation's database name; changing it does not rename or migrate data.
+The local database-binding marker refuses name/prefix changes within the same
+workspace state. See [workspace continuity](docs/DEVELOPMENT.md#existing-workspace-continuity).
+
 MongoDB, Qdrant, documents and logs use named volumes. The backend_credentials
 volume holds the automatically generated encryption key separately from the
 database. Back up credential state together with data; do not delete volumes
