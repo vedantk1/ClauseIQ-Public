@@ -147,7 +147,7 @@ class TestAIConfig:
         config = AIConfig()
 
         assert "openai_api_key" not in config.model_dump()
-        assert config.default_model == "gpt-5.6-terra"
+        assert config.default_model == "gpt-6-sol"
         assert config.max_tokens == 4000
         assert config.temperature == 0.7
 

@@ -151,7 +151,8 @@ def _source(document):
         ) from None
 
 
-def prepare_review(document: dict, brief: ReviewBrief, model_id: str) -> PreparedReview:
+def prepare_review(document: dict, brief: ReviewBrief, model_id: str,
+                   reasoning_effort: str | None = None) -> PreparedReview:
     """Validate the entire source and budget before allowing a paid request."""
     extraction, extracted_pages = _source(document)
     try:
@@ -167,7 +168,7 @@ def prepare_review(document: dict, brief: ReviewBrief, model_id: str) -> Prepare
         }
     except (ValueError, TypeError, ValidationError):
         raise AIRequestError("The source could not be represented as bounded exact passages. Nothing was sent.", 400) from None
-    metadata = generation_metadata(model_id, "review")
+    metadata = generation_metadata(model_id, "review", reasoning_effort)
     omitted = [page.page_number for page in extraction.pages if page.status != "extracted"]
     limitations = [SOURCE_LIMITATION]
     if omitted:

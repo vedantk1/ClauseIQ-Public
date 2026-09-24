@@ -183,7 +183,8 @@ async def run_smoke():
                 findings=[range_finding], failure=None,
             )
             fresh_documents.get_workspace_api_key = AsyncMock(return_value="synthetic-mocked-credential")
-            fresh_documents.get_workspace_model = AsyncMock(return_value="gpt-5.6-terra")
+            fresh_documents.get_workspace_generation_settings = AsyncMock(return_value={
+                "model_id": "gpt-6-sol", "reasoning_effort": "medium"})
 
             @asynccontextmanager
             async def mocked_client(key):
@@ -205,7 +206,7 @@ async def run_smoke():
 
             provider = stack.enter_context(patch("services.review_generation_service.generate_review", new=AsyncMock(side_effect=generate_with_edit)))
             generated_service = ReviewGenerationService(fresh_documents)
-            initial_request = StartReviewRequest(expected_revision=current.revision, request_id="synthetic-attempt", model_id="gpt-5.6-terra")
+            initial_request = StartReviewRequest(expected_revision=current.revision, request_id="synthetic-attempt", model_id="gpt-6-sol")
             current = await generated_service.start(imported["id"], WORKSPACE, initial_request)
             assert current.runs[-1].status == "ready"
             assert current.brief.priorities == "Concurrent synthetic priority retained"
@@ -231,7 +232,7 @@ async def run_smoke():
 
             stage = "processing attempt survives lost request and explicit recovery"
             provider.side_effect = asyncio.CancelledError()
-            pending_request = StartReviewRequest(expected_revision=current.revision, request_id="synthetic-interrupted", model_id="gpt-5.6-terra")
+            pending_request = StartReviewRequest(expected_revision=current.revision, request_id="synthetic-interrupted", model_id="gpt-6-sol")
             try:
                 await generated_service.start(imported["id"], WORKSPACE, pending_request)
             except asyncio.CancelledError:
@@ -264,7 +265,7 @@ async def run_smoke():
                 return result
             provider.side_effect = delete_during_generation
             await expect_error(generated_service.start(imported["id"], WORKSPACE, StartReviewRequest(
-                expected_revision=current.revision, request_id="synthetic-deleted", model_id="gpt-5.6-terra",
+                expected_revision=current.revision, request_id="synthetic-deleted", model_id="gpt-6-sol",
             )), "DOCUMENT_NOT_FOUND")
             assert await db.documents.find_one({"id": imported["id"]}) is None
             assert await db["pdf_files.files"].count_documents({}) == 0

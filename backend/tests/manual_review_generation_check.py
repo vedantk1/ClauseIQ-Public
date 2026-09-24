@@ -1,4 +1,4 @@
-"""One opt-in, cost-bounded Terra call against an allowlisted synthetic PDF.
+"""One opt-in, cost-bounded Sol call against an allowlisted synthetic PDF.
 
 Not part of Pytest. Requires separate paid-call approval. Reads the saved key via
 the normal credential service; never prints it or changes app data/Settings.
@@ -32,7 +32,7 @@ from services.workspace_service import get_workspace_service
 from tests.review_evaluation_cases import CASE_IDS, DEFAULT_CASE, load_case, validate_case_source
 
 
-EVALUATION_MODEL = "gpt-5.6-terra"
+EVALUATION_MODEL = "gpt-6-sol"
 REQUEST_FRAMING_TOKEN_MARGIN = 4096
 
 
@@ -47,7 +47,7 @@ def request_cost_ceiling(prepared, spec):
     """
     generation = prepared.generation
     if generation.model_id != EVALUATION_MODEL:
-        raise ValueError("The manual evaluation supports only its fixed Terra model")
+        raise ValueError("The manual evaluation supports only its fixed Sol model")
     if (not isinstance(prepared.messages, list) or len(prepared.messages) != 2
             or [message.get("role") if isinstance(message, dict) else None for message in prepared.messages] != ["system", "user"]
             or any(set(message) != {"role", "content"} or not isinstance(message["content"], str)
@@ -116,7 +116,7 @@ async def run_check(cap_usd: float, report_name: str, previous_reserved_usd: flo
     model_id = EVALUATION_MODEL
     prepared = prepare_review(document, ReviewBrief.model_validate(fixture["context"]), model_id)
     spec = AIModelConfig.get_model_by_id(model_id)
-    # Recheck official Terra prices before reuse. Prior ambiguous attempts retain
+    # Recheck official Sol prices before reuse. Prior ambiguous attempts retain
     # their reservation; never assume a timeout or invalid answer cost nothing.
     cost_bound, expected_payload = request_cost_ceiling(prepared, spec)
     ceiling = cost_bound["reserved_ceiling_usd"]

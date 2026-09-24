@@ -20,7 +20,7 @@ from services.review_workspace_service import ReviewWorkspaceError
 from tests.test_review_workspace import MemoryDocuments
 
 
-MODEL = "gpt-5.6-terra"
+MODEL = "gpt-6-sol"
 WORKSPACE = "local"
 
 
@@ -39,7 +39,7 @@ def setup(monkeypatch):
         "source_sha256": "a" * 64, "source_status": "stored", "has_pdf_file": True,
         "extraction_status": "complete", "source_extraction": source,
         "clauses": [{"id": "legacy", "text": "Retained legacy analysis"}]})
-    documents.get_workspace_model = AsyncMock(return_value=MODEL)
+    documents.get_workspace_generation_settings = AsyncMock(return_value={"model_id": MODEL, "reasoning_effort": "medium"})
     documents.get_workspace_api_key = AsyncMock(return_value="synthetic-client-credential")
     coverage = ReviewCoverage(page_count=1, extracted_pages=[1], omitted_pages=[])
     generation = ReviewGeneration(model_id=MODEL, reasoning_effort="low", max_completion_tokens=1000,
@@ -72,6 +72,32 @@ def setup(monkeypatch):
 
 async def start(setup, req=None):
     return await setup.service.start("doc-1", WORKSPACE, req or request())
+
+
+@pytest.mark.asyncio
+async def test_stale_effort_rejected_before_key_claim_or_provider(setup):
+    setup.documents.get_workspace_generation_settings.return_value["reasoning_effort"] = "high"
+    with pytest.raises(ReviewWorkspaceError) as caught:
+        await start(setup)
+    assert caught.value.code == "REVIEW_REASONING_CHANGED"
+    setup.documents.get_workspace_api_key.assert_not_awaited()
+    setup.prepare.assert_not_called()
+    setup.generate.assert_not_awaited()
+    assert setup.documents.writes == []
+
+
+@pytest.mark.asyncio
+async def test_selected_effort_passes_to_preparation_and_saved_attribution(setup):
+    setup.documents.get_workspace_generation_settings.return_value["reasoning_effort"] = "max"
+    setup.prepare.return_value.generation.reasoning_effort = "max"
+    setup.result.generation.reasoning_effort = "max"
+    req = request().model_copy(update={"reasoning_effort": "max"})
+    state = await start(setup, req)
+    assert setup.prepare.call_args.args[-1] == "max"
+    assert state.runs[0].generation.reasoning_effort == "max"
+    setup.documents.get_workspace_generation_settings.return_value["reasoning_effort"] = "low"
+    assert (await start(setup, req)).runs[0].generation.reasoning_effort == "max"
+    setup.generate.assert_awaited_once()
 
 
 async def brief(setup, revision, priorities):
@@ -133,7 +159,7 @@ async def test_scope_rejected_before_model_key_or_provider_access(setup, documen
     with pytest.raises(ReviewWorkspaceError) as caught:
         await setup.service.start(document_id, workspace_id, request())
     assert caught.value.code == "DOCUMENT_NOT_FOUND"
-    setup.documents.get_workspace_model.assert_not_awaited()
+    setup.documents.get_workspace_generation_settings.assert_not_awaited()
     setup.documents.get_workspace_api_key.assert_not_awaited()
     setup.generate.assert_not_awaited()
 
@@ -157,7 +183,7 @@ async def test_stale_revision_or_model_does_not_claim_or_charge(setup):
         await start(setup)
     assert caught.value.code == "REVISION_CONFLICT"
     with pytest.raises(ReviewWorkspaceError) as caught:
-        await start(setup, request(1, model_id="gpt-5.6-sol"))
+        await start(setup, request(1, model_id="gpt-6-astra"))
     assert caught.value.code == "REVIEW_MODEL_CHANGED"
     assert len(setup.documents.writes) == 1
     setup.documents.get_workspace_api_key.assert_not_awaited()

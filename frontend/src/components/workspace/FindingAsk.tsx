@@ -74,13 +74,13 @@ export function FindingAsk({ run, finding, state, controller, source, sourceRead
     <div className="mt-2 flex gap-2"><Action disabled={working} onClick={onSettings}>Open Settings</Action>
       <Action disabled={working || isLoading} onClick={() => void refresh()}>Refresh model and key status</Action></div>
     </details>
-    <div className="cw-send-meta"><span>{settings?.model_id || "Model unavailable"}</span><span>Send uses your key · API charges apply{run.kind === "fixture" ? " · live AI, not an example answer" : ""}.</span></div>
+    <div className="cw-send-meta"><span>{settings?.model_id || "Model unavailable"} · {settings?.reasoning_effort || "medium"} reasoning</span><span>Send uses your key · API charges apply{run.kind === "fixture" ? " · live AI, not an example answer" : ""}.</span></div>
     {(isLoading || !settings?.has_api_key || settings.api_key_needs_reentry) && <p className="mt-1 text-xs text-text-secondary">{isLoading ? "Loading model and key status…" : <>Add or re-enter your API key in <button type="button" className="underline" onClick={onSettings}>Settings</button>. Saved answers remain available.</>}</p>}
     {error && <p role="alert" className="mt-2 text-sm">Settings could not be confirmed. {error}</p>}
     <div className="mt-3 flex flex-wrap gap-2">
       <Action disabled={paidActionBusy(state) || blocked || processing || !draft.trim() || !sourceReady ||
           isLoading || !!error || !settings?.has_api_key || settings.api_key_needs_reentry || !["ready", "incomplete"].includes(runStatus(run))}
-        onClick={() => settings && void controller.startAsk(run.id, finding.id, draft, settings.model_id, crypto.randomUUID(), includeHistory)}>
+        onClick={() => settings && void controller.startAsk(run.id, finding.id, draft, settings.model_id, crypto.randomUUID(), includeHistory, settings.reasoning_effort)}>
         {ownAction && action.status === "preparing" ? "Confirming saved question…" : ownAction && action.status === "generating" ? "Answer request in progress…" : "Send question to AI"}
       </Action>
     </div>

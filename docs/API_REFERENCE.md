@@ -157,8 +157,9 @@ run's original context. Ask drafts and attempts are independent of saved questio
 ### AI review attempts
 
 - POST /api/v1/documents/{document_id}/review-workspace/generate accepts
-  expected_revision, request_id and model_id. The model must match the selected
-  Settings model shown before starting. The saved brief is used; save edits first.
+  expected_revision, request_id, model_id and reasoning_effort (default medium).
+  The model and effort must match Settings as shown before starting. The saved
+  brief is used; save edits first.
   It returns the updated workspace after one bounded provider request, including
   a terminal failed/incomplete run when generation does not yield valid output.
 - The request_id becomes the run ID. A repeated ID returns the recorded attempt
@@ -214,8 +215,9 @@ provider is still running; explicit interruption permits a later deliberate revi
 ### Finding-scoped Ask attempts
 
 - POST /api/v1/documents/{document_id}/review-workspace/runs/{run_id}/findings/{finding_id}/ask
-  accepts expected_revision, request_id, model_id, question (1–5000 characters,
-  nonblank) and include_history (default true). The displayed model must match
+  accepts expected_revision, request_id, model_id, reasoning_effort (default medium),
+  question (1–5000 characters, nonblank) and include_history (default true).
+  The displayed model and reasoning effort must match
   Settings. The finding and original context come from the selected saved run;
   callers cannot supply another brief, source or arbitrary history. Ready or
   incomplete runs need a usable finding. This action can incur an API charge,
@@ -257,22 +259,25 @@ new work without removing earlier answers or requesting an automatic upgrade.
 GET /api/v1/workspace returns:
 
 - has_api_key and api_key_needs_reentry (booleans, never credential material)
-- model_id and query_gate_model_id
+- model_id, reasoning_effort and query_gate_model_id
 - available_models: id, name, description, context_window, max_output_tokens,
   reasoning_efforts, default_reasoning_effort, input_price_per_million,
   output_price_per_million, pricing_verified_on, pricing_note and legacy
 - retention_days (0 means keep until manually deleted)
 - toast_notifications_enabled
 
-PUT /api/v1/workspace/settings accepts any subset of model_id,
+PUT /api/v1/workspace/settings accepts any subset of model_id, reasoning_effort,
 query_gate_model_id, retention_days and toast_notifications_enabled. Models
-must be in the advertised catalog. Retention is 0..36500 days; enabling it can
+must be in the advertised catalog, and the effective model/effort pair must be
+supported; an invalid pair returns 422 before writing settings. The review
+model and effort are stored together. Retention is 0..36500 days; enabling it can
 delete already-old documents on the next cleanup run.
 
-Both review and query preparation default to gpt-5.6-terra. Mini and Nano are
-removed from the catalog and rejected on new saves/requests. Existing selections
-of those retired IDs resolve to Terra; historical run metadata is unchanged.
-Other saved selections remain unchanged, including legacy gpt-5.
+The active catalog contains gpt-6-luna, gpt-6-sol and gpt-6-astra. Review defaults
+to Sol/medium; query preparation defaults to Sol/low. Luna/Sol support none,
+low, medium, high, xhigh and max; Astra excludes none. Retired GPT-5/5.6 choices
+are rejected on new saves/requests. Existing selections resolve to Sol/medium
+on read; historical run metadata is unchanged. Other saved selections remain unchanged.
 Settings may return an unsupported historical ID so it can be replaced explicitly;
 new saves must use the catalog. Catalog membership does not guarantee access for
 a particular OpenAI account. Prices are dated standard USD base rates, not quotes

@@ -566,13 +566,13 @@ test("API mutations carry expected revisions, preserve errors and encode documen
   const operation = { type: "set_brief", brief };
   await assert.rejects(reviewWorkspaceApi.update("a/b", 7, operation), error => error.code === "REVISION_CONFLICT" && error.message === "Changed elsewhere");
   await reviewWorkspaceApi.fixture("a/b", 8);
-  await reviewWorkspaceApi.generate("a/b", 9, "request-1", "test-model");
+  await reviewWorkspaceApi.generate("a/b", 9, "request-1", "test-model", "max");
   await reviewWorkspaceApi.interrupt("a/b", 10, "run/a");
   assert.equal(calls[0], "/documents/a%2Fb/review-workspace");
   assert.equal(calls[1].body.expected_revision, 7);
   assert.equal(calls[1].body.operation, operation);
   assert.equal(calls[2].body.expected_revision, 8);
-  assert.deepEqual(clone(calls[3].body), { expected_revision: 9, request_id: "request-1", model_id: "test-model" });
+  assert.deepEqual(clone(calls[3].body), { expected_revision: 9, request_id: "request-1", model_id: "test-model", reasoning_effort: "max" });
   assert.equal(calls[3].options.timeout, 210000);
   assert.equal(calls[4].path, "/documents/a%2Fb/review-workspace/runs/run%2Fa/interrupt");
   assert.equal(calls[4].body.expected_revision, 10);
@@ -1107,7 +1107,7 @@ test("an unrecorded uncertain attempt requires read-only refresh and explicit sa
     if (fail) { fail = false; throw new Error("Connection failed"); }
     return generate(...args);
   };
-  await h.controller.startReview("original-model", "attempt-1");
+  await h.controller.startReview("original-model", "attempt-1", "xhigh");
   await h.controller.retryReviewRequest();
   assert.equal(attempts.length, 1);
   await h.controller.reloadSaved();
@@ -1117,6 +1117,7 @@ test("an unrecorded uncertain attempt requires read-only refresh and explicit sa
   assert.equal(attempts.length, 1);
   await h.controller.retryReviewRequest();
   assert.deepEqual(attempts[1], attempts[0]);
+  assert.equal(attempts[1].at(-1), "xhigh");
   assert.equal(h.controller.getSnapshot().briefDraft.perspective, "customer");
   assert.equal(h.server().runs.length, 2);
 });
@@ -1360,7 +1361,7 @@ test("unrecorded uncertain Ask requires explicit same-ID replay with the immutab
   const h = harness(); await h.controller.load();
   const ask = h.transport.ask; const calls = []; let fail = true;
   h.transport.ask = async (...args) => { calls.push(args); if (fail) { fail = false; throw new Error("Network uncertain"); } return ask(...args); };
-  await h.controller.startAsk("run-1", "finding-1", "Original question", "original-model", "ask-1", false);
+  await h.controller.startAsk("run-1", "finding-1", "Original question", "original-model", "ask-1", false, "max");
   await h.controller.retryAskRequest(); assert.equal(calls.length, 1);
   await h.controller.reloadSaved();
   assert.equal(h.controller.getSnapshot().askAction.canRetryRequest, true);
@@ -1369,12 +1370,13 @@ test("unrecorded uncertain Ask requires explicit same-ID replay with the immutab
   assert.equal(calls.length, 1);
   await h.controller.retryAskRequest();
   assert.deepEqual(calls[0], calls[1]);
+  assert.equal(calls[1].at(-1), "max");
   assert.equal(h.controller.getSnapshot().status, "review");
   assert.equal(h.controller.getSnapshot().localAskDrafts[h.state.draftKey("run-1", "finding-1")], "New local question");
 });
 
 test("Ask preflight errors resolve only after refresh, but unconfirmed saves remain uncertain", async () => {
-  for (const code of ["ASK_INPUT_REJECTED", "ASK_ALREADY_PROCESSING", "ASK_REVIEW_UNAVAILABLE", "ASK_STORAGE_LIMIT", "ASK_TURN_LIMIT", "INVALID_QUESTION", "REVIEW_MODEL_CHANGED"]) {
+  for (const code of ["ASK_INPUT_REJECTED", "ASK_ALREADY_PROCESSING", "ASK_REVIEW_UNAVAILABLE", "ASK_STORAGE_LIMIT", "ASK_TURN_LIMIT", "INVALID_QUESTION", "REVIEW_MODEL_CHANGED", "REVIEW_REASONING_CHANGED"]) {
     const h = harness(); await h.controller.load();
     h.transport.ask = async () => { throw Object.assign(new Error("Rejected"), { code }); };
     await h.controller.startAsk("run-1", "finding-1", "Question", "model", "ask-1");
@@ -1421,10 +1423,10 @@ test("Ask API uses encoded finding and run identity, revision and explicit histo
   const calls = [];
   const api = { async post(path, body, options) { calls.push({ path, body, options }); return { success: true, data: initial() }; } };
   const { reviewWorkspaceApi } = loadModule("../src/lib/reviewWorkspaceApi.ts", { "@/lib/api": { default: api, __esModule: true } });
-  await reviewWorkspaceApi.ask("doc/a", 12, "request-1", "model", "run/b", "finding/c", "Question?", false);
+  await reviewWorkspaceApi.ask("doc/a", 12, "request-1", "model", "run/b", "finding/c", "Question?", false, "high");
   await reviewWorkspaceApi.interruptAsk("doc/a", 13, "ask/d");
   assert.equal(calls[0].path, "/documents/doc%2Fa/review-workspace/runs/run%2Fb/findings/finding%2Fc/ask");
-  assert.deepEqual(clone(calls[0].body), { expected_revision: 12, request_id: "request-1", model_id: "model", question: "Question?", include_history: false });
+  assert.deepEqual(clone(calls[0].body), { expected_revision: 12, request_id: "request-1", model_id: "model", question: "Question?", include_history: false, reasoning_effort: "high" });
   assert.equal(calls[0].options.timeout, 210000);
   assert.equal(calls[1].path, "/documents/doc%2Fa/review-workspace/ask/ask%2Fd/interrupt");
   assert.equal(calls[1].body.expected_revision, 13);
@@ -1541,7 +1543,7 @@ test("Ask component only sends on explicit action, with Settings model and the s
       react: { ...React, useState: initial => [typeof initial === "boolean" ? includeHistory : initial, () => {}] },
       "./workspaceState": stateHelpers, "./WorkspaceControls": controls, "./EvidenceSourcePane": evidenceControls,
       "@/components/ui/Modal": () => null,
-      "@/context/WorkspaceContext": { useWorkspace: () => ({ settings: { has_api_key: true, model_id: "selected-in-settings" }, isLoading: false, error: null, refresh() {} }) },
+      "@/context/WorkspaceContext": { useWorkspace: () => ({ settings: { has_api_key: true, model_id: "selected-in-settings", reasoning_effort: "max" }, isLoading: false, error: null, refresh() {} }) },
     }, { crypto: { randomUUID: () => "unique-request" } });
     const controller = { setAskDraft(...args) { calls.push(["draft", ...args]); }, flushDrafts() { calls.push(["flush"]); },
       startAsk(...args) { calls.push(["send", ...args]); } };
@@ -1563,7 +1565,7 @@ test("Ask component only sends on explicit action, with Settings model and the s
     assert.deepEqual(calls.map(item => item[0]), ["draft", "flush"]);
     assert.equal(send.props.disabled, false);
     send.props.onClick();
-    assert.deepEqual(calls[2], ["send", "run-1", "finding-1", "Persisted question", "selected-in-settings", "unique-request", includeHistory]);
+    assert.deepEqual(calls[2], ["send", "run-1", "finding-1", "Persisted question", "selected-in-settings", "unique-request", includeHistory, "max"]);
   }
 });
 

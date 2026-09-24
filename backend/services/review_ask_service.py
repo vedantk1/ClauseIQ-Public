@@ -44,6 +44,7 @@ class ReviewAskService(ReviewWorkspaceService):
     def _same_request(turn, run_id, finding_id, request):
         if (turn.run_id != run_id or turn.finding_id != finding_id
                 or turn.question != request.question or turn.generation.model_id != request.model_id
+                or turn.generation.reasoning_effort != request.reasoning_effort
                 or turn.include_history != request.include_history):
             raise ReviewWorkspaceError("REQUEST_ID_CONFLICT", "This Ask request ID already belongs to a different question or context. Keep your draft and start a new request.")
 
@@ -102,12 +103,16 @@ class ReviewAskService(ReviewWorkspaceService):
         if any(turn.status == "processing" for turn in current.ask_turns):
             raise ReviewWorkspaceError("ASK_ALREADY_PROCESSING", "An Ask is already processing for this document. Reload or explicitly mark its outcome unknown before starting another.")
         self._size_guard(document, current, MAX_ASK_RESULT_BYTES + ASK_METADATA_RESERVE_BYTES)
-        selected_model = await self.documents.get_workspace_model(workspace_id)
+        selection = await self.documents.get_workspace_generation_settings(workspace_id)
+        selected_model = selection["model_id"]
         if selected_model != request.model_id:
             raise ReviewWorkspaceError("REVIEW_MODEL_CHANGED", "The selected model changed in Settings. Reload and confirm it before asking.")
+        if selection["reasoning_effort"] != request.reasoning_effort:
+            raise ReviewWorkspaceError("REVIEW_REASONING_CHANGED", "Reasoning effort changed in Settings. Reload before asking.")
         history, history_truncated = self._history(current, run.id, finding.id, request.include_history)
         try:
-            prepared = prepare_ask(document, run, finding, request.question, selected_model, history)
+            prepared = prepare_ask(document, run, finding, request.question, selected_model, history,
+                                   reasoning_effort=selection["reasoning_effort"])
         except AIRequestError as error:
             raise ReviewWorkspaceError("ASK_INPUT_REJECTED", error.public_message, error.status_code) from None
         api_key = await self.documents.get_workspace_api_key(workspace_id)

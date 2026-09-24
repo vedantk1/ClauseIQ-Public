@@ -146,12 +146,14 @@ export interface StartReviewRequest {
   expected_revision: number;
   request_id: string;
   model_id: string;
+  reasoning_effort?: string;
 }
 
 export interface StartAskRequest {
   expected_revision: number;
   request_id: string;
   model_id: string;
+  reasoning_effort?: string;
   question: string;
   include_history: boolean;
 }

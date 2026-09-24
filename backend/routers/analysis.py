@@ -105,9 +105,10 @@ async def analyze_document(
             raise SourceError("ANALYSIS_STATE_CONFLICT", "The document state changed. Reload the stored document.", 409, doc_id)
 
         # Get workspace model
-        workspace_model = await service.get_workspace_model(workspace_id)
+        selection = await service.get_workspace_generation_settings(workspace_id)
+        workspace_model, effort = selection["model_id"], selection["reasoning_effort"]
         analysis_generation = {
-            operation: generation_metadata(workspace_model, operation)
+            operation: generation_metadata(workspace_model, operation, effort)
             for operation in ("classification", "extraction", "summary")
         }
 
@@ -116,12 +117,12 @@ async def analyze_document(
 
         async with workspace_openai_client(workspace_api_key):
             contract_type, clauses = await process_document_with_llm(
-                extracted_text, file.filename, workspace_model
+                extracted_text, file.filename, workspace_model, reasoning_effort=effort
             )
 
             # Generate contract-type-specific structured summary for improved UI display
             ai_structured_summary = await generate_structured_document_summary(
-                extracted_text, file.filename, workspace_model, contract_type
+                extracted_text, file.filename, workspace_model, contract_type, reasoning_effort=effort
             )
 
             # Save to the imported record before optional RAG embeddings.
@@ -584,8 +585,9 @@ async def generate_clause_rewrite_endpoint(
                 message="Please add your OpenAI API key in Settings before generating rewrites.",
                 correlation_id=correlation_id
             )
-        workspace_model = await service.get_workspace_model(workspace_id)
-        rewrite_generation = generation_metadata(workspace_model, "rewrite")
+        selection = await service.get_workspace_generation_settings(workspace_id)
+        workspace_model, effort = selection["model_id"], selection["reasoning_effort"]
+        rewrite_generation = generation_metadata(workspace_model, "rewrite", effort)
 
         from clauseiq_types.common import Clause, ContractType
         from services.ai.client_manager import workspace_openai_client
@@ -599,7 +601,7 @@ async def generate_clause_rewrite_endpoint(
                 clause=clause_obj,
                 document_text=document["text"],
                 contract_type=contract_type,
-                model=workspace_model
+                model=workspace_model, reasoning_effort=effort,
             )
 
         # Save rewrite to database

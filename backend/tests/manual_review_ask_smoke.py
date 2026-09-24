@@ -31,7 +31,7 @@ from manual_source_smoke import document_service, isolated_adapter
 
 PDF_PATH = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "pdfs" / "managed-services-25p.pdf"
 WORKSPACE = "synthetic-ask-workspace"
-MODEL = "gpt-5.6-terra"
+MODEL = "gpt-6-sol"
 
 
 async def expect_error(operation, code):
@@ -71,7 +71,7 @@ async def run_smoke():
             assert await files.initialize()
             file_factory = stack.enter_context(patch("services.file_storage_service.get_file_storage_service", return_value=files))
             documents = document_service(adapter)
-            documents.get_workspace_model = AsyncMock(return_value=MODEL)
+            documents.get_workspace_generation_settings = AsyncMock(return_value={"model_id": MODEL, "reasoning_effort": "medium"})
             documents.get_workspace_api_key = AsyncMock(return_value="synthetic-mocked-credential")
             content = PDF_PATH.read_bytes()
             stage = "synthetic source and immutable reviewed example"

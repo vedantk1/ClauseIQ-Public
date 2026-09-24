@@ -257,6 +257,7 @@ class StartReviewRequest(ReviewModel):
     expected_revision: int = Field(ge=0)
     request_id: ReviewId
     model_id: str = Field(min_length=1, max_length=100)
+    reasoning_effort: str = Field(default="medium", min_length=1, max_length=20)
 
 
 class InterruptReviewRequest(ReviewModel):
@@ -267,6 +268,7 @@ class StartAskRequest(ReviewModel):
     expected_revision: int = Field(ge=0)
     request_id: ReviewId
     model_id: str = Field(min_length=1, max_length=100)
+    reasoning_effort: str = Field(default="medium", min_length=1, max_length=20)
     question: str = Field(min_length=1, max_length=5000)
     include_history: bool = True
 

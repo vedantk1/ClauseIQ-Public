@@ -66,7 +66,15 @@ def run(document):
 
 @pytest.fixture
 def prepared(document, run):
-    return engine.prepare_ask(document, run, run.findings[0], "Does exit end the fees?", "gpt-5.6-terra", [])
+    return engine.prepare_ask(document, run, run.findings[0], "Does exit end the fees?", "gpt-6-sol", [])
+
+
+@pytest.mark.parametrize("model,effort", [("gpt-6-luna", "none"), ("gpt-6-sol", "max"), ("gpt-6-astra", "xhigh")])
+def test_ask_preparation_records_effort_without_expanding_budget(document, run, model, effort):
+    result = engine.prepare_ask(document, run, run.findings[0], "What are the fees?", model, [], reasoning_effort=effort)
+    assert result.generation.model_id == model
+    assert result.generation.reasoning_effort == effort
+    assert result.generation.max_completion_tokens == 4000
 
 
 def prior_turn(prepared, **updates):
@@ -112,7 +120,7 @@ def mock_client(reply):
 def test_full_source_original_context_finding_and_schema_counted(document, run, prepared):
     before = deepcopy(run.model_dump())
     history = [prior_turn(prepared)]
-    following = engine.prepare_ask(document, run, run.findings[0], "And the cost?", "gpt-5.6-terra", history)
+    following = engine.prepare_ask(document, run, run.findings[0], "And the cost?", "gpt-6-sol", history)
     supplied = json.loads(following.messages[1]["content"])
     assert supplied["original_review_context"] == before["context"]
     assert supplied["selected_finding_untrusted"] == before["findings"][0]
@@ -124,7 +132,7 @@ def test_full_source_original_context_finding_and_schema_counted(document, run, 
         span["text"] for span in document["source_extraction"]["pages"][0]["spans"]
     ]
     assert run.model_dump() == before
-    message_estimate = sum(get_token_count(item["content"], "gpt-5.6-terra") + 8 for item in following.messages) + 16
+    message_estimate = sum(get_token_count(item["content"], "gpt-6-sol") + 8 for item in following.messages) + 16
     assert following.generation.estimated_input_tokens > message_estimate
     assert following.generation.prompt_version == "source-review-ask-v1"
     assert following.generation.schema_version == "source-review-ask-output-v1"
@@ -153,7 +161,7 @@ def test_strict_schema_requires_all_properties(prepared):
 @pytest.mark.parametrize("question", ["", "  ", "x" * 5001, None])
 def test_question_rejected_before_provider(document, run, question):
     with pytest.raises(AIRequestError, match="nonblank question"):
-        engine.prepare_ask(document, run, run.findings[0], question, "gpt-5.6-terra", [])
+        engine.prepare_ask(document, run, run.findings[0], question, "gpt-6-sol", [])
 
 
 @pytest.mark.parametrize("mutation", [
@@ -167,26 +175,26 @@ def test_question_rejected_before_provider(document, run, question):
 def test_inconsistent_source_rejected(document, run, mutation):
     mutation(document)
     with pytest.raises(AIRequestError):
-        engine.prepare_ask(document, run, run.findings[0], "Question?", "gpt-5.6-terra", [])
+        engine.prepare_ask(document, run, run.findings[0], "Question?", "gpt-6-sol", [])
 
 
 @pytest.mark.parametrize("update", [{"source_revision_id": "other"}, {"status": "processing"}, {"findings": []}])
 def test_run_identity_and_completed_state_required(document, run, update):
     with pytest.raises(AIRequestError, match="does not belong"):
-        engine.prepare_ask(document, run.model_copy(update=update), run.findings[0], "Question?", "gpt-5.6-terra", [])
+        engine.prepare_ask(document, run.model_copy(update=update), run.findings[0], "Question?", "gpt-6-sol", [])
 
 
 def test_finding_is_not_replaced_by_caller_supplied_content(document, run):
     changed = run.findings[0].model_copy(update={"facts": "Caller invented replacement finding"})
     with pytest.raises(AIRequestError, match="does not belong"):
-        engine.prepare_ask(document, run, changed, "Question?", "gpt-5.6-terra", [])
+        engine.prepare_ask(document, run, changed, "Question?", "gpt-6-sol", [])
 
 
 def test_ambiguous_duplicate_finding_identity_rejected(document, run):
     duplicated = run.model_copy(deep=True)
     duplicated.findings.append(run.findings[0].model_copy(update={"facts": "Conflicting prior analysis"}))
     with pytest.raises(AIRequestError, match="does not belong"):
-        engine.prepare_ask(document, duplicated, run.findings[0], "Question?", "gpt-5.6-terra", [])
+        engine.prepare_ask(document, duplicated, run.findings[0], "Question?", "gpt-6-sol", [])
 
 
 @pytest.mark.parametrize("update", [
@@ -196,35 +204,35 @@ def test_ambiguous_duplicate_finding_identity_rejected(document, run):
 def test_history_must_be_usable_and_same_scope(document, run, prepared, update):
     turn = prior_turn(prepared, **update)
     with pytest.raises(AIRequestError, match="does not match"):
-        engine.prepare_ask(document, run, run.findings[0], "Question?", "gpt-5.6-terra", [turn])
+        engine.prepare_ask(document, run, run.findings[0], "Question?", "gpt-6-sol", [turn])
 
 
 def test_history_count_and_duplicate_ids_rejected_without_truncation(document, run, prepared):
     with pytest.raises(AIRequestError, match="Nothing was truncated"):
-        engine.prepare_ask(document, run, run.findings[0], "Question?", "gpt-5.6-terra", [prior_turn(prepared)] * 7)
+        engine.prepare_ask(document, run, run.findings[0], "Question?", "gpt-6-sol", [prior_turn(prepared)] * 7)
     with pytest.raises(AIRequestError, match="does not match"):
-        engine.prepare_ask(document, run, run.findings[0], "Question?", "gpt-5.6-terra", [prior_turn(prepared)] * 2)
+        engine.prepare_ask(document, run, run.findings[0], "Question?", "gpt-6-sol", [prior_turn(prepared)] * 2)
 
 
 def test_over_budget_includes_schema_history_and_question_not_truncated(document, run, prepared, monkeypatch):
     before = deepcopy(document)
     monkeypatch.setenv("AI_MAX_INPUT_TOKENS", str(prepared.generation.estimated_input_tokens - 1))
     with pytest.raises(AIRequestError, match="Nothing was truncated or sent"):
-        engine.prepare_ask(document, run, run.findings[0], "Does exit end the fees?", "gpt-5.6-terra", [])
+        engine.prepare_ask(document, run, run.findings[0], "Does exit end the fees?", "gpt-6-sol", [])
     monkeypatch.setenv("AI_MAX_INPUT_TOKENS", str(prepared.generation.estimated_input_tokens))
     with pytest.raises(AIRequestError, match="selected history"):
-        engine.prepare_ask(document, run, run.findings[0], "Does exit end the fees?", "gpt-5.6-terra", [prior_turn(prepared)])
+        engine.prepare_ask(document, run, run.findings[0], "Does exit end the fees?", "gpt-6-sol", [prior_turn(prepared)])
     assert document == before
 
 
 def test_timeout_and_chat_budget_are_configurable_and_bounded(document, run, monkeypatch):
     monkeypatch.setenv("AI_CHAT_MAX_COMPLETION_TOKENS", "6000")
     monkeypatch.setenv("AI_REVIEW_ASK_TIMEOUT_SECONDS", "9999")
-    result = engine.prepare_ask(document, run, run.findings[0], "Question?", "gpt-5.6-terra", [])
+    result = engine.prepare_ask(document, run, run.findings[0], "Question?", "gpt-6-sol", [])
     assert result.timeout_seconds == 180 and result.generation.max_completion_tokens == 6000
     monkeypatch.setenv("AI_REVIEW_ASK_TIMEOUT_SECONDS", "0")
     with pytest.raises(AIRequestError, match="configuration"):
-        engine.prepare_ask(document, run, run.findings[0], "Question?", "gpt-5.6-terra", [])
+        engine.prepare_ask(document, run, run.findings[0], "Question?", "gpt-6-sol", [])
 
 
 def test_untrusted_instructions_are_escaped_data_not_system_or_assistant_messages(run, prepared):
@@ -233,7 +241,7 @@ def test_untrusted_instructions_are_escaped_data_not_system_or_assistant_message
     original = run.model_copy(deep=True)
     original.findings[0].facts = injection
     history = [prior_turn(prepared, answer=[ReviewAskAnswerItem(text=injection, evidence=[])])]
-    result = engine.prepare_ask(document, original, original.findings[0], "Explain that text.", "gpt-5.6-terra", history)
+    result = engine.prepare_ask(document, original, original.findings[0], "Explain that text.", "gpt-6-sol", history)
     assert [item["role"] for item in result.messages] == ["system", "user"]
     assert injection not in result.messages[0]["content"]
     supplied = json.loads(result.messages[1]["content"])
@@ -312,7 +320,7 @@ async def test_partial_source_remains_incomplete_and_reports_omitted_page(docume
     document["extraction_status"] = "partial"
     document["source_extraction"].update(status="partial", page_count=2)
     document["source_extraction"]["pages"].append({"page_number": 2, "text": "", "status": "failed"})
-    prepared = engine.prepare_ask(document, run, run.findings[0], "Question?", "gpt-5.6-terra", [])
+    prepared = engine.prepare_ask(document, run, run.findings[0], "Question?", "gpt-6-sol", [])
     client, _, _ = mock_client(response(output))
     result = await engine.generate_ask(prepared, client)
     assert result.status == "incomplete" and result.failure.code == "PARTIAL_SOURCE"
@@ -392,7 +400,7 @@ async def test_wall_clock_timeout_cancels_stalled_provider(prepared):
 @pytest.mark.asyncio
 async def test_resolved_evidence_size_checked_before_expanding_whole_output(run, monkeypatch):
     document = source_document("x" * 20000 + "\n" + "y" * 20000)
-    prepared = engine.prepare_ask(document, run, run.findings[0], "Question?", "gpt-5.6-terra", [])
+    prepared = engine.prepare_ask(document, run, run.findings[0], "Question?", "gpt-6-sol", [])
     output = {"outcome": "answer", "answer": [{"text": "Synthetic answer", "evidence": [
         {"passage_id": item.id, "label": "Source"} for item in prepared.passages
     ]}] * 20, "limitations": []}
@@ -441,7 +449,7 @@ async def test_actual_sdk_mock_transport_single_call_store_false_and_strict_sche
         if http_status != 200:
             return httpx.Response(http_status, json={"error": {"message": "private provider details", "type": "server_error"}})
         return httpx.Response(200, json={
-            "id": "synthetic_completion", "object": "chat.completion", "created": 1, "model": "gpt-5.6-terra",
+            "id": "synthetic_completion", "object": "chat.completion", "created": 1, "model": "gpt-6-sol",
             "choices": [{"index": 0, "finish_reason": finish, "message": {"role": "assistant", "content": json.dumps(output), "refusal": refusal}}],
             "usage": {"prompt_tokens": 200, "completion_tokens": 100, "total_tokens": 300},
         })
@@ -469,7 +477,7 @@ async def test_25_page_source_included_whole_without_retrieval_or_truncation(run
     document = {"source_revision_id": "revision_1", "source_status": "stored", "has_pdf_file": True,
                 "source_sha256": extraction.content_sha256, "extraction_status": extraction.status,
                 "source_extraction": extraction.model_dump()}
-    prepared = engine.prepare_ask(document, run, run.findings[0], "Is the cost qualified elsewhere?", "gpt-5.6-terra", [])
+    prepared = engine.prepare_ask(document, run, run.findings[0], "Is the cost qualified elsewhere?", "gpt-6-sol", [])
     assert prepared.coverage.extracted_pages == list(range(1, 26))
     pages = json.loads(prepared.messages[1]["content"])["source"]["pages"]
     for supplied, original in zip(pages, extraction.pages):

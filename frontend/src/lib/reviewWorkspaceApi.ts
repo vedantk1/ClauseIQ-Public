@@ -43,9 +43,9 @@ export const reviewWorkspaceApi = {
       expected_revision: revision,
     }));
   },
-  async generate(documentId: string, revision: number, requestId: string, modelId: string): Promise<ReviewWorkspaceResponse> {
+  async generate(documentId: string, revision: number, requestId: string, modelId: string, reasoningEffort = "medium"): Promise<ReviewWorkspaceResponse> {
     return unwrap(await apiClient.post<ReviewWorkspaceResponse>(`/documents/${encodeURIComponent(documentId)}/review-workspace/generate`, {
-      expected_revision: revision, request_id: requestId, model_id: modelId,
+      expected_revision: revision, request_id: requestId, model_id: modelId, reasoning_effort: reasoningEffort,
     }, { timeout: 210000 }));
   },
   async interrupt(documentId: string, revision: number, runId: string): Promise<ReviewWorkspaceResponse> {
@@ -54,9 +54,9 @@ export const reviewWorkspaceApi = {
     }));
   },
   async ask(documentId: string, revision: number, requestId: string, modelId: string,
-    runId: string, findingId: string, question: string, includeHistory: boolean): Promise<ReviewWorkspaceResponse> {
+    runId: string, findingId: string, question: string, includeHistory: boolean, reasoningEffort = "medium"): Promise<ReviewWorkspaceResponse> {
     return unwrap(await apiClient.post<ReviewWorkspaceResponse>(`/documents/${encodeURIComponent(documentId)}/review-workspace/runs/${encodeURIComponent(runId)}/findings/${encodeURIComponent(findingId)}/ask`, {
-      expected_revision: revision, request_id: requestId, model_id: modelId, question, include_history: includeHistory,
+      expected_revision: revision, request_id: requestId, model_id: modelId, question, include_history: includeHistory, reasoning_effort: reasoningEffort,
     }, { timeout: 210000 }));
   },
   async interruptAsk(documentId: string, revision: number, turnId: string): Promise<ReviewWorkspaceResponse> {

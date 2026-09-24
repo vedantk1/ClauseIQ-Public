@@ -28,7 +28,7 @@ def explicit_budget(monkeypatch):
 def prepared():
     return PreparedCheck(
         generation=ReviewGeneration(
-            model_id="gpt-5.6-terra", reasoning_effort="medium", max_completion_tokens=16000,
+            model_id="gpt-6-sol", reasoning_effort="medium", max_completion_tokens=16000,
             catalog_verified_on="2026-09-18", prompt_version=PROMPT_VERSION,
             schema_version=SCHEMA_VERSION, extraction_version="synthetic-lines-v1",
             estimated_input_tokens=1000,
@@ -117,7 +117,7 @@ async def test_one_bounded_call_binding_usage_and_no_input_mutation(prepared, ou
     assert options == [{"max_retries": 0, "timeout": 120}]
     call.assert_awaited_once()
     request = call.call_args.kwargs
-    assert request["model"] == "gpt-5.6-terra"
+    assert request["model"] == "gpt-6-sol"
     assert request["reasoning_effort"] == "medium" and request["max_completion_tokens"] == 16000
     assert request["store"] is False and request["response_format"] == prepared.response_format
     assert "validate_output" not in request
@@ -380,7 +380,7 @@ async def test_real_sdk_mock_transport_serialization_and_zero_retries(prepared, 
             return httpx.Response(http_status, json={"error": {"message": "PRIVATE_PROVIDER_ERROR", "type": "server_error"}})
         return httpx.Response(200, json={
             "id": "synthetic_check", "object": "chat.completion", "created": 1,
-            "model": "gpt-5.6-terra", "choices": [{"index": 0, "finish_reason": finish,
+            "model": "gpt-6-sol", "choices": [{"index": 0, "finish_reason": finish,
                 "message": {"role": "assistant", "content": json.dumps(output), "refusal": refusal}}],
             "usage": {"prompt_tokens": 200, "completion_tokens": 100, "total_tokens": 300},
         })
@@ -390,7 +390,7 @@ async def test_real_sdk_mock_transport_serialization_and_zero_retries(prepared, 
         result = await engine.check_review(prepared, client)
     assert len(requests) == 1  # Even retryable HTTP errors must not trigger a second paid attempt.
     request = requests[0]
-    assert request["store"] is False and request["model"] == "gpt-5.6-terra"
+    assert request["store"] is False and request["model"] == "gpt-6-sol"
     assert request["max_completion_tokens"] == 16000 and request["reasoning_effort"] == "medium"
     assert request["response_format"]["json_schema"]["strict"] is True
     assert "validate_output" not in request

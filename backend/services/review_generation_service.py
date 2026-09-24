@@ -40,11 +40,14 @@ class ReviewGenerationService(ReviewWorkspaceService):
         if any(run.status == "processing" for run in current.runs):
             raise ReviewWorkspaceError("REVIEW_ALREADY_PROCESSING", "A review is already processing. Reload its status or explicitly mark its outcome unknown before starting another.")
 
-        selected_model = await self.documents.get_workspace_model(workspace_id)
+        selection = await self.documents.get_workspace_generation_settings(workspace_id)
+        selected_model = selection["model_id"]
         if selected_model != request.model_id:
             raise ReviewWorkspaceError("REVIEW_MODEL_CHANGED", "The selected model changed in Settings. Reload and confirm the model before starting review.")
+        if selection["reasoning_effort"] != request.reasoning_effort:
+            raise ReviewWorkspaceError("REVIEW_REASONING_CHANGED", "Reasoning effort changed in Settings. Reload before starting review.")
         try:
-            prepared = prepare_review(document, current.brief, selected_model)
+            prepared = prepare_review(document, current.brief, selected_model, selection["reasoning_effort"])
         except AIRequestError as error:
             raise ReviewWorkspaceError("REVIEW_INPUT_REJECTED", error.public_message, error.status_code) from None
         api_key = await self.documents.get_workspace_api_key(workspace_id)

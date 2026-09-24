@@ -3,7 +3,7 @@
 Dry-run is the default: validate/prepare the case and print bounded metadata,
 without opening credentials, MongoDB or a provider, or writing a report. An
 explicit --run-paid requires a separately approved finite budget and an unused
-report name. It reserves one complete Terra request before reading the saved
+report name. It reserves one complete Sol request before reading the saved
 key. There is no automatic retry, repair, regeneration or application write.
 """
 import argparse
@@ -31,7 +31,7 @@ from services.ai.client_manager import workspace_openai_client
 from services.workspace_service import get_workspace_service
 from tests.manual_review_generation_check import request_cost_ceiling
 
-EVALUATION_MODEL = "gpt-5.6-terra"
+EVALUATION_MODEL = "gpt-6-sol"
 DEFAULT_CASE = CASE_IDS[0]
 ASSESSMENT_PENDING = "not_assessed_requires_source_review"
 

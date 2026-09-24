@@ -67,7 +67,7 @@ def source_analysis(monkeypatch):
         update_document_if=AsyncMock(side_effect=conditional),
         store_pdf_file=AsyncMock(side_effect=store), get_pdf_file=AsyncMock(side_effect=read),
         get_workspace_api_key=AsyncMock(return_value="sk-test-placeholder"),
-        get_workspace_model=AsyncMock(return_value="gpt-5.6-luna"),
+        get_workspace_generation_settings=AsyncMock(return_value={"model_id": "gpt-6-luna", "reasoning_effort": "medium"}),
     )
     extractor = SimpleNamespace(extract_source=AsyncMock(side_effect=extract))
     monkeypatch.setattr(analysis, "get_document_service", lambda: storage)
@@ -79,7 +79,8 @@ def source_analysis(monkeypatch):
         events.append("client")
         yield object()
 
-    async def process(*args):
+    async def process(*args, reasoning_effort=None):
+        assert reasoning_effort == "medium"
         record = next(iter(records.values()))
         assert record["source_status"] == "stored"
         assert record["extraction_status"] == "complete"

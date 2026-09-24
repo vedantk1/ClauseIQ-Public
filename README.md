@@ -66,7 +66,7 @@ sorting, contract-type filters and confirmed deletion remain available. About is
 accessible through More; saved earlier analyses retain document-specific review
 links. Library, Import, Settings and the workspace share the same navigation.
 The retired /analytics and /legacy-analysis URLs redirect to Library and Import.
-Settings groups personal AI access, model choices, document retention and notifications.
+Settings groups personal AI access, model and reasoning choices, document retention and notifications.
 
 The Library offers Import agreement without AI: choose or drop one PDF, confirm
 the import, then open review setup. Setup shows source readiness and missing-text
@@ -148,10 +148,12 @@ and their reproducible sources are in tests/fixtures/pdfs.
 ## Project status and licensing
 
 Experimental project under active development. There is no supported hosted production
-environment, deployment workflow or CI pipeline. Settings offers GPT-5.6 Luna,
-Terra and Sol, with GPT-5 retained for legacy selections. Terra is the
-default for review and query preparation. Old Mini/Nano selections resolve to
-Terra; other explicit choices and historical run attribution are preserved.
+environment, deployment workflow or CI pipeline. Settings offers GPT-6 Luna,
+Sol and Astra. Sol with Medium reasoning is the default for reviews and answers;
+the separate query-preparation model uses Low effort. Reasoning effort is
+configurable for new reviews and answers. Higher effort can take longer and use
+more tokens within the same request limits. Retired GPT-5/5.6 selections resolve
+to Sol; historical results keep their original model and effort attribution.
 Choose models deliberately; there is no automatic provider fallback.
 
 ClauseIQ is licensed under the [MIT License](LICENSE). Third-party dependencies

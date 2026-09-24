@@ -1,4 +1,4 @@
-"""Canonical catalog; API metadata verified against OpenAI docs on 2026-09-18.
+"""Canonical catalog; API metadata verified against OpenAI docs on 2026-09-24.
 
 https://developers.openai.com/api/docs/models
 Provider capacity is not an application spending budget.
@@ -7,14 +7,16 @@ from typing import Any
 from dataclasses import asdict, dataclass
 from pydantic import BaseModel
 
-CATALOG_VERIFIED_ON = "2026-09-18"
-DEFAULT_MODEL = "gpt-5.6-terra"
-DEFAULT_QUERY_GATE_MODEL = "gpt-5.6-terra"
+CATALOG_VERIFIED_ON = "2026-09-24"
+DEFAULT_MODEL = "gpt-6-sol"
+DEFAULT_QUERY_GATE_MODEL = "gpt-6-sol"
 # Resolve retired configuration on read only. This is an explicit product
 # migration, never a provider-failure fallback or a rewrite of past attribution.
-_RETIRED_MODEL_SELECTIONS = {"gpt-5-mini": DEFAULT_MODEL, "gpt-5-nano": DEFAULT_MODEL}
+_RETIRED_MODEL_SELECTIONS = dict.fromkeys(
+    ("gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"),
+    DEFAULT_MODEL,
+)
 _NEW_EFFORTS = ("none", "low", "medium", "high", "xhigh", "max")
-_OLD_EFFORTS = ("minimal", "low", "medium", "high")
 _BASE_PRICE_NOTE = (
     "Standard USD rates per million tokens, not a per-document estimate. "
     "Reasoning tokens are billed as output. Caching, service tiers and token "
@@ -73,17 +75,12 @@ class AIModelConfig:
     """Configuration class for AI models."""
 
     _models = (
-        AIModel("gpt-5.6-luna", "GPT-5.6 Luna", "Optional lower-cost model for explicit comparisons.",
-                1_050_000, 0.20, 1.20),
-        AIModel("gpt-5.6-terra", "GPT-5.6 Terra", "Default model for document review and chat query preparation.",
-                1_050_000, 2.00, 12.00),
-        AIModel("gpt-5.6-sol", "GPT-5.6 Sol", "Higher-cost quality evaluation; select deliberately.",
-                1_050_000, 4.00, 20.00,
-                pricing_note=_BASE_PRICE_NOTE + _LONG_PRICE_NOTE +
-                " Sol promotional rates are available at least through 2026-11-21."),
-        AIModel("gpt-5", "GPT-5 (legacy)", "Preserved for existing selections; choose another model explicitly to migrate.",
-                400_000, 1.25, 10.00, reasoning_efforts=_OLD_EFFORTS,
-                pricing_note=_BASE_PRICE_NOTE, legacy=True),
+        AIModel("gpt-6-luna", "GPT-6 Luna", "Lower-cost option for focused tasks and development.",
+                1_050_000, 0.10, 0.50),
+        AIModel("gpt-6-sol", "GPT-6 Sol", "Default balance of capability and cost for review and answers.",
+                1_050_000, 2.00, 10.00),
+        AIModel("gpt-6-astra", "GPT-6 Astra", "Highest-capability option with higher per-token costs.",
+                1_050_000, 10.00, 50.00, reasoning_efforts=_NEW_EFFORTS[1:]),
     )
 
     @classmethod

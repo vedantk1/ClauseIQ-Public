@@ -128,6 +128,16 @@ class DocumentService:
         """Return the configured model for the local workspace."""
         return await self.get_system_ai_model()
 
+    async def get_workspace_generation_settings(self, workspace_id: str) -> Dict[str, str]:
+        """Read the model and effort from one configuration snapshot."""
+        config = await self.get_system_config("system_ai_model", raise_on_error=True)
+        from ai_models.models import resolve_retired_model_selection
+        from config.environments import get_environment_config
+        stored_model = (config or {}).get("model_id") or get_environment_config().ai.default_model
+        model = resolve_retired_model_selection(stored_model)
+        effort = (config or {}).get("reasoning_effort", "medium") if model == stored_model else "medium"
+        return {"model_id": model, "reasoning_effort": effort}
+
     async def get_workspace_api_key(self, workspace_id: str) -> Optional[str]:
         """Resolve the local operator-supplied API key without caching plaintext."""
         from services.workspace_service import get_workspace_service
@@ -692,12 +702,13 @@ class DocumentService:
             return False
 
     # System AI Model configuration
-    async def set_system_ai_model(self, model_id: str, workspace_id: str = WORKSPACE_ID) -> bool:
+    async def set_system_ai_model(self, model_id: str, workspace_id: str = WORKSPACE_ID,
+                                  reasoning_effort: str = "medium") -> bool:
         """
         Set the system-wide AI model for the workspace.
 
         Args:
-            model_id: An active OpenAI model ID, such as 'gpt-5.6-terra'
+            model_id: An active OpenAI model ID, such as 'gpt-6-sol'
             workspace_id: Workspace making the change
 
         Returns:
@@ -710,9 +721,12 @@ class DocumentService:
             if not AIModelConfig.is_valid_model(model_id):
                 logger.error("Invalid system AI model ID")
                 return False
+            if reasoning_effort not in AIModelConfig.get_model_by_id(model_id).reasoning_efforts:
+                return False
 
             return await self.set_system_config("system_ai_model", {
                 "model_id": model_id,
+                "reasoning_effort": reasoning_effort,
                 "configured_at": datetime.now().isoformat()
             }, workspace_id)
         except Exception as e:
@@ -726,15 +740,7 @@ class DocumentService:
         Returns:
             The configured model ID, or the default model if not configured.
         """
-        config = await self.get_system_config("system_ai_model", raise_on_error=True)
-        if config and "model_id" in config:
-            from ai_models.models import resolve_retired_model_selection
-            # Known retired selections resolve to Terra without rewriting stored
-            # choices or past runs. Other unsupported IDs remain visible and
-            # request validation rejects them rather than silently substituting.
-            return resolve_retired_model_selection(config["model_id"])
-        from config.environments import get_environment_config
-        return get_environment_config().ai.default_model
+        return (await self.get_workspace_generation_settings(WORKSPACE_ID))["model_id"]
 
     async def get_system_ai_model_config(self) -> Optional[Dict[str, Any]]:
         """
@@ -751,7 +757,7 @@ class DocumentService:
         Set the query gate model used for conversation context detection.
 
         Args:
-            model_id: An active OpenAI model ID, such as 'gpt-5.6-terra'
+            model_id: An active OpenAI model ID, such as 'gpt-6-sol'
             workspace_id: Workspace making the change
 
         Returns:
@@ -778,7 +784,7 @@ class DocumentService:
         Get the query gate model for conversation context detection.
 
         Returns:
-            The configured model ID, resolving retired choices, or the Terra default.
+            The configured model ID, resolving retired choices, or the Sol default.
         """
         config = await self.get_system_config("query_gate_model", raise_on_error=True)
         if config and "model_id" in config:

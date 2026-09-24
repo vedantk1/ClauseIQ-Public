@@ -29,6 +29,8 @@ def _model(model_id: str):
 def generation_metadata(model: str, operation: str, reasoning_effort: str | None = None) -> dict[str, Any]:
     spec = _model(model)
     effort = reasoning_effort or ("low" if operation in ("query_gate", "query_rewrite") else spec.default_reasoning_effort)
+    if effort not in spec.reasoning_efforts:
+        raise AIRequestError("Unsupported reasoning setting for the selected model. Update Settings.", 400)
     try:
         completion_budget = get_optimal_response_tokens(operation, model)
     except ValueError:

@@ -19,12 +19,12 @@ export function ReviewGenerationControls({ state, controller, sourceReady, onSet
   return <Panel className={variant === "setup" ? "cw-setup-generation" : ""}>
     <h2 className="text-lg font-semibold">Start an AI review</h2>
     <p className="mt-2 text-sm">The saved document text and your brief are sent to OpenAI using your key. API charges apply. Earlier runs and personal work are kept separately.</p>
-    <p className="mt-3 text-sm">Selected model: <strong>{settings?.model_id || "Unavailable"}</strong></p>
+    <p className="mt-3 text-sm">Selected model: <strong>{settings?.model_id || "Unavailable"}</strong> · {settings?.reasoning_effort || "medium"} reasoning</p>
     <p className="mt-1 text-sm text-text-secondary">{isLoading ? "Loading key status…" : settings?.has_api_key && !settings.api_key_needs_reentry ? "Your API key is saved." : "Add or re-enter your API key in Settings before starting. Reading and saving existing work remain available."}</p>
     {error && <p role="alert" className="mt-2 text-sm">Settings could not be confirmed. {error}</p>}
     <div className="mt-3 flex flex-wrap gap-2">
       <Action className={variant === "setup" ? "cw-start-review" : undefined} disabled={working || action.status === "uncertain" || askBusy || blocked || !!processing.length || !sourceReady || isLoading || !!error || !settings?.has_api_key || settings.api_key_needs_reentry}
-        onClick={() => settings && void controller.startReview(settings.model_id, crypto.randomUUID())}>
+        onClick={() => settings && void controller.startReview(settings.model_id, crypto.randomUUID(), settings.reasoning_effort)}>
         {action.status === "preparing" ? "Confirming saved work…" : action.status === "generating" ? "Review request in progress…" : state.briefDraft ? "Save brief and start review" : "Start review"}
       </Action>
       <Action disabled={working} onClick={onSettings}>Open Settings</Action>

@@ -31,7 +31,7 @@ const controls = loadModule("../src/components/workspace/WorkspaceControls.tsx",
 });
 let workspaceContext;
 function resetContext(overrides = {}) {
-  workspaceContext = { settings: { model_id: "gpt-5.6-terra", has_api_key: true, api_key_needs_reentry: false },
+  workspaceContext = { settings: { model_id: "gpt-6-sol", reasoning_effort: "high", has_api_key: true, api_key_needs_reentry: false },
     isLoading: false, error: null, refresh() { assert.fail("Status refresh must be explicit"); }, ...overrides };
 }
 resetContext();
@@ -277,11 +277,12 @@ test("setup generation preserves explicit paid start and selected model without 
   const html = render(ReviewSetup, props);
   assert.match(html, /API charges apply/);
   assert.match(html, /saved document text and your brief are sent to OpenAI/);
-  assert.match(html, /Selected model: <strong>gpt-5.6-terra/);
+  assert.match(html, /Selected model: <strong>gpt-6-sol/);
+  assert.match(html, /high reasoning/);
   assert.match(html, /cw-start-review/);
   assert.deepEqual(calls, []);
   button(ReviewSetup(props), "Start review").props.onClick();
-  assert.deepEqual(calls, [["generate", "gpt-5.6-terra", "explicit-request-id"]]);
+  assert.deepEqual(calls, [["generate", "gpt-6-sol", "explicit-request-id", "high"]]);
 });
 
 test("setup generation keeps key, settings, source, save and in-flight request gates", () => {

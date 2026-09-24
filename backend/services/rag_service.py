@@ -553,7 +553,8 @@ REWRITTEN QUESTION:"""
         query: str,
         relevant_chunks: List[Dict[str, Any]],
         enhanced_query: str = None,
-        model: str = None
+        model: str = None,
+        reasoning_effort: str | None = None,
     ) -> Dict[str, Any]:
         """Generate a response using RAG with retrieved chunks."""
         if not await self.is_available():
@@ -605,6 +606,7 @@ RESPONSE:"""
 
             response = await create_chat_completion(client,
                 model=model,
+                reasoning_effort=reasoning_effort,
                 messages=[
                     {
                         "role": "system",
@@ -631,7 +633,7 @@ RESPONSE:"""
                 "response": response_text,
                 "sources": source_chunks,
                 "model": model,
-                "generation": generation_metadata(model, "chat"),
+                "generation": generation_metadata(model, "chat", reasoning_effort),
                 "timestamp": datetime.utcnow().isoformat()
             }
 

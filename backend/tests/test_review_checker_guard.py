@@ -27,7 +27,7 @@ def evaluation(tmp_path, monkeypatch):
     loader = AsyncMock(return_value=case)
     monkeypatch.setattr(check, "load_checker_case", loader)
     generation = ReviewGeneration(
-        model_id="gpt-5.6-terra", reasoning_effort="medium", max_completion_tokens=16000,
+        model_id="gpt-6-sol", reasoning_effort="medium", max_completion_tokens=16000,
         catalog_verified_on="synthetic", prompt_version="test", schema_version="test",
         extraction_version="test", estimated_input_tokens=200,
     )
@@ -110,8 +110,8 @@ async def test_dry_run_prepares_metadata_without_key_database_provider_or_files(
     assert not evaluation.root.exists()
     evaluation.loader.assert_awaited_once_with(check.DEFAULT_CASE)
     evaluation.prepare.assert_called_once_with(evaluation.case.document, evaluation.case.candidate,
-                                              model_id="gpt-5.6-terra")
-    evaluation.catalog.assert_called_once_with("gpt-5.6-terra")
+                                              model_id="gpt-6-sol")
+    evaluation.catalog.assert_called_once_with("gpt-6-sol")
     evaluation.workspace_factory.assert_not_called()
     evaluation.key.assert_not_awaited()
     evaluation.close.assert_not_awaited()

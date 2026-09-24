@@ -78,7 +78,7 @@ def test_full_source_once_exact_fields_and_frozen_saved_brief(document, candidat
     assert set(payload["candidate"]["items"][0]["evidence"][0]) == {"passage_id", "label_target_id"}
     assert prepared.item_ids == {"overview_1", "finding_1"}
     assert prepared.source_complete
-    assert prepared.generation.model_id == "gpt-5.6-terra"
+    assert prepared.generation.model_id == "gpt-6-sol"
     assert prepared.generation.reasoning_effort == "medium"
     document.pop("brief")
     assert (document, candidate) == before
@@ -195,7 +195,7 @@ def test_timeout_bounded_and_only_fixed_model_allowed(document, candidate, monke
     monkeypatch.setenv("AI_REVIEW_CHECK_TIMEOUT_SECONDS", "0")
     with pytest.raises(ValueError, match="Nothing was sent"):
         preparation.prepare_check(document, candidate)
-    with pytest.raises(ValueError, match="fixed Terra model"):
+    with pytest.raises(ValueError, match="fixed Sol model"):
         preparation.prepare_check(document, candidate, "gpt-5.6-luna")
 
 

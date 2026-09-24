@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { AvailableModel } from "@clauseiq/shared-types";
 import { useWorkspace, type WorkspaceSettingsUpdate } from "@/context/WorkspaceContext";
-import { formatModelRate, getModelSelectionError, getSelectableModels } from "@/lib/modelSelection";
+import { effortForModel, formatModelRate, getModelSelectionError, getSelectableModels, reasoningLabel } from "@/lib/modelSelection";
 import Button from "@/components/Button";
 import Card from "@/components/Card";
 import ConfirmModal from "@/components/ui/ConfirmModal";
@@ -28,6 +28,7 @@ export default function Settings() {
   const { settings, isLoading, error: connectionError, refresh, updateSettings, saveApiKey, removeApiKey } = useWorkspace();
   const [apiKey, setApiKey] = useState("");
   const [modelId, setModelId] = useState("");
+  const [reasoningEffort, setReasoningEffort] = useState("medium");
   const [queryModelId, setQueryModelId] = useState("");
   const [retentionEnabled, setRetentionEnabled] = useState(false);
   const [retentionDays, setRetentionDays] = useState("30");
@@ -40,9 +41,10 @@ export default function Settings() {
   const models = settings?.available_models ?? [];
   const reviewModel = models.find((model) => model.id === modelId);
   const queryModel = models.find((model) => model.id === queryModelId);
-  const selectionError = getModelSelectionError(models, modelId, queryModelId);
+  const selectionError = getModelSelectionError(models, modelId, queryModelId, reasoningEffort);
 
   useEffect(() => { setModelId(settings?.model_id || ""); }, [settings?.model_id]);
+  useEffect(() => { setReasoningEffort(settings?.reasoning_effort || "medium"); }, [settings?.reasoning_effort]);
   useEffect(() => { setQueryModelId(settings?.query_gate_model_id || ""); }, [settings?.query_gate_model_id]);
   useEffect(() => {
     setRetentionEnabled((settings?.retention_days || 0) > 0);
@@ -92,7 +94,7 @@ export default function Settings() {
       setError("Enter a whole number of days from 1 to 36500, or turn automatic deletion off.");
       return;
     }
-    const update = { model_id: modelId, query_gate_model_id: queryModelId, retention_days: days, toast_notifications_enabled: toastsEnabled };
+    const update = { model_id: modelId, reasoning_effort: reasoningEffort, query_gate_model_id: queryModelId, retention_days: days, toast_notifications_enabled: toastsEnabled };
     if (days > 0 && days !== settings?.retention_days) setPendingSettings(update);
     else void saveSettings(update);
   };
@@ -141,10 +143,25 @@ export default function Settings() {
           <div className={styles.sectionHeading}><div><h2 id="ai-models-title">AI models</h2><p>Choose deliberately. Saving a selection does not start or rerun a review.</p></div></div>
           <label htmlFor="analysis-model" className="block text-sm font-medium">Review model</label>
           <p id="review-model-help" className="text-sm text-text-secondary">Used for reviews and finding-scoped Ask, as well as earlier analysis, summaries, clause rewrites and chat answers.</p>
-          <select id="analysis-model" value={modelId} className={inputClass} aria-describedby="review-model-help" aria-invalid={!reviewModel} disabled={!!saving} onChange={(event) => setModelId(event.target.value)}>
+          <select id="analysis-model" value={modelId} className={inputClass} aria-describedby="review-model-help" aria-invalid={!reviewModel} disabled={!!saving} onChange={(event) => {
+            const next = models.find(model => model.id === event.target.value);
+            setModelId(event.target.value);
+            if (next) {
+              const effort = effortForModel(next, reasoningEffort);
+              if (effort !== reasoningEffort) setMessage(`${next.name} does not support ${reasoningLabel(reasoningEffort)} reasoning. Set to ${reasoningLabel(effort)}; save to apply.`);
+              setReasoningEffort(effort);
+            }
+          }}>
             {!reviewModel && <option value={modelId} disabled>{modelId ? `Unavailable model: ${modelId}` : "Choose a review model"}</option>}
             {getSelectableModels(models, modelId).map((model) => <option key={model.id} value={model.id}>{model.name}{model.legacy ? " (saved legacy model)" : ""}</option>)}
           </select>
+          <label htmlFor="reasoning-effort" className="block text-sm font-medium">Reasoning effort</label>
+          <select id="reasoning-effort" value={reasoningEffort} className={inputClass} aria-describedby="reasoning-help" disabled={!!saving || !reviewModel}
+            onChange={event => setReasoningEffort(event.target.value)}>
+            {reviewModel && !reviewModel.reasoning_efforts.includes(reasoningEffort) && <option value={reasoningEffort} disabled>Unsupported effort: {reasoningEffort}</option>}
+            {reviewModel?.reasoning_efforts.map(effort => <option key={effort} value={effort}>{reasoningLabel(effort)}{effort === "medium" ? " (recommended)" : ""}</option>)}
+          </select>
+          <p id="reasoning-help" className="text-sm text-text-secondary">Medium is a good starting point. Higher effort can use more time and billed reasoning tokens; it does not guarantee a better answer. The same request limits still apply.</p>
           {reviewModel && <ModelDetails model={reviewModel} />}
           <p className="text-xs text-text-secondary">Changes apply to new AI requests after saving. Saved analyses are not automatically rerun. ClauseIQ will not silently switch models or fall back to a more expensive option. Your API account must have access to the selected model.</p>
           {selectionError && <p role="alert" className="text-sm text-accent-amber">{selectionError}</p>}
@@ -156,7 +173,7 @@ export default function Settings() {
                 {!queryModel && <option value={queryModelId} disabled>{queryModelId ? `Unavailable model: ${queryModelId}` : "Choose a classification model"}</option>}
                 {getSelectableModels(models, queryModelId).map((model) => <option key={model.id} value={model.id}>{model.name}{model.legacy ? " (saved legacy model)" : ""}</option>)}
               </select>
-              <p className="text-xs text-text-secondary">This separate model checks chat questions before the review model answers. Changing the review model does not change this selection.</p>
+              <p className="text-xs text-text-secondary">This separate model prepares earlier-analysis chat questions at Low reasoning effort. Changing the review model or effort does not change this selection. Finding-scoped Ask uses the review model and effort directly.</p>
               {queryModel && <ModelDetails model={queryModel} />}
             </div>
           </details>

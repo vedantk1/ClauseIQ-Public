@@ -108,8 +108,10 @@ test("retired analytics bookmarks redirect to Library without loading dashboard 
 
 const modelSelection = loadModule("../src/lib/modelSelection.ts");
 const model = (id, legacy = false) => ({ id, name: id, description: "Synthetic model catalog entry", legacy,
+  reasoning_efforts: ["none", "low", "medium", "high", "xhigh", "max"], default_reasoning_effort: "medium",
   input_price_per_million: 1, output_price_per_million: 2, pricing_verified_on: "test reference", pricing_note: "" });
 const defaultSettings = { has_api_key: true, model_id: "review-model", query_gate_model_id: "saved-legacy",
+  reasoning_effort: "medium",
   available_models: [model("review-model"), model("other-model"), model("saved-legacy", true)],
   retention_days: 0, toast_notifications_enabled: true };
 
@@ -168,7 +170,30 @@ test("Settings save preserves distinct review and query choices and disabled ret
   h.change("analysis-model", "other-model");
   h.submit(1);
   await Promise.resolve();
-  assert.deepEqual(h.calls, [["settings", { model_id: "other-model", query_gate_model_id: "saved-legacy", retention_days: 0, toast_notifications_enabled: true }]]);
+  assert.deepEqual(h.calls, [["settings", { model_id: "other-model", reasoning_effort: "medium", query_gate_model_id: "saved-legacy", retention_days: 0, toast_notifications_enabled: true }]]);
+});
+
+test("model and effort stay local until explicit save and query preparation remains separate", async () => {
+  const h = settingsHarness();
+  h.change("reasoning-effort", "max");
+  h.change("analysis-model", "other-model");
+  assert.equal(node(h.view(), item => item.props.id === "reasoning-effort").props.value, "max");
+  assert.deepEqual(h.calls, []);
+  h.submit(1); await Promise.resolve();
+  assert.equal(h.calls[0][1].reasoning_effort, "max");
+  assert.equal(h.calls[0][1].query_gate_model_id, "saved-legacy");
+});
+
+test("switching from None to Astra shows a compatible unsaved effort and hides None", () => {
+  const astra = { ...model("gpt-6-astra"), reasoning_efforts: ["low", "medium", "high", "xhigh", "max"] };
+  const h = settingsHarness({ settings: { ...defaultSettings, reasoning_effort: "none",
+    available_models: [...defaultSettings.available_models, astra] } });
+  h.change("analysis-model", "gpt-6-astra");
+  const selector = node(h.view(), item => item.props.id === "reasoning-effort");
+  assert.equal(selector.props.value, "medium");
+  assert.equal(nodes(selector).some(item => item.type === "option" && item.props.value === "none"), false);
+  assert.match(h.html(), /does not support None reasoning/);
+  assert.deepEqual(h.calls, []);
 });
 
 test("automatic deletion remains opt-in and requires explicit confirmation", async () => {

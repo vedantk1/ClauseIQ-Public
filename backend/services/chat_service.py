@@ -218,10 +218,11 @@ class ChatService:
             session_id = session["session_id"]
 
             # Get user's preferred model early for use throughout the process
-            workspace_model = await self.doc_service.get_workspace_model(workspace_id)
+            selection = await self.doc_service.get_workspace_generation_settings(workspace_id)
+            workspace_model, effort = selection["model_id"], selection["reasoning_effort"]
             # Fail before helper-model or embedding spend when the main model
             # selection or its completion budget cannot be used.
-            generation_metadata(workspace_model, "chat")
+            generation_metadata(workspace_model, "chat", effort)
             logger.info("Chat model selected: %s", workspace_model)
 
             # Create user message
@@ -329,7 +330,7 @@ class ChatService:
 
                 # 🚀 STEP 4: LLM Response Generation
                 step_start = time.time()
-                response_result = await self._generate_ai_response(document, message, conversation_history, relevant_chunks, enhanced_query, workspace_model)
+                response_result = await self._generate_ai_response(document, message, conversation_history, relevant_chunks, enhanced_query, workspace_model, effort)
                 generation_time = round((time.time() - step_start) * 1000, 2)
 
                 if response_result.get("success", False):
@@ -407,7 +408,7 @@ class ChatService:
                 "error": "Failed to process message"
             }
 
-    async def _generate_ai_response(self, document: dict, message: str, conversation_history: list, relevant_chunks: list, enhanced_query: str = None, workspace_model: str = None) -> dict:
+    async def _generate_ai_response(self, document: dict, message: str, conversation_history: list, relevant_chunks: list, enhanced_query: str = None, workspace_model: str = None, reasoning_effort: str | None = None) -> dict:
         """Generate AI response using the RAG service."""
         try:
             # Format context from relevant chunks
@@ -443,7 +444,7 @@ Please provide a clear, helpful answer based on the document content. If the con
                 query=message,
                 relevant_chunks=relevant_chunks,
                 enhanced_query=enhanced_query,
-                model=workspace_model
+                model=workspace_model, reasoning_effort=reasoning_effort,
             )
 
             if ai_response and ai_response.get("response") and not ai_response.get("error"):

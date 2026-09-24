@@ -46,7 +46,20 @@ def document():
 
 @pytest.fixture
 def prepared(document):
-    return engine.prepare_review(document, ReviewBrief(perspective="customer", priorities="Exit options"), "gpt-5.6-terra")
+    return engine.prepare_review(document, ReviewBrief(perspective="customer", priorities="Exit options"), "gpt-6-sol")
+
+
+@pytest.mark.parametrize("model,effort", [("gpt-6-luna", "none"), ("gpt-6-sol", "max"), ("gpt-6-astra", "xhigh")])
+def test_preparation_records_selected_effort_without_expanding_budget(document, model, effort):
+    result = engine.prepare_review(document, ReviewBrief(), model, effort)
+    assert result.generation.model_id == model
+    assert result.generation.reasoning_effort == effort
+    assert result.generation.max_completion_tokens == 16000
+
+
+def test_preparation_rejects_unsupported_effort(document):
+    with pytest.raises(AIRequestError, match="reasoning"):
+        engine.prepare_review(document, ReviewBrief(), "gpt-6-astra", "none")
 
 
 @pytest.fixture
@@ -90,7 +103,7 @@ def test_prepare_includes_full_passages_brief_and_schema_budget(prepared, docume
     assert supplied["passage_version"] == "source-passages-v1"
     assert "spans" not in supplied["pages"][0]  # source text is not duplicated per line
     assert supplied["review_brief"]["perspective"] == "customer"
-    message_estimate = sum(get_token_count(item["content"], "gpt-5.6-terra") + 8 for item in prepared.messages) + 16
+    message_estimate = sum(get_token_count(item["content"], "gpt-6-sol") + 8 for item in prepared.messages) + 16
     assert prepared.generation.estimated_input_tokens > message_estimate
     assert prepared.generation.prompt_version == "source-review-v3"
     assert prepared.generation.schema_version == "source-review-output-v2"
@@ -133,36 +146,36 @@ def test_strict_schema_requires_all_object_properties(prepared):
 def test_preflight_rejects_inconsistent_source_without_call(document, mutation):
     mutation(document)
     with pytest.raises(AIRequestError, match="consistent, usable"):
-        engine.prepare_review(document, ReviewBrief(), "gpt-5.6-terra")
+        engine.prepare_review(document, ReviewBrief(), "gpt-6-sol")
 
 
 def test_preflight_no_usable_text(document):
     document["extraction_status"] = "unavailable"
     document["source_extraction"].update(status="unavailable", text="", pages=[], page_count=0)
     with pytest.raises(AIRequestError):
-        engine.prepare_review(document, ReviewBrief(), "gpt-5.6-terra")
+        engine.prepare_review(document, ReviewBrief(), "gpt-6-sol")
 
 
 def test_over_cap_is_rejected_not_truncated(document, monkeypatch):
     before = deepcopy(document)
     monkeypatch.setenv("AI_MAX_INPUT_TOKENS", "10")
     with pytest.raises(AIRequestError, match="Nothing was truncated or sent"):
-        engine.prepare_review(document, ReviewBrief(), "gpt-5.6-terra")
+        engine.prepare_review(document, ReviewBrief(), "gpt-6-sol")
     assert document == before
 
 
 def test_schema_counted_toward_cap(document, prepared, monkeypatch):
     monkeypatch.setenv("AI_MAX_INPUT_TOKENS", str(prepared.generation.estimated_input_tokens - 1))
     with pytest.raises(AIRequestError, match="output schema"):
-        engine.prepare_review(document, ReviewBrief(perspective="customer", priorities="Exit options"), "gpt-5.6-terra")
+        engine.prepare_review(document, ReviewBrief(perspective="customer", priorities="Exit options"), "gpt-6-sol")
 
 
 def test_timeout_is_bounded_and_invalid_configuration_rejected(document, monkeypatch):
     monkeypatch.setenv("AI_REVIEW_TIMEOUT_SECONDS", "99999")
-    assert engine.prepare_review(document, ReviewBrief(), "gpt-5.6-terra").timeout_seconds == 180
+    assert engine.prepare_review(document, ReviewBrief(), "gpt-6-sol").timeout_seconds == 180
     monkeypatch.setenv("AI_REVIEW_TIMEOUT_SECONDS", "0")
     with pytest.raises(AIRequestError):
-        engine.prepare_review(document, ReviewBrief(), "gpt-5.6-terra")
+        engine.prepare_review(document, ReviewBrief(), "gpt-6-sol")
 
 
 @pytest.mark.asyncio
@@ -180,7 +193,7 @@ async def test_valid_review_single_bounded_call_usage_and_source_resolved(prepar
     assert options == [{"max_retries": 0, "timeout": 120}]
     call.assert_awaited_once()
     assert call.call_args.kwargs["store"] is False
-    assert call.call_args.kwargs["model"] == "gpt-5.6-terra"
+    assert call.call_args.kwargs["model"] == "gpt-6-sol"
     assert call.call_args.kwargs["response_format"] == prepared.response_format
 
 
@@ -214,7 +227,7 @@ def prepared_with_text(document, text):
     source = document["source_extraction"]
     source["text"] = text
     source["pages"][0].update(text=text, spans=[span.model_dump() for span in _line_spans(text, "a" * 64, 1)])
-    return engine.prepare_review(document, ReviewBrief(), "gpt-5.6-terra")
+    return engine.prepare_review(document, ReviewBrief(), "gpt-6-sol")
 
 
 def resolved_json(result):
@@ -231,7 +244,7 @@ async def test_repeated_passages_across_findings_are_bounded_before_full_expansi
     output["findings"][0]["evidence"] = [reference]
     output["findings"] = [deepcopy(output["findings"][0]) for _ in range(100)]
     assert len(json.dumps(output)) < engine.MAX_RESPONSE_CHARACTERS
-    assert get_token_count(json.dumps(output), "gpt-5.6-terra") < 16_000
+    assert get_token_count(json.dumps(output), "gpt-6-sol") < 16_000
     resolved_count = 0
     resolve_evidence = engine._resolve_evidence
 
@@ -331,7 +344,7 @@ async def test_partial_extraction_never_ready(document, output):
     document["extraction_status"] = "partial"
     document["source_extraction"].update(status="partial", page_count=2)
     document["source_extraction"]["pages"].append({"page_number": 2, "text": "", "status": "failed"})
-    partial = engine.prepare_review(document, ReviewBrief(), "gpt-5.6-terra")
+    partial = engine.prepare_review(document, ReviewBrief(), "gpt-6-sol")
     client, _, _ = mock_client(response(output))
     result = await engine.generate_review(partial, client)
     assert result.status == "incomplete" and result.failure.code == "PARTIAL_SOURCE"
@@ -419,7 +432,7 @@ def test_untrusted_source_instruction_stays_source_not_system(document):
     source = document["source_extraction"]
     source.update(text=text)
     source["pages"][0].update(text=text, spans=[{"id": "span_1", "start": 0, "end": len(text), "text": text}])
-    prepared = engine.prepare_review(document, ReviewBrief(), "gpt-5.6-terra")
+    prepared = engine.prepare_review(document, ReviewBrief(), "gpt-6-sol")
     assert text not in prepared.messages[0]["content"]
     assert json.loads(prepared.messages[1]["content"])["pages"][0]["passages"][0]["text"] == text
     assert next(iter(prepared.evidence_by_id.values())).quote == text
@@ -441,7 +454,7 @@ async def test_real_sdk_http_transport_contract_and_retry_policy(prepared, outpu
         if http_status != 200:
             return httpx.Response(http_status, json={"error": {"message": "private provider error", "type": "server_error"}})
         return httpx.Response(200, json={
-            "id": "synthetic_completion", "object": "chat.completion", "created": 1, "model": "gpt-5.6-terra",
+            "id": "synthetic_completion", "object": "chat.completion", "created": 1, "model": "gpt-6-sol",
             "choices": [{"index": 0, "finish_reason": finish, "message": {"role": "assistant", "content": json.dumps(output), "refusal": refusal}}],
             "usage": {"prompt_tokens": 200, "completion_tokens": 100, "total_tokens": 300},
         })
@@ -451,7 +464,7 @@ async def test_real_sdk_http_transport_contract_and_retry_policy(prepared, outpu
         result = await engine.generate_review(prepared, client)
     assert len(requests) == 1  # SDK retries disabled even on retryable HTTP errors.
     assert requests[0]["store"] is False
-    assert requests[0]["model"] == "gpt-5.6-terra"
+    assert requests[0]["model"] == "gpt-6-sol"
     assert requests[0]["max_completion_tokens"] == 16000
     assert requests[0]["response_format"]["json_schema"]["strict"] is True
     assert "validate_output" not in requests[0]
@@ -470,7 +483,7 @@ async def test_reviewed_25_page_fixture_fits_without_omitting_any_text():
     document = {"source_revision_id": "synthetic_revision", "source_status": "stored", "has_pdf_file": True,
                 "source_sha256": extraction.content_sha256, "extraction_status": extraction.status,
                 "source_extraction": extraction.model_dump()}
-    prepared = engine.prepare_review(document, ReviewBrief(), "gpt-5.6-terra")
+    prepared = engine.prepare_review(document, ReviewBrief(), "gpt-6-sol")
     pages = json.loads(prepared.messages[1]["content"])["pages"]
     assert prepared.coverage.extracted_pages == list(range(1, 26))
     for supplied, page in zip(pages, extraction.pages):

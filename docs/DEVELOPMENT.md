@@ -381,17 +381,35 @@ approved and cost-capped.
 
 Workspace Settings selects the review model and an optional separate chat query
 preparation model. Without a saved review choice, OPENAI_DEFAULT_MODEL can
-override the catalog default (gpt-5.6-terra). Query preparation also defaults to
-gpt-5.6-terra. Mini and Nano are no longer selectable or accepted for new requests;
-old selections/default overrides for those two IDs resolve to Terra without
-rewriting saved run attribution. Other saved choices take precedence over the
+override the catalog default (gpt-6-sol). The catalog offers GPT-6 Luna, Sol and
+Astra only. Query preparation also defaults to Sol. Retired GPT-5, Mini, Nano
+and GPT-5.6 Luna/Terra/Sol selections/default overrides resolve to Sol/medium
+without rewriting saved run attribution. Other saved choices take precedence over the
 environment default. Unknown IDs produce an explicit error, not a fallback.
 
 Provider limits/prices are maintained in backend/ai_models/models.py and checked
 against the [official model catalog](https://developers.openai.com/api/docs/models).
-GPT-5.6 reasoning supports none/low/medium/high/xhigh/max; retained GPT-5 models
-support minimal/low/medium/high. Review calls explicitly use medium; query
-preparation uses low. No new reasoning controls are required during onboarding.
+GPT-6 Luna and Sol support none/low/medium/high/xhigh/max; Astra supports
+low/medium/high/xhigh/max. Settings saves the review model and reasoning effort
+together; medium is the default. The selected effort applies to reviews, Ask,
+earlier analysis, summaries, rewrites and chat answers. Query preparation remains
+separate at low effort. The displayed model and effort are checked before new
+review/Ask dispatch; stale selections are rejected without a provider request.
+Existing and in-flight results keep the original settings snapshot. High effort
+does not enlarge token/time limits or guarantee complete output.
+
+Settings persistence can be checked without touching the application library:
+
+~~~bash
+cd backend
+venv/bin/python -m pytest tests/test_model_registry.py tests/test_model_settings.py -q
+venv/bin/python tests/manual_model_settings_smoke.py --run-isolated-live
+~~~
+
+The opt-in smoke uses a verified-absent random localhost MongoDB database and
+removes it afterward. It checks retired-choice resolution, paired persistence,
+invalid-pair rejection, reconnect reads and unchanged synthetic history/credential
+state, without an API key or provider request.
 
 Task completion budgets include reasoning and visible answer tokens. Override
 these in the backend environment or backend/.env as needed:
@@ -422,7 +440,7 @@ Oversized prompts are rejected, not silently truncated. Partial-output failures
 do not trigger an automatic larger or more expensive retry.
 
 Finding-scoped Ask uses AI_CHAT_MAX_COMPLETION_TOKENS and the selected review
-model's default reasoning effort. Its complete source/context/history and output
+model and reasoning effort saved in Settings. Its complete source/context/history and output
 schema count against AI_MAX_INPUT_TOKENS. AI_REVIEW_ASK_TIMEOUT_SECONDS bounds the
 whole provider wait; SDK retries are disabled. A fresh question can deliberately
 exclude conversation history while keeping the source and original review brief.
@@ -449,7 +467,7 @@ paste keys into test files or use confidential agreements as evaluation fixtures
 
 A separately authorized, single-call check is available in
 backend/tests/manual_review_generation_check.py (run from backend). It is fixed
-to GPT-5.6 Terra and accepts only the source-reviewed cases in
+to GPT-6 Sol and accepts only the source-reviewed cases in
 backend/fixtures/review_evaluations. Use --case managed-services-25p (the default)
 for cross-page commercial/exit provisions or --case service-terms-conflict for
 the contrasting two-page payment-deadline conflict and delivery table. The harness
@@ -501,7 +519,9 @@ venv/bin/python tests/manual_review_checker.py --case acceptance-focused-concise
 Dry runs load only allowlisted synthetic fixtures and print bounded request/binding
 metadata. They do not read the saved key, connect to the database/provider or write
 reports. No generic document or captured-report path is accepted. The checker
-uses Terra with medium reasoning, independent of the saved app model choice.
+uses Sol with medium reasoning, independent of the saved app model choice.
+Earlier Terra evaluation reports remain historical and are not rewritten or
+treated as Sol results. The generation harness also uses the fixed Sol model.
 AI_REVIEW_MAX_COMPLETION_TOKENS is read for the experiment's output budget but
 must not exceed its 16,000-token hard ceiling or fall below its target-inventory
 reserve. AI_MAX_INPUT_TOKENS applies to complete input including output schema;

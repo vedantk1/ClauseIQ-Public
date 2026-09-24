@@ -75,6 +75,7 @@ class WorkspaceService:
 
     async def get_settings(self) -> dict:
         documents = get_document_service()
+        generation = await documents.get_workspace_generation_settings(WORKSPACE_ID)
         retention = await documents.get_auto_delete_config()
         ui = await documents.get_ui_settings()
         record = await (await self._credentials()).find_one({"id": WORKSPACE_ID})
@@ -83,7 +84,7 @@ class WorkspaceService:
             "has_api_key": has_key,
             "api_key_needs_reentry": bool(record and not has_key and
                 (record.get("encrypted_key") or record.get("legacy_import_pending"))),
-            "model_id": await documents.get_system_ai_model(),
+            **generation,
             "query_gate_model_id": await documents.get_query_gate_model(),
             "available_models": AIModelConfig.get_models_for_api(),
             "retention_days": retention["days"] if retention.get("enabled") else 0,
@@ -92,8 +93,17 @@ class WorkspaceService:
 
     async def update_settings(self, settings: dict) -> dict:
         documents = get_document_service()
+        if "model_id" in settings or "reasoning_effort" in settings:
+            from services.ai.generation import AIRequestError
+            current = await documents.get_workspace_generation_settings(WORKSPACE_ID)
+            model_id = settings.get("model_id", current["model_id"])
+            effort = settings.get("reasoning_effort", current["reasoning_effort"])
+            if (not AIModelConfig.is_valid_model(model_id) or
+                    effort not in AIModelConfig.get_model_by_id(model_id).reasoning_efforts):
+                raise AIRequestError("Choose a supported model and reasoning effort in Settings.", 422)
+            if not await documents.set_system_ai_model(model_id, WORKSPACE_ID, reasoning_effort=effort):
+                raise RuntimeError("Could not save workspace settings")
         actions = {
-            "model_id": documents.set_system_ai_model,
             "query_gate_model_id": documents.set_query_gate_model,
             "retention_days": documents.set_auto_delete_config,
         }

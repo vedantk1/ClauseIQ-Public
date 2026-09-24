@@ -37,7 +37,7 @@ Clause, RiskLevel, ClauseType, ContractType = _get_models()
 
 logger = logging.getLogger(__name__)
 
-async def detect_contract_type(document_text: str, filename: str = "", model: str = None) -> ContractType:
+async def detect_contract_type(document_text: str, filename: str = "", model: str = None, reasoning_effort: str | None = None) -> ContractType:
     """Detect contract type using LLM analysis."""
     # Get model from settings if not provided
     if model is None:
@@ -83,6 +83,7 @@ async def detect_contract_type(document_text: str, filename: str = "", model: st
 
         response = await create_chat_completion(openai_client,
             model=model,
+            reasoning_effort=reasoning_effort,
             messages=[
                 {"role": "system", "content": "You are a legal document classification expert. Analyze documents and identify their type with high accuracy."},
                 {"role": "user", "content": prompt}
@@ -105,7 +106,7 @@ async def detect_contract_type(document_text: str, filename: str = "", model: st
         logger.error("Contract type detection failed: %s", type(e).__name__)
         raise AIRequestError("Document classification failed. Please retry.") from None
 
-async def extract_clauses_with_llm(document_text: str, contract_type: ContractType, model: str = None) -> List[Clause]:
+async def extract_clauses_with_llm(document_text: str, contract_type: ContractType, model: str = None, reasoning_effort: str | None = None) -> List[Clause]:
     """Extract and classify clauses using LLM analysis."""
     # Get model from settings if not provided
     if model is None:
@@ -179,6 +180,7 @@ async def extract_clauses_with_llm(document_text: str, contract_type: ContractTy
 
         response = await create_chat_completion(openai_client,
             model=model,
+            reasoning_effort=reasoning_effort,
             messages=[
                 {"role": "system", "content": f"You are an elite legal expert specializing in {contract_type.value} analysis. With expanded token budget, extract and classify clauses with maximum precision, detail, and attention to legal nuance. Identify clause relationships and provide comprehensive risk analysis."},
                 {"role": "user", "content": prompt}
@@ -220,7 +222,7 @@ async def extract_clauses_with_llm(document_text: str, contract_type: ContractTy
         raise AIRequestError("The selected model did not return valid clause data. Please retry.") from None
 
 
-async def generate_structured_document_summary(document_text: str, filename: str = "", model: str = None, contract_type: ContractType = None) -> Dict[str, Any]:
+async def generate_structured_document_summary(document_text: str, filename: str = "", model: str = None, contract_type: ContractType = None, reasoning_effort: str | None = None) -> Dict[str, Any]:
     """Generate a contract-type-specific structured document summary with categorized insights"""
     # Get model from settings if not provided
     if model is None:
@@ -370,6 +372,7 @@ async def generate_structured_document_summary(document_text: str, filename: str
 
         response = await create_chat_completion(openai_client,
             model=model,
+            reasoning_effort=reasoning_effort,
             messages=[
                 {"role": "system", "content": f"You are an elite legal AI assistant specializing in {contract_type.value} analysis. Provide comprehensive, detailed structured analysis that helps legal professionals understand {contract_type.value} documents completely. Focus on {contract_type.value}-specific risks, obligations, and strategic implications."},
                 {"role": "user", "content": prompt}
@@ -406,7 +409,8 @@ async def generate_clause_rewrite(
     clause: Clause,
     document_text: str,
     contract_type: ContractType,
-    model: str = None
+    model: str = None,
+    reasoning_effort: str | None = None,
 ) -> str:
     """Generate a rewrite suggestion for a clause using full document context."""
     # Get model from settings if not provided
@@ -448,6 +452,7 @@ Provide ONLY the rewritten clause text, no explanations or commentary."""
 
         response = await create_chat_completion(openai_client,
             model=model,
+            reasoning_effort=reasoning_effort,
             messages=[
                 {"role": "system", "content": f"You are an elite legal AI assistant specializing in {contract_type.value} contract optimization. Provide clear, improved clause rewrites that maintain legal precision while enhancing clarity and addressing identified risks."},
                 {"role": "user", "content": prompt}

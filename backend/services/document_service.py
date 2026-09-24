@@ -45,7 +45,7 @@ def validate_file(file: UploadFile):
             )
 
 
-async def process_document_with_llm(document_text: str, filename: str = "", model: str = None) -> Tuple[ContractType, List[Clause]]:
+async def process_document_with_llm(document_text: str, filename: str = "", model: str = None, reasoning_effort: str | None = None) -> Tuple[ContractType, List[Clause]]:
     """
     Process a document using LLM-based analysis.
 
@@ -74,12 +74,12 @@ async def process_document_with_llm(document_text: str, filename: str = "", mode
     try:
         # Step 1: Detect contract type
         logger.info("Detecting contract type")
-        contract_type = await detect_contract_type(document_text, filename, model)
+        contract_type = await detect_contract_type(document_text, filename, model, reasoning_effort=reasoning_effort)
         logger.info("Contract type detected")
 
         # Step 2: Extract clauses using LLM
         logger.info("Extracting clauses with LLM")
-        clauses = await extract_clauses_with_llm(document_text, contract_type, model)
+        clauses = await extract_clauses_with_llm(document_text, contract_type, model, reasoning_effort=reasoning_effort)
         logger.info("Extracted %s clauses", len(clauses))
 
         return contract_type, clauses

@@ -9,6 +9,7 @@ export interface WorkspaceSettings {
   has_api_key: boolean;
   api_key_needs_reentry?: boolean;
   model_id: string;
+  reasoning_effort: string;
   query_gate_model_id: string;
   available_models: AvailableModel[];
   retention_days: number;
@@ -16,7 +17,7 @@ export interface WorkspaceSettings {
 }
 
 export type WorkspaceSettingsUpdate = Partial<Pick<WorkspaceSettings,
-  "model_id" | "query_gate_model_id" | "retention_days" | "toast_notifications_enabled"
+  "model_id" | "reasoning_effort" | "query_gate_model_id" | "retention_days" | "toast_notifications_enabled"
 >>;
 
 interface WorkspaceContextValue {

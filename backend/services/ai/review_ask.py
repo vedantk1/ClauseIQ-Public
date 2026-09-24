@@ -92,7 +92,7 @@ def _validate_scope(document, run, finding, question, history):
 
 def prepare_ask(
     document: dict, run: ReviewRun, finding: ReviewFinding, question: str,
-    model_id: str, history: list[ReviewAskTurn],
+    model_id: str, history: list[ReviewAskTurn], reasoning_effort: str | None = None,
 ) -> PreparedAsk:
     """Prepare all extracted text, immutable context and bounded selected history.
 
@@ -113,7 +113,7 @@ def prepare_ask(
         }
     except (ValueError, TypeError, ValidationError):
         raise AIRequestError("The source could not be represented as bounded exact passages. Nothing was sent.", 400) from None
-    metadata = generation_metadata(model_id, "chat")
+    metadata = generation_metadata(model_id, "chat", reasoning_effort)
     omitted = [page.page_number for page in extraction.pages if page.status != "extracted"]
     limitations = [SOURCE_LIMITATION]
     if omitted:

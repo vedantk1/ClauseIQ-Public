@@ -19,7 +19,7 @@ from services.chat_service import ChatService
 from services.rag_service import RAGService
 
 
-MODEL = "gpt-5.6-terra"
+MODEL = "gpt-6-sol"
 CLAUSE = {
     "heading": "Confidentiality", "text": "Both parties must keep the information confidential.",
     "clause_type": "confidentiality", "risk_level": "low", "risk_reasoning": "The obligation is mutual.",
@@ -65,7 +65,7 @@ async def run_main(operation, model):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("model", [MODEL, "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5"])
+@pytest.mark.parametrize("model", [MODEL, "gpt-6-luna", "gpt-6-astra"])
 @pytest.mark.parametrize("operation,content", [
     ("classification", "nda"), ("extraction", json.dumps({"clauses": [CLAUSE]})),
     ("summary", json.dumps(SUMMARY)), ("rewrite", "Each party must protect confidential information."),
@@ -120,7 +120,7 @@ def rag(monkeypatch):
     instance.is_available = AsyncMock(return_value=True)
     instance.conversation_history_window = 4
     instance.max_chunks_per_query = 3
-    settings = SimpleNamespace(get_query_gate_model=AsyncMock(return_value="gpt-5.6-terra"))
+    settings = SimpleNamespace(get_query_gate_model=AsyncMock(return_value="gpt-6-sol"))
     monkeypatch.setattr(database_service, "get_document_service", lambda: settings)
     return instance
 
@@ -134,9 +134,9 @@ async def test_chat_helpers_honor_terra_selection_and_low_reasoning(provider, ra
     else:
         assert await rag._rewrite_query_with_context("What about that?", []) == content
     request = provider.chat.completions.create.await_args.kwargs
-    assert request["model"] == "gpt-5.6-terra"
+    assert request["model"] == "gpt-6-sol"
     assert request["reasoning_effort"] == "low"
-    assert request["max_completion_tokens"] == get_optimal_response_tokens(operation, "gpt-5.6-terra")
+    assert request["max_completion_tokens"] == get_optimal_response_tokens(operation, "gpt-6-sol")
 
 
 @pytest.mark.asyncio
@@ -156,13 +156,13 @@ async def test_chat_generation_failures_propagate_instead_of_substituting_succes
 async def test_chat_uses_main_model_and_returns_generation_settings(provider, rag):
     provider.chat.completions.create.return_value = completion("There is a confidentiality obligation. [Source 1]")
     result = await rag.generate_rag_response(
-        "What is required?", [{"chunk_id": "chunk-1", "content": CLAUSE["text"]}], model="gpt-5.6-sol",
+        "What is required?", [{"chunk_id": "chunk-1", "content": CLAUSE["text"]}], model="gpt-6-astra",
     )
     request = provider.chat.completions.create.await_args.kwargs
-    assert request["model"] == "gpt-5.6-sol"
+    assert request["model"] == "gpt-6-astra"
     assert request["reasoning_effort"] == "medium"
-    assert request["max_completion_tokens"] == get_optimal_response_tokens("chat", "gpt-5.6-sol")
-    assert result["generation"] == generation_metadata("gpt-5.6-sol", "chat")
+    assert request["max_completion_tokens"] == get_optimal_response_tokens("chat", "gpt-6-astra")
+    assert result["generation"] == generation_metadata("gpt-6-astra", "chat")
 
 
 @pytest.mark.asyncio
@@ -180,7 +180,7 @@ async def test_chat_error_does_not_save_an_assistant_message():
     error = AIRequestError("The selected model is unavailable. Choose a model in Settings.")
     service = ChatService.__new__(ChatService)
     service.doc_service = SimpleNamespace(
-        get_workspace_model=AsyncMock(return_value=MODEL), add_chat_message_atomic=AsyncMock(return_value=True),
+        get_workspace_generation_settings=AsyncMock(return_value={"model_id": MODEL, "reasoning_effort": "medium"}), add_chat_message_atomic=AsyncMock(return_value=True),
     )
     service.rag_service = SimpleNamespace(
         is_available=AsyncMock(return_value=True),
@@ -204,7 +204,7 @@ async def test_invalid_main_chat_configuration_prevents_helper_or_embedding_spen
         monkeypatch.setenv("AI_CHAT_MAX_COMPLETION_TOKENS", "invalid")
     service = ChatService.__new__(ChatService)
     service.doc_service = SimpleNamespace(
-        get_workspace_model=AsyncMock(return_value=model), add_chat_message_atomic=AsyncMock(),
+        get_workspace_generation_settings=AsyncMock(return_value={"model_id": model, "reasoning_effort": "medium"}), add_chat_message_atomic=AsyncMock(),
     )
     service.rag_service = SimpleNamespace(
         is_available=AsyncMock(return_value=True),
@@ -235,7 +235,7 @@ def test_http_generation_errors_are_explicit_and_do_not_persist_results(monkeypa
     document = {"id": "doc-1", "text": "Synthetic contract", "contract_type": "nda", "clauses": [{"id": "clause-1", **CLAUSE}]}
     storage = SimpleNamespace(
         get_workspace_api_key=AsyncMock(return_value="sk-test-placeholder"),
-        get_workspace_model=AsyncMock(return_value=MODEL),
+        get_workspace_generation_settings=AsyncMock(return_value={"model_id": MODEL, "reasoning_effort": "medium"}),
         get_document_for_workspace=AsyncMock(return_value=document), update_clause_rewrite=AsyncMock(),
         update_document_if=AsyncMock(return_value=True),
     )

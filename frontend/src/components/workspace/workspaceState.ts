@@ -168,9 +168,9 @@ export class ReviewWorkspaceController {
   private sending = false;
   private stopped = false;
   private generation = 0;
-  private pendingAttempt: { revision: number; requestId: string; modelId: string; rejected?: boolean } | null = null;
+  private pendingAttempt: { revision: number; requestId: string; modelId: string; reasoningEffort: string; rejected?: boolean } | null = null;
   private pendingAskAttempt: { revision: number; requestId: string; modelId: string; runId: string;
-    findingId: string; question: string; includeHistory: boolean; rejected?: boolean } | null = null;
+    findingId: string; question: string; includeHistory: boolean; reasoningEffort: string; rejected?: boolean } | null = null;
   private pendingWaiters = new Set<() => void>();
 
   constructor(private documentId: string, private transport: ReviewWorkspaceTransport, private debounceMs = 500) {}
@@ -345,7 +345,7 @@ export class ReviewWorkspaceController {
   }
 
   /** Paid work never enters the recoverable local-write queue. */
-  async startReview(modelId: string, requestId: string) {
+  async startReview(modelId: string, requestId: string, reasoningEffort = "medium") {
     if (this.stopped || paidActionBusy(this.current) || !this.current.workspace ||
         hasProcessing(this.current.workspace) ||
         ["loading", "failed", "conflict", "review"].includes(this.current.status) || !modelId || !requestId) return;
@@ -359,7 +359,7 @@ export class ReviewWorkspaceController {
       this.emit({ reviewAction: { ...idleReviewAction(), error: "Review was not started. Confirm pending changes and the latest brief first." } });
       return;
     }
-    this.pendingAttempt = { revision: this.current.workspace!.revision, requestId, modelId };
+    this.pendingAttempt = { revision: this.current.workspace!.revision, requestId, modelId, reasoningEffort };
     await this.sendReviewAttempt();
   }
 
@@ -381,7 +381,7 @@ export class ReviewWorkspaceController {
     if (!attempt || this.stopped) return;
     this.emit({ reviewAction: { status: "generating", error: null, canRetryRequest: false } });
     try {
-      const workspace = await this.transport.generate(this.documentId, attempt.revision, attempt.requestId, attempt.modelId);
+      const workspace = await this.transport.generate(this.documentId, attempt.revision, attempt.requestId, attempt.modelId, attempt.reasoningEffort);
       if (this.stopped) return;
       this.pendingAttempt = null;
       this.acceptReviewResponse(workspace);
@@ -403,7 +403,7 @@ export class ReviewWorkspaceController {
 
   /** Finding questions keep the selected run's context, never save or use a draft brief. */
   async startAsk(runId: string, findingId: string, question: string, modelId: string,
-    requestId: string, includeHistory = true) {
+    requestId: string, includeHistory = true, reasoningEffort = "medium") {
     const workspace = this.current.workspace;
     const run = workspace?.runs.find(item => item.id === runId);
     if (this.stopped || paidActionBusy(this.current) || !workspace || hasProcessing(workspace) ||
@@ -425,7 +425,7 @@ export class ReviewWorkspaceController {
       return;
     }
     this.pendingAskAttempt = { revision: this.current.workspace!.revision, requestId, modelId,
-      runId, findingId, question, includeHistory };
+      runId, findingId, question, includeHistory, reasoningEffort };
     await this.sendAskAttempt();
   }
 
@@ -436,7 +436,7 @@ export class ReviewWorkspaceController {
     this.emit({ askAction: { ...target, status: "generating", error: null, canRetryRequest: false } });
     try {
       const workspace = await this.transport.ask(this.documentId, attempt.revision, attempt.requestId,
-        attempt.modelId, attempt.runId, attempt.findingId, attempt.question, attempt.includeHistory);
+        attempt.modelId, attempt.runId, attempt.findingId, attempt.question, attempt.includeHistory, attempt.reasoningEffort);
       if (this.stopped) return;
       this.pendingAskAttempt = null;
       this.acceptReviewResponse(workspace);
@@ -523,7 +523,7 @@ function safeMessage(error: unknown) {
 
 function isPreflightRejection(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error &&
-    ["REQUEST_ID_CONFLICT", "REVIEW_RUN_LIMIT", "REVIEW_ALREADY_PROCESSING", "REVIEW_MODEL_CHANGED",
+    ["REQUEST_ID_CONFLICT", "REVIEW_RUN_LIMIT", "REVIEW_ALREADY_PROCESSING", "REVIEW_MODEL_CHANGED", "REVIEW_REASONING_CHANGED",
       "REVIEW_INPUT_REJECTED", "API_KEY_REQUIRED", "REVISION_CONFLICT", "ASK_INPUT_REJECTED",
       "INVALID_QUESTION", "ASK_REVIEW_UNAVAILABLE", "ASK_TURN_LIMIT", "ASK_ALREADY_PROCESSING", "ASK_STORAGE_LIMIT"].includes(String(error.code));
 }

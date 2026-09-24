@@ -13,7 +13,7 @@ from services.ai.token_utils import _positive_env_integer, calculate_token_budge
 from .contract import CheckBinding, CheckCandidate, DiagnosticReport, MAX_CHECK_TARGETS, PreparedCheck
 from .prompt import CHECK_SYSTEM_PROMPT, PROMPT_VERSION, SCHEMA_VERSION
 
-CHECK_MODEL = "gpt-5.6-terra"
+CHECK_MODEL = "gpt-6-sol"
 MAX_CANDIDATE_BYTES = 1_000_000
 MAX_COMPLETION_TOKENS = 16_000
 OUTPUT_RESERVE_TOKENS = 4096
@@ -32,7 +32,7 @@ def _digest(value):
 def prepare_check(document: dict, candidate: CheckCandidate | dict, model_id: str = CHECK_MODEL) -> PreparedCheck:
     """Reject mismatches or capacity limits before any credential/provider access."""
     if model_id != CHECK_MODEL:
-        raise ValueError("The development checker uses its fixed Terra model.")
+        raise ValueError("The development checker uses its fixed Sol model.")
     try:
         # Revalidate even a model instance; model_copy(update=...) can bypass Pydantic validation.
         raw = candidate.model_dump(warnings=False) if isinstance(candidate, CheckCandidate) else candidate

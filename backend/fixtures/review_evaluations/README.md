@@ -9,7 +9,8 @@ advice, an exhaustive legal checklist, or production prompt material.
 The harness sends only the case's brief and PDF extraction through the normal
 review generator. It records the case/version and this directory's criteria
 reference in its ignored report; it never supplies expectations to the model.
-Terra is fixed for this bounded baseline pass. Each invocation makes at most one
+The current harness fixes GPT-6 Sol; earlier Terra reports retain their original
+model attribution and remain separate baselines. Each invocation makes at most one
 provider call; no automatic retry, model fallback or second grading call occurs.
 
 ## Manual assessment

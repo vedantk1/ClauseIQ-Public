@@ -413,7 +413,7 @@ evidence must map to exact canonical passages; no better citation is substituted
 The input inventory includes overview text, finding fields, evidence labels and
 coverage limitations. Oversized or inconsistent inputs are rejected, not truncated.
 
-A separately invoked Terra request reports exact field excerpts, source passage
+A separately invoked Sol request reports exact field excerpts, source passage
 references and priority gaps. The parser requires a complete target inventory,
 strict schema and exact Unicode offsets/IDs. It never edits the candidate.
 Completed means the diagnostic contract was satisfied, not that the review is
@@ -499,17 +499,24 @@ the trusted-OS-user boundary and limitations.
 
 backend/ai_models/models.py is the canonical model catalog. The workspace API
 serves its names, limits, reasoning options and dated base prices to the frontend;
-the UI does not maintain a second catalog. New installations use GPT-5.6 Terra
-for review and optional chat query preparation. Luna and Sol remain selectable;
-an existing GPT-5 selection remains usable as legacy. Mini and Nano are removed
-from the active catalog. Their old saved choices or environment defaults resolve
-to Terra, without rewriting historical run attribution or other preferences.
+the UI does not maintain a second catalog. The active choices are GPT-6 Luna,
+Sol and Astra. New installations use Sol for review and optional chat query
+preparation. Retired GPT-5/5.6 saved choices or environment defaults resolve to
+Sol, without rewriting historical run attribution or other preferences.
 Other stored choices take precedence over the initial default. Unknown saved IDs
 remain visible and fail explicitly instead of silently selecting another model.
 
 Classification, clause extraction, structured summaries, clause rewrites and
-chat answers honor the review model. Chat context detection and query rewriting
-honor the separate advanced model. Both choices use request-scoped personal
+chat answers honor the review model and reasoning effort. These two preferences
+are stored in one configuration record and read as one request snapshot. Missing
+effort defaults to medium; retired model choices resolve to Sol/medium on read.
+Settings validates model/effort combinations before any setting writes. The UI
+offers only supported efforts and discloses resetting an incompatible unsaved
+effort when switching models. Review/Ask requests carry the displayed effort as
+well as model; a mismatch with Settings rejects new dispatch. Same-ID recovery
+retains the original request snapshot. Historical generation metadata is unchanged.
+Chat context detection and query rewriting
+honor the separate advanced model at low effort. Both choices use request-scoped personal
 credentials. Database errors must not be mistaken for an unset model preference.
 
 services/ai/generation.py validates every generation call against that catalog,

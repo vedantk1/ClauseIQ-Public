@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 from ai_models.models import AIModelConfig
 from middleware.api_standardization import create_success_response
 from services.workspace_service import WorkspaceService, get_workspace_service
+from services.ai.generation import AIRequestError
 from workspace import get_workspace_id
 
 router = APIRouter(prefix="/workspace", tags=["workspace"], dependencies=[Depends(get_workspace_id)])
@@ -14,6 +15,7 @@ class SettingsUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     model_id: str | None = None
     query_gate_model_id: str | None = None
+    reasoning_effort: str | None = None
     retention_days: int | None = Field(default=None, ge=0, le=36500, strict=True)
     toast_notifications_enabled: bool | None = Field(default=None, strict=True)
 
@@ -22,6 +24,13 @@ class SettingsUpdate(BaseModel):
     def known_model(cls, value):
         if value is not None and not AIModelConfig.is_valid_model(value):
             raise ValueError("Choose an available model")
+        return value
+
+    @field_validator("reasoning_effort")
+    @classmethod
+    def known_effort(cls, value):
+        if value is not None and value not in {"none", "low", "medium", "high", "xhigh", "max"}:
+            raise ValueError("Choose an available reasoning effort")
         return value
 
 
@@ -37,7 +46,10 @@ async def settings(service: WorkspaceService = Depends(get_workspace_service)):
 
 @router.put("/settings")
 async def update_settings(body: SettingsUpdate, service: WorkspaceService = Depends(get_workspace_service)):
-    return create_success_response(await service.update_settings(body.model_dump(exclude_none=True)))
+    try:
+        return create_success_response(await service.update_settings(body.model_dump(exclude_none=True)))
+    except AIRequestError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.public_message) from None
 
 
 @router.put("/api-key")

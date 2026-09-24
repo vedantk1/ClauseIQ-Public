@@ -44,7 +44,7 @@ def evaluation(tmp_path, monkeypatch):
         model_dump=Mock(return_value={"synthetic": "source"}))
     extractor = SimpleNamespace(extract_source=AsyncMock(return_value=extraction))
     monkeypatch.setattr(check, "TextExtractor", Mock(return_value=extractor))
-    generation = ReviewGeneration(model_id="gpt-5.6-terra", reasoning_effort="low", max_completion_tokens=4000,
+    generation = ReviewGeneration(model_id="gpt-6-sol", reasoning_effort="low", max_completion_tokens=4000,
         catalog_verified_on="synthetic", prompt_version="test", schema_version="test", extraction_version="test",
         estimated_input_tokens=200)
     prepared = SimpleNamespace(generation=generation,
@@ -161,7 +161,7 @@ async def test_reservation_precedes_one_dispatch_and_usage_report_has_no_credent
     evaluation.generate.side_effect = generate
     assert await run(evaluation) is True
     report = json.loads(evaluation.report.read_text())
-    assert report["model_id"] == "gpt-5.6-terra"
+    assert report["model_id"] == "gpt-6-sol"
     assert report["fixture"] == "managed-services-25p.pdf"
     assert report["source_sha256"] == "a" * 64
     assert report["evaluation_case"]["case_id"] == "managed-services-25p"
@@ -173,11 +173,11 @@ async def test_reservation_precedes_one_dispatch_and_usage_report_has_no_credent
     assert report["status"] == "ready"
     assert report["usage_based_cost_estimate_usd"] == pytest.approx(0.0008)
     assert report["result"]["generation"]["usage"]["total_tokens"] == 150
-    evaluation.catalog.assert_called_once_with("gpt-5.6-terra")
+    evaluation.catalog.assert_called_once_with("gpt-6-sol")
     evaluation.prepare.assert_called_once()
     document, context, model = evaluation.prepare.call_args.args
     assert document["source_revision_id"] == "synthetic-evaluation-source"
-    assert context.perspective == "customer" and model == "gpt-5.6-terra"
+    assert context.perspective == "customer" and model == "gpt-6-sol"
     assert "mocked-credential-do-not-log" not in evaluation.report.read_text() + capsys.readouterr().out
     before = evaluation.report.read_text()
     assert await run(evaluation) is False
@@ -192,7 +192,7 @@ async def test_second_allowlisted_case_uses_its_own_pdf_brief_and_reference_only
     evaluation.extractor.extract_source.assert_awaited_once_with(b"synthetic contrast bytes", "service-terms-conflict.pdf")
     _, brief, model = evaluation.prepare.call_args.args
     assert brief.role == "Synthetic contrast customer" and brief.priorities == "Payment timing"
-    assert model == "gpt-5.6-terra"
+    assert model == "gpt-6-sol"
     assert "PRIVATE EVALUATION EXPECTATION" not in str(evaluation.prepare.call_args)
     assert "PRIVATE FORBIDDEN CLAIM" not in str(evaluation.prepare.call_args)
     report = json.loads(evaluation.report.read_text())
