@@ -74,6 +74,8 @@ data/
 *.log.*
 test-results/
 playwright-report/
+/output/playwright/
+/frontend/.next-e2e/
 artifacts/
 screenshots/
 tempimages/

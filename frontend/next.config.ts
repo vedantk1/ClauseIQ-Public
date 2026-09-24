@@ -1,6 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Browser regressions must not share output or generated types with a running app.
+  ...(process.env.CLAUSEIQ_E2E === "1" ? {
+    distDir: ".next-e2e",
+    devIndicators: false,
+    typescript: { tsconfigPath: "tsconfig.e2e.json" },
+  } : {}),
   // Enable standalone output for Docker
   output: "standalone",
 
