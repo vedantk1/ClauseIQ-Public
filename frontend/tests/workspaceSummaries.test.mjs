@@ -103,10 +103,12 @@ test("overview leads with saved agreement output and keeps new-review controls s
   assert.doesNotMatch(html, /the context saved with this run/);
   assert.match(html, /The agreement offers a conditional extension/);
   assert.doesNotMatch(html, /Legacy summary wording/);
-  assert.match(html, /2 example findings in this run/);
+  assert.equal(button(AgreementOverview(props), "Explore findings2").props.disabled, undefined);
   assert.match(html, /not a complete inventory/);
-  assert.match(html, /Changing the brief does not update these saved findings/);
-  assert.ok(html.indexOf("Agreement overview") < html.indexOf("Review brief and another run"));
+  assert.match(html, /Changing instructions does not update these saved findings/);
+  assert.ok(html.indexOf("Agreement summary") < html.indexOf("Review instructions &amp; new review"));
+  assert.equal((html.match(/<h[23][^>]*>Agreement summary/g) || []).length, 1);
+  assert.doesNotMatch(html, /Agreement overview|co-activity|co-eyebrow/);
   const disclosure = nodes(AgreementOverview(props)).find(node => node.props.className === "co-review-controls");
   assert.equal(disclosure.props.open, false);
   assert.equal(JSON.stringify(props), before);
@@ -125,10 +127,36 @@ test("overview counts only selected-run activity, deduplicates opened items and 
   assert.doesNotMatch(render(AgreementOverview, props), /Saved position: Findings —/);
 });
 
+test("overview keeps routine provenance disclosed without hiding unknown source limitations", () => {
+  const { props, calls } = fixture();
+  const routine = "All successfully extracted text was supplied. Extraction and exact quote matches do not establish complete review, legal validity or correct interpretation.";
+  props.run.coverage.limitations = [routine, "The incorporated service schedule was unavailable."];
+  const before = JSON.stringify(props.run);
+  const coverage = nodes(AgreementOverview(props)).find(node => node.props.className === "co-source-coverage");
+  const children = React.Children.toArray(coverage.props.children);
+  const disclosure = children.find(node => node.type === "details");
+  assert.equal(disclosure.props.open, undefined);
+  assert.ok(text(disclosure).includes(routine));
+  assert.ok(!text(disclosure).includes("The incorporated service schedule was unavailable."));
+  assert.ok(children.some(node => node.type === "ul" && text(node).includes("The incorporated service schedule was unavailable.")));
+  assert.equal(JSON.stringify(props.run), before);
+  assert.deepEqual(calls, []);
+});
+
+test("overview has no reserved activity panel when there is no saved work", () => {
+  const { props } = fixture();
+  props.personal = helpers.emptyPersonal();
+  const html = render(AgreementOverview, props);
+  assert.doesNotMatch(html, /<aside|co-activity|Revisit later/);
+  assert.ok(button(AgreementOverview(props), "My review"));
+  const details = nodes(AgreementOverview(props)).find(node => node.props.className === "co-source-details");
+  assert.match(text(details), /0 saved questions · 0 to revisit/);
+});
+
 test("overview navigation invokes only its explicit callbacks and source preserves summary context", () => {
   const { props, calls, reference } = fixture();
   const tree = AgreementOverview(props);
-  for (const label of ["Open original", "Explore findings", "Plan the handover", "Open My review", "View page 1"])
+  for (const label of ["Open original", "Explore findings2", "Plan the handover", "My review1 saved", "View page 1"])
     button(tree, label).props.onClick();
   assert.deepEqual(calls, [["original"], ["explore"], ["finding", "finding-1"], ["my-review"],
     ["source", "The agreement offers a conditional extension.", reference]]);
@@ -212,7 +240,8 @@ test("incomplete and legacy runs retain usable saved output without an implicit 
   props.run.status = undefined;
   props.run.overview_items = [];
   const html = render(AgreementOverview, props);
-  assert.match(html, /Saved AI review/);
+  assert.match(html, /Agreement summary/);
+  assert.doesNotMatch(html, /Saved AI review/);
   assert.match(html, /Legacy summary wording/);
   assert.doesNotMatch(html, /2 example findings/);
   assert.deepEqual(calls, []);
@@ -227,14 +256,14 @@ test("overview exposes its review controls on recovery request without calling t
   props.controlsOpen = false;
   assert.equal(nodes(AgreementOverview(props)).find(node => node.props.className === "co-review-controls").props.open, false);
   props.children = null;
-  assert.doesNotMatch(render(AgreementOverview, props), /Review brief and another run/);
+  assert.doesNotMatch(render(AgreementOverview, props), /Review instructions &amp; new review/);
 });
 
 test("My review renders only confirmed questions belonging to the selected run", () => {
   const { props, calls } = fixture();
   const before = JSON.stringify(props);
   const html = render(MyReview, props);
-  assert.match(html, /Questions and personal markers · selected run only/);
+  assert.doesNotMatch(html, /Questions and personal markers · selected run only/);
   assert.match(html, /1 confirmed question/);
   assert.match(html, /Confirm the minimum handover period/);
   assert.match(html, /Saving never sends a message, accepts a term or resolves a finding/);
@@ -247,8 +276,8 @@ test("My review keeps drafts separate when there are no confirmed saves", () => 
   const { props, calls } = fixture();
   props.personal.saved_questions = {};
   const html = render(MyReview, props);
-  assert.match(html, /No saved questions in this run/);
-  assert.match(html, /Recoverable drafts stay separate until you deliberately save/);
+  assert.doesNotMatch(html, /No saved questions in this run/);
+  assert.match(html, /Drafts and Ask answers are excluded/);
   assert.match(html, /0 confirmed questions/);
   assert.doesNotMatch(html, /Unsaved edited handover wording|Recovery draft only|Unsent paid Ask wording/);
   assert.deepEqual(calls, []);
@@ -272,7 +301,7 @@ test("My review source actions retain finding context and never claim to verify 
   const tree = MyReview(props);
   const html = render(MyReview, props);
   assert.match(html, /they do not verify your question or its interpretation/);
-  const sourceButton = button(tree, "Extension conditionsPage 1 · Open source");
+  const sourceButton = button(tree, "Extension conditionsView page 1");
   assert.equal(sourceButton.props.disabled, false);
   sourceButton.props.onClick();
   assert.deepEqual(calls, [["source", "finding-1", reference]]);

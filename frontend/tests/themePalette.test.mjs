@@ -10,6 +10,17 @@ const tokens = selector => Object.fromEntries(
 );
 const black = tokens(":root {");
 const graphite = { ...black, ...tokens('[data-theme="graphite"]') };
+
+test("typography uses Next-managed local font assets without a browser CDN import", () => {
+  const config = readFileSync(new URL("../tailwind.config.ts", import.meta.url), "utf8");
+  const layout = readFileSync(new URL("../src/app/layout.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(css, /@import\s+(?:url\()?[^;]*(?:https?:|\/\/)/);
+  for (const variable of ["--font-inter", "--font-space-grotesk"]) {
+    assert.ok(config.includes(`var(${variable})`));
+    assert.ok(layout.includes(`variable: "${variable}"`));
+  }
+});
+
 function luminance(hex) {
   const channels = hex.slice(1).match(/../g).map(value => {
     const channel = parseInt(value, 16) / 255;

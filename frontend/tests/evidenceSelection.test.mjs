@@ -283,7 +283,7 @@ test("explicit reference selection focuses its rendered heading once, including 
   assert.equal(h.focused.length, 0);
   h.render();
   assert.equal(h.focused.length, 1);
-  assert.equal(h.focused[0].text[0], finding.evidence[2].label);
+  assert.equal(h.focused[0].text, finding.evidence[2].label);
   assert.equal(h.focused[0].options.preventScroll, true);
   assert.equal(h.scrolled[0].block, "nearest");
   h.render();
@@ -302,7 +302,7 @@ test("controlled selection focuses only after its chosen reference appears and d
   assert.equal(h.quote(), finding.evidence[0].quote);
   h.render({ selectedEvidence: { ...finding.evidence[1] } });
   assert.equal(h.focused.length, 1);
-  assert.equal(h.focused[0].text[0], finding.evidence[1].label);
+  assert.equal(h.focused[0].text, finding.evidence[1].label);
   h.buttons()[2].props.onClick(); h.render();
   h.render({ finding: { ...finding, id: "new-finding" }, selectedEvidence: finding.evidence[2] });
   assert.equal(h.focused.length, 1);

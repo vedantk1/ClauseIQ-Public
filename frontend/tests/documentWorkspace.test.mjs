@@ -105,6 +105,21 @@ test("source context is a compact closed disclosure and forwards exact physical 
   assert.equal(returned, 1);
 });
 
+test("citation context shares its header with return navigation and dismisses with Escape", () => {
+  const h = harness({ finding, evidence, source });
+  h.render();
+  const header = h.find(node => node.type === "header");
+  const details = elements(header, node => node.type === "details");
+  assert.equal(details.length, 1);
+  assert.ok(elements(header, node => node.type === "button").some(node => text(node).includes("Return")));
+  assert.ok(elements(header, node => node.type === "h2").some(node => text(node) === finding.title));
+  let focused = false;
+  const target = { open: true, querySelector: () => ({ focus() { focused = true; } }) };
+  details[0].props.onKeyDown({ key: "Escape", currentTarget: target });
+  assert.equal(target.open, false);
+  assert.equal(focused, true);
+});
+
 test("overview, Ask and My review preserve distinct return context without finding facts", () => {
   const h = harness({ finding, evidence, source, overviewText: "Agreement overview excerpt." });
   h.render();

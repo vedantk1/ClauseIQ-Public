@@ -203,19 +203,19 @@ test("loading, request error, empty inventory and search-empty are distinct view
   const error = render(LibraryContent, failure.props);
   assert.match(error, /role="alert"/);
   assert.match(error, /Server unavailable/);
-  assert.doesNotMatch(error, /Your agreements belong here|cl-document-list/);
+  assert.doesNotMatch(error, /Your first agreement|cl-document-list/);
   button(LibraryContent(failure.props), "Retry").props.onClick();
   assert.deepEqual(failure.calls, [["retry"]]);
   const empty = render(LibraryContent, contentProps({ documents: [] }).props);
-  assert.match(empty, /Your agreements belong here/);
-  assert.match(empty, /No API key is needed to import/);
+  assert.match(empty, /Your first agreement/);
+  assert.match(empty, /No API key needed/);
   assert.doesNotMatch(empty, /No matching agreements|Continue reviewing|cl-document-list/);
   const filtered = contentProps({ filteredDocuments: [], searchQuery: "missing", contractType: "nda" });
   const unmatched = render(LibraryContent, filtered.props);
   assert.match(unmatched, /No matching agreements/);
   assert.match(unmatched, /0 of 2 agreements/);
   assert.doesNotMatch(unmatched, /role="dialog"/);
-  assert.doesNotMatch(unmatched, /Your agreements belong here/);
+  assert.doesNotMatch(unmatched, /Your first agreement/);
   button(LibraryContent(filtered.props), "Clear filters").props.onClick();
   assert.deepEqual(filtered.calls, [["search", ""], ["type", ""]]);
 });
@@ -229,8 +229,7 @@ test("Library renders only supplied inventory and no callbacks, keys or paid act
   assert.match(html, /Stored alpha.pdf/);
   assert.match(html, /Stored beta.pdf/);
   assert.doesNotMatch(html, /managed-services-25p|consulting-5p|Synthetic example|Start review|Send to AI|api.key/i);
-  assert.match(html, /Importing and opening files do not run AI/);
-  assert.match(html, /Opening saved work does not run AI/);
+  assert.doesNotMatch(html, /Importing and opening files do not run AI|Opening saved work does not run AI/);
   assert.deepEqual(calls, []);
 });
 

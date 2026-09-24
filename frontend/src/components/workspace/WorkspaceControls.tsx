@@ -56,9 +56,9 @@ export function BriefForm({ brief, dirty, pending, onChange, onSave, variant = "
   variant?: "default" | "setup";
 }) {
   return <Panel className={variant === "setup" ? "cw-setup-brief" : ""}>
-    <h2 className="text-lg font-semibold">Your review brief</h2>
-    <p className="mb-4 mt-1 text-sm text-text-secondary">{variant === "setup" ? "Leave this neutral to explore both sides, or choose the position you’re reviewing from. Saving the brief does not run AI." : "Changing this brief does not run AI or rewrite an earlier review."}</p>
-    <div className="space-y-4">
+    <h2 className="text-lg font-semibold">Review instructions</h2>
+    <p className="mb-3 mt-1 text-sm text-text-secondary">{variant === "setup" ? "Optional. Leave neutral to consider both sides." : "Applies to your next review. Existing findings stay unchanged."}</p>
+    <div className="cw-brief-fields">
       <label className="block text-sm">Reviewing for
         <select className={`${fieldClass} mt-1`} value={brief.perspective} onChange={event => onChange({ ...brief, perspective: event.target.value as ReviewBrief["perspective"] })}>
           <option value="neutral">Neutral — explain both sides</option>
@@ -71,10 +71,10 @@ export function BriefForm({ brief, dirty, pending, onChange, onSave, variant = "
         <input className={`${fieldClass} mt-1`} value={brief.role} maxLength={200} onChange={event => onChange({ ...brief, role: event.target.value })} placeholder="For example, the customer" />
       </label>
       <label className="block text-sm">What matters to you? (optional)
-        <textarea className={`${fieldClass} mt-1`} rows={3} maxLength={2000} value={brief.priorities} onChange={event => onChange({ ...brief, priorities: event.target.value })} placeholder="Payment, liability, ownership, exit, or relevant practical context" />
+        <textarea className={`${fieldClass} mt-1`} rows={2} maxLength={2000} value={brief.priorities} onChange={event => onChange({ ...brief, priorities: event.target.value })} placeholder="Payment, liability, ownership, exit, or relevant practical context" />
       </label>
-      <Action disabled={!dirty || pending} onClick={onSave}>Save brief</Action>
-      {dirty && <span className="ml-3 text-sm text-text-secondary">Brief changes not yet confirmed.</span>}
+      <div className="cw-brief-save"><Action disabled={!dirty || pending} onClick={onSave}>Save instructions</Action>
+      <span className="text-xs text-text-muted">{dirty ? "Unsaved instructions" : "Saving does not run AI."}</span></div>
     </div>
   </Panel>;
 }

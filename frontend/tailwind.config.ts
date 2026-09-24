@@ -9,8 +9,8 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ["Inter", "sans-serif"],
-        heading: ["Space Grotesk", "sans-serif"],
+        sans: ["var(--font-inter)", "sans-serif"],
+        heading: ["var(--font-space-grotesk)", "sans-serif"],
       },
       colors: {
         // Theme-aware color system using CSS variables

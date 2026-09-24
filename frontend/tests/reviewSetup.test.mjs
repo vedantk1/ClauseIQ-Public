@@ -187,9 +187,9 @@ test("setup rendering is side-effect free and permits original access without a 
   resetContext({ settings: { model_id: "gpt-5.6-terra", has_api_key: false, api_key_needs_reentry: false } });
   const before = JSON.stringify(props.state);
   const html = render(ReviewSetup, props);
-  assert.match(html, /What would you like to understand/);
+  assert.match(html, /Set up your review/);
   assert.match(html, /value="neutral" selected=""/);
-  assert.match(html, /Saving the brief does not run AI/);
+  assert.match(html, /Saving does not run AI/);
   assert.match(html, /Add or re-enter your API key in Settings/);
   assert.equal(button(ReviewSetup(props), "Start review").props.disabled, true);
   assert.notEqual(button(ReviewSetup(props), "View original").props.disabled, true);
@@ -213,8 +213,8 @@ test("setup brief is neutral by default and field edits or saving never trigger 
   select.props.onChange({ target: { value: "customer" } });
   role.props.onChange({ target: { value: "Example Customer" } });
   priorities.props.onChange({ target: { value: "Exit conditions" } });
-  assert.equal(button(tree, "Save brief").props.disabled, false);
-  button(tree, "Save brief").props.onClick();
+  assert.equal(button(tree, "Save instructions").props.disabled, false);
+  button(tree, "Save instructions").props.onClick();
   assert.deepEqual(calls.map(call => call[0]), ["draft", "draft", "draft", "save"]);
   assert.equal(calls[0][1].perspective, "customer");
   assert.equal(calls[2][1].priorities, "Exit conditions");
@@ -250,7 +250,7 @@ test("pending edits and paid activity disable synthetic fixture creation and bri
     const { props } = setup({ state: state({ workspace: workspace({ fixture_available: true }),
       briefDraft: { ...neutral, priorities: "Unsaved priority" }, ...overrides }) });
     const tree = ReviewSetup(props);
-    assert.equal(button(tree, "Save brief").props.disabled, true);
+    assert.equal(button(tree, "Save instructions").props.disabled, true);
     assert.equal(button(tree, "Load synthetic customer-perspective example").props.disabled, true);
   }
 });
@@ -267,7 +267,7 @@ test("conflict comparison keeps the local brief above the latest saved values", 
   assert.match(html, /Latest saved provider/);
   assert.match(html, /Saved priorities/);
   assert.match(html, /Your different local edits remain above/);
-  assert.equal(button(ReviewSetup(props), "Save brief and start review").props.disabled, true);
+  assert.equal(button(ReviewSetup(props), "Save instructions and start review").props.disabled, true);
   assert.equal(JSON.stringify(props.state), before);
   assert.deepEqual(calls, []);
 });
@@ -276,10 +276,11 @@ test("setup generation preserves explicit paid start and selected model without 
   const { props, calls } = setup();
   const html = render(ReviewSetup, props);
   assert.match(html, /API charges apply/);
-  assert.match(html, /saved document text and your brief are sent to OpenAI/);
-  assert.match(html, /Selected model: <strong>gpt-6-sol/);
+  assert.match(html, /Sends document text and your instructions to OpenAI/);
+  assert.match(html, /<strong>gpt-6-sol/);
   assert.match(html, /high reasoning/);
   assert.match(html, /cw-start-review/);
+  assert.doesNotMatch(html, /Refresh model and key status/);
   assert.deepEqual(calls, []);
   button(ReviewSetup(props), "Start review").props.onClick();
   assert.deepEqual(calls, [["generate", "gpt-6-sol", "explicit-request-id", "high"]]);
@@ -306,7 +307,7 @@ test("setup generation keeps key, settings, source, save and in-flight request g
 
 test("key-status refresh and uncertain-outcome recovery do not invoke a paid retry automatically", () => {
   const { props, calls } = setup({ state: state({ reviewAction: { status: "uncertain", error: "Outcome unknown", canRetryRequest: true } }) });
-  resetContext({ refresh: () => calls.push(["refresh-settings"]) });
+  resetContext({ error: "Key status unavailable", refresh: () => calls.push(["refresh-settings"]) });
   const html = render(ReviewSetup, props);
   assert.match(html, /provider may have received this request and charges may apply/);
   assert.match(html, /never starts another review/);

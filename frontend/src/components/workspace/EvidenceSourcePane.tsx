@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { FileText, Info } from "lucide-react";
+import { FileText } from "lucide-react";
 import type { DocumentSourceResponse, ReviewEvidence, ReviewFinding } from "@clauseiq/shared-types";
 import { presentEvidence, type EvidencePresentation } from "./evidencePresentation";
 import { Action } from "./WorkspaceControls";
@@ -61,24 +61,25 @@ export function EvidenceSourcePane({ finding, source, onOpen, selectedEvidence, 
     detailHeading.current?.scrollIntoView({ block: "nearest" });
   }, [finding.id, finding.evidence, selected, localSelection]);
   const presentation = selected ? presentEvidence(selected, source) : null;
-  return <section className="cw-evidence-pane" aria-label="Related evidence">
+  return <section className="cw-evidence-pane" aria-label={heading}>
     <h2 className="cw-evidence-heading">{heading}</h2>
     {selected && presentation ? <article className="cw-evidence-detail">
-      <h3 ref={detailHeading} tabIndex={-1} className="cw-evidence-detail-heading">{selected.label} · page {selected.page_number}</h3>
+      <h3 ref={detailHeading} tabIndex={-1} className="cw-evidence-detail-heading">{selected.label}</h3>
       <p className="cw-evidence-scope">{presentation.scope} · may begin or end mid-clause</p>
       <blockquote className="cw-evidence-quote whitespace-pre-wrap break-words">{selected.quote}</blockquote>
-      <p className={`cw-evidence-match${presentation.matched ? "" : " cw-evidence-match-warning"}`}>
-        {presentation.matchLabel}
-      </p>
-      <Action className="cw-evidence-open" disabled={!presentation.matched} onClick={() => onOpen(selected)}>
+      {!presentation.matched && <p className="cw-evidence-match cw-evidence-match-warning" role="status">{presentation.matchLabel}</p>}
+      <Action className="cw-evidence-open" disabled={!presentation.matched}
+        title={presentation.matchLabel} onClick={() => { if (presentation.matched) onOpen(selected); }}>
         View page {selected.page_number}
       </Action>
       <SourceContext key={`${finding.id}-${finding.evidence.indexOf(selected)}-${evidenceContextKey(selected)}`} presentation={presentation} />
     </article> : <p className="cw-evidence-empty">No source quotation accompanies this finding. Any not-found claim is limited to its stated reviewed scope, not proof that a term is absent.</p>}
-    {!!finding.evidence.length && <h3 className="cw-evidence-references-heading">References ({finding.evidence.length})</h3>}
-    {!!finding.evidence.length && <ul className="cw-evidence-list" aria-label="Evidence references">
+    {finding.evidence.length > 1 && <h3 className="cw-evidence-references-heading">References ({finding.evidence.length})</h3>}
+    {finding.evidence.length > 1 && <ul className="cw-evidence-list" aria-label="Evidence references">
       {finding.evidence.map((evidence, index) => <li className="cw-evidence-row" key={`${evidence.span_id}-${index}`}>
         <button type="button" className="cw-evidence-selector" aria-pressed={selected === evidence}
+          aria-label={`Preview excerpt · ${evidence.label} · page ${evidence.page_number}`}
+          title="Preview excerpt"
           onClick={() => {
             const intent = { findingId: finding.id, evidence };
             pendingFocus.current = intent;
@@ -88,7 +89,6 @@ export function EvidenceSourcePane({ finding, source, onOpen, selectedEvidence, 
           <FileText className="cw-evidence-icon" size={19} aria-hidden="true" />
           <span className="cw-evidence-reference">
             <span className="cw-evidence-label">{evidence.label}</span>
-            <span className="cw-evidence-page">Page {evidence.page_number} · Preview excerpt</span>
             {!presentEvidence(evidence, source).matched && <span className="cw-evidence-unmatched">Source not matched</span>}
           </span>
         </button>
@@ -97,10 +97,10 @@ export function EvidenceSourcePane({ finding, source, onOpen, selectedEvidence, 
           onClick={() => { if (presentEvidence(evidence, source).matched) onOpen(evidence); }}>View page {evidence.page_number}</button>
       </li>)}
     </ul>}
-    <div className="cw-evidence-disclaimer">
-      <Info size={19} aria-hidden="true" />
+    <details className="cw-evidence-disclaimer">
+      <summary>About source matching</summary>
       <p>A source match locates wording; it does not verify the interpretation. Read qualifications in context.</p>
-    </div>
+    </details>
   </section>;
 }
 
@@ -108,6 +108,21 @@ export function EvidenceList({ evidence, source, onOpen, preview = false }: {
   evidence: ReviewEvidence[]; source: DocumentSourceResponse | null; onOpen: (evidence: ReviewEvidence) => void;
   preview?: boolean;
 }) {
+  if (preview) return <ul className="cw-ask-evidence-list" aria-label="Sources for this answer paragraph">
+    {evidence.map((item, index) => {
+      const presentation = presentEvidence(item, source);
+      return <li key={`${item.span_id}-${index}`}>
+        <button type="button" className="cw-ask-evidence-chip"
+          aria-label={`Preview excerpt · page ${item.page_number} · ${item.label}`}
+          title={`${item.label} · ${presentation.matchLabel}`}
+          onClick={() => onOpen(item)}>
+          <FileText size={14} aria-hidden="true" />
+          <span>{item.label}</span><span className="cw-ask-evidence-page">p. {item.page_number}</span>
+          {!presentation.matched && <span className="cw-evidence-unmatched">Source not matched</span>}
+        </button>
+      </li>;
+    })}
+  </ul>;
   return <div className="mt-4 space-y-4">
       {evidence.map((evidence, index) => {
         const presentation = presentEvidence(evidence, source);
@@ -116,7 +131,7 @@ export function EvidenceList({ evidence, source, onOpen, preview = false }: {
           <p className="mt-1 text-xs text-text-secondary">Page {evidence.page_number} · {presentation.matchLabel}</p>
           <p className="cw-evidence-scope">{presentation.scope} · may begin or end mid-clause</p>
           <blockquote className="my-3 whitespace-pre-wrap break-words border-l-2 border-accent-purple pl-3 text-sm leading-relaxed">{evidence.quote}</blockquote>
-          <Action disabled={!presentation.matched} onClick={() => onOpen(evidence)}>{preview ? `Preview excerpt · page ${evidence.page_number}` : `View page ${evidence.page_number}`}</Action>
+          <Action disabled={!presentation.matched} onClick={() => { if (presentation.matched) onOpen(evidence); }}>View page {evidence.page_number}</Action>
           <SourceContext key={evidenceContextKey(evidence)} presentation={presentation} />
         </article>;
       })}

@@ -30,19 +30,20 @@ test("document canvas keeps the remaining viewport rather than a padded scrollin
 
 test("findings retain readable copy and prioritize the reading column", () => {
   const rules = css("workspace/ReviewWorkspace.module.css");
-  assert.match(rules(".workspace :global(.cw-findings-layout)")["grid-template-columns"], /minmax\(360px, 1fr\)/);
+  assert.match(rules(".workspace :global(.cw-findings-layout)")["grid-template-columns"], /minmax\(380px, 1fr\)/);
+  assert.equal(rules(".workspace :global(.cw-finding-body > *)")["max-width"], "72ch");
   assert.equal(rules(".workspace :global(.cw-finding-section p)")["font-size"], "16px");
   assert.equal(rules(".workspace :global(.cw-finding-section p)")["line-height"], "1.7");
 });
 
-test("overview coverage belongs to the summary column instead of following the taller sidebar", () => {
+test("overview has inline next actions instead of a permanently reserved activity sidebar", () => {
   const component = readFileSync(new URL("../src/components/workspace/AgreementOverview.tsx", import.meta.url), "utf8");
-  const main = component.indexOf('className="co-overview-main"');
+  const main = component.indexOf('className="co-agreement-summary"');
   const coverage = component.indexOf('className="co-source-coverage"');
   const controls = component.indexOf('className="co-review-controls"');
-  const sidebar = component.indexOf('className="co-activity"');
-  assert.ok(main > 0 && main < coverage && coverage < controls && controls < sidebar);
-  assert.match(component.slice(controls, sidebar), /<\/details>}\s*<\/div>\s*<aside/);
+  assert.ok(main > 0 && main < coverage && coverage < controls);
+  assert.doesNotMatch(component, /<aside|co-activity/);
+  assert.match(component.slice(main, coverage), /co-findings-next/);
 });
 
 test("library toolbar shares a row without permanently reserved inspector space", () => {
@@ -50,4 +51,13 @@ test("library toolbar shares a row without permanently reserved inspector space"
   assert.equal(rules(".library :global(.cl-toolbar)").display, "flex");
   assert.equal(rules(".library :global(.cl-document-row)")["min-height"], "72px");
   assert.equal(rules(".library :global(.cl-library-grid)")["grid-template-columns"], undefined);
+});
+
+test("conversation sources wrap and the composer cannot occupy most of its pane", () => {
+  const rules = css("workspace/ReviewWorkspace.module.css");
+  assert.equal(rules(".workspace :global(.cw-ask-composer)")["max-height"], "45%");
+  assert.equal(rules(".workspace :global(.cw-ask-evidence-list > li)")["max-width"], "100%");
+  const chip = rules(".workspace :global(.cw-ask-evidence-chip)");
+  assert.equal(chip["max-width"], "100%");
+  assert.equal(chip["overflow-wrap"], "anywhere");
 });

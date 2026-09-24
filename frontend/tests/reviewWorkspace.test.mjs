@@ -580,6 +580,7 @@ test("API mutations carry expected revisions, preserve errors and encode documen
 
 const stateHelpers = loadModule("../src/components/workspace/workspaceState.ts");
 const evidencePresentation = loadModule("../src/components/workspace/evidencePresentation.ts", { "./workspaceState": stateHelpers });
+const askAnswerPresentation = loadModule("../src/components/workspace/askAnswerPresentation.ts");
 const controls = loadModule("../src/components/workspace/WorkspaceControls.tsx", { react: React, "./workspaceState": stateHelpers });
 const icon = name => props => React.createElement("i", { ...props, "data-icon": name });
 const icons = Object.fromEntries(["ChevronRight", "FileText", "Info", "CircleHelp", "ArrowLeft", "ArrowRight", "BookOpen", "Settings", "Palette"].map(name => [name, icon(name)]));
@@ -599,6 +600,7 @@ const documentControls = loadModule("../src/components/workspace/DocumentWorkspa
 });
 const askControls = loadModule("../src/components/workspace/FindingAsk.tsx", {
   react: React, "./workspaceState": stateHelpers, "./WorkspaceControls": controls,
+  "./askAnswerPresentation": askAnswerPresentation,
   "./EvidenceSourcePane": evidenceControls, "@/components/ui/Modal": () => null,
   "@/context/WorkspaceContext": { useWorkspace: () => ({ settings: { has_api_key: true, model_id: "test-model" }, isLoading: false, error: null, refresh() {} }) },
 });
@@ -936,7 +938,7 @@ test("exact evidence choice does not leak into another finding or run, and fresh
 
 test("workspace render labels fixture and context mismatch; reopening defaults to overview with explicit resume", () => {
   const html = renderWorkspace("overview");
-  assert.match(html, /Synthetic example — not an AI-generated review/);
+  assert.match(html, /Authored synthetic example, not an AI-generated review/);
   assert.match(html, /saved brief differs/);
   assert.doesNotMatch(html, /Continue from saved position/);
   assert.doesNotMatch(html, /Saved position: Findings/);
@@ -966,8 +968,8 @@ test("finding render keeps draft and saved question distinct and does not turn o
   assert.match(html, /<option value="not_marked" selected="">Not marked<\/option>/);
   assert.match(html, /Opened/);
   assert.match(html, /Send question to AI/);
-  assert.match(html, /Your answer history will appear here/);
-  assert.match(html, /nothing is sent until you choose Send/);
+  assert.match(html, /Sources stay alongside the conversation/);
+  assert.match(html, /Nothing is sent until you choose Send/);
 });
 
 test("My review contains confirmed saved questions and direct marker controls, not draft wording", () => {
@@ -1234,7 +1236,7 @@ test("uncertain request controls expose read-only recovery and charge warning, n
   assert.match(html, /Check saved review state/);
   assert.match(html, /charges may apply/);
   assert.doesNotMatch(html, /Retry this request with the same ID/);
-  assert.match(html, /Selected model/);
+  assert.match(html, /API charges apply/);
   assert.match(html, /test-model/);
 });
 
@@ -1515,6 +1517,7 @@ test("copying a review question is deliberate and replacing a different Ask draf
     react: { ...React, useState(initial) { const i = cursor++; if (!(i in slots)) slots[i] = initial;
       return [slots[i], next => { slots[i] = next; }]; } },
     "./workspaceState": stateHelpers, "./WorkspaceControls": controls, "./EvidenceSourcePane": evidenceControls,
+    "./askAnswerPresentation": askAnswerPresentation,
     "@/components/ui/Modal": ModalProbe,
     "@/context/WorkspaceContext": { useWorkspace: () => ({ settings: { has_api_key: true, model_id: "test-model" }, isLoading: false, error: null, refresh() {} }) },
   });
@@ -1542,6 +1545,7 @@ test("Ask component only sends on explicit action, with Settings model and the s
     const module = loadModule("../src/components/workspace/FindingAsk.tsx", {
       react: { ...React, useState: initial => [typeof initial === "boolean" ? includeHistory : initial, () => {}] },
       "./workspaceState": stateHelpers, "./WorkspaceControls": controls, "./EvidenceSourcePane": evidenceControls,
+      "./askAnswerPresentation": askAnswerPresentation,
       "@/components/ui/Modal": () => null,
       "@/context/WorkspaceContext": { useWorkspace: () => ({ settings: { has_api_key: true, model_id: "selected-in-settings", reasoning_effort: "max" }, isLoading: false, error: null, refresh() {} }) },
     }, { crypto: { randomUUID: () => "unique-request" } });
@@ -1557,7 +1561,7 @@ test("Ask component only sends on explicit action, with Settings model and the s
     function visit(node) {
       if (!React.isValidElement(node)) return;
       if (node.type === "textarea") textarea = node;
-      if (node.type === controls.Action && node.props.children === "Send question to AI") send = node;
+      if (node.type === controls.Action && node.props["aria-label"] === "Send question to AI") send = node;
       React.Children.forEach(node.props.children, visit);
     }
     visit(element);

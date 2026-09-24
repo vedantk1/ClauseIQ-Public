@@ -108,9 +108,8 @@ export default function ImportAgreement() {
         <ArrowLeft size={16} aria-hidden="true" /> Back to Library
       </button>
       <div className={styles.intro}>
-        <p className={styles.eyebrow}>Add to your local library</p>
         <h1 id="import-title">Import an agreement</h1>
-        <p>Save a PDF to your local library. Set up a review now or return later.</p>
+        <p>Add a PDF to your library, then read it or set up a review.</p>
       </div>
 
       <form onSubmit={submit} className={styles.form} aria-label="Import agreement" aria-busy={pending}>
@@ -119,8 +118,8 @@ export default function ImportAgreement() {
           onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragActive(false); }}
           onDrop={(event) => { event.preventDefault(); setDragActive(false); selectFiles(Array.from(event.dataTransfer.files)); }}>
           <Upload size={30} aria-hidden="true" />
-          <h2>{file ? "PDF selected" : "Choose your agreement"}</h2>
-          <p id="import-file-guidance">Drop one PDF here, or choose a file. Up to {config.maxFileSizeMB} MB.</p>
+          <h2>{file ? "PDF selected" : "Drop a PDF here"}</h2>
+          <p id="import-file-guidance">One PDF at a time · Up to {config.maxFileSizeMB} MB</p>
           <input ref={fileInput} id="source-pdf" type="file" accept="application/pdf,.pdf"
             aria-label="Choose a PDF agreement" aria-describedby="import-file-guidance import-extraction-boundary"
             className={styles.fileInput} tabIndex={-1} disabled={pending}
@@ -154,9 +153,9 @@ export default function ImportAgreement() {
         </div>}
 
         <div className={styles.boundary} id="import-extraction-boundary">
-          <p>Import is local and needs no API key. AI review is a separate paid action that you start explicitly.</p>
-          <details><summary>Extraction limits</summary><p>Scanned or incomplete text is reported explicitly. Text extraction does not perform OCR and is not a completed review.</p></details>
+          <p>Import is local and needs no API key. AI review is a separate paid action.</p>
         </div>
+        <details className={styles.extraction}><summary>Scans and text extraction</summary><p>Text extraction does not perform OCR and is not a completed review. Scanned or incomplete text is reported after import; you can still read the original PDF.</p></details>
         <div className={styles.actions}>
           <button type="submit" className="cl-button cl-primary" disabled={!file || pending || !!failure}>
             {pending ? <><LoaderCircle size={18} className={styles.spinner} aria-hidden="true" /> Importing agreement…</>
@@ -168,8 +167,7 @@ export default function ImportAgreement() {
 
       <details className={styles.example}>
         <summary>Try the synthetic example</summary>
-        <p>Choose <code>tests/fixtures/pdfs/managed-services-25p.pdf</code> from the repository to explore the authored example review. Example findings are available only when the original bytes match.</p>
-        <p>Other PDFs can be imported and given a review brief; they do not receive invented example findings. No example is an AI-generated review.</p>
+        <p>Import <code>tests/fixtures/pdfs/managed-services-25p.pdf</code> for a ready-to-explore example review. These are fixed example findings, not a live AI review, and only appear for the exact sample PDF.</p>
       </details>
     </section>
     <ConfirmModal isOpen={!!destination} title={pending ? "Leave while the import is running?" : "Leave this import?"}

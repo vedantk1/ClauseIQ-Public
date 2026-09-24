@@ -148,6 +148,59 @@ test("no run hides stale personal work and empty filters remain explicit", () =>
   empty.props.personal.saved_questions = {}; empty.click("Saved questions0"); assert.match(empty.html(), /No saved questions in this run/);
 });
 
+test("empty saved work has one explanation and does not duplicate draft warnings", () => {
+  const h = harness();
+  h.props.personal.saved_questions = {};
+  h.props.personal.markers = {};
+  const html = h.html();
+  assert.match(html, /No saved work yet/);
+  assert.equal((html.match(/class="mr-empty"/g) || []).length, 1);
+  assert.doesNotMatch(html, /mr-empty-note|Recoverable drafts stay separate/);
+  h.click("Show all findings");
+  assert.match(h.html(), /Exit plan|Payment/);
+  assert.deepEqual(h.calls, []);
+});
+
+test("editing prioritizes the draft without duplicating saved wording or mutating it", () => {
+  const h = harness();
+  assert.match(h.html(), /class="mr-question"/);
+  h.click("Edit question");
+  assert.doesNotMatch(h.html(), /class="mr-question"/);
+  assert.doesNotMatch(h.html(), /Last confirmed question/);
+  assert.equal(h.textarea().props.value, "Recoverable edited wording");
+  assert.equal(h.props.personal.saved_questions.f1.text, "Saved question?");
+  h.click("Cancel editing");
+  assert.match(h.html(), /class="mr-question"/);
+  assert.equal(h.export().personal.saved_questions.f1.text, "Saved question?");
+});
+
+test("blocked editing shows confirmed wording alongside the local draft for recovery comparison", () => {
+  for (const status of ["failed", "conflict", "review", "loading", "saving"]) {
+    const h = harness(); h.click("Edit question");
+    h.props.state.localDrafts[helpers.draftKey("run-1", "f1")] = "My retained local question";
+    h.props.personal.saved_questions.f1.text = "Independently changed confirmed question";
+    h.props.personal.drafts.f1 = "Separately saved draft";
+    h.props.state.status = status;
+    assert.match(h.html(), /Last confirmed question/);
+    assert.match(h.html(), /Independently changed confirmed question/);
+    assert.equal(h.textarea().props.value, "My retained local question");
+    assert.equal(h.button("Save question").props.disabled, true);
+    if (status === "review") assert.match(h.html(), /Latest saved draft/);
+    assert.deepEqual(h.calls, []);
+  }
+});
+
+test("recovery comparison identifies a confirmed question removed elsewhere without restoring it", () => {
+  const h = harness(); h.click("Edit question");
+  h.props.state.status = "review";
+  delete h.props.personal.saved_questions.f1;
+  assert.match(h.html(), /Last confirmed question/);
+  assert.match(h.html(), /No saved question\./);
+  assert.equal(h.textarea().props.value, "Recoverable edited wording");
+  assert.equal(h.export().personal.saved_questions.f1, undefined);
+  assert.deepEqual(h.calls, []);
+});
+
 test("server removal reveals Add question and the preserved draft without restoring saved/export state", () => {
   const h = harness(); h.click("Remove saved question"); h.click("Remove question");
   delete h.props.personal.saved_questions.f1;

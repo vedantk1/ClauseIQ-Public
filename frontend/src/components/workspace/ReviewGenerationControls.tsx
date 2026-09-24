@@ -17,18 +17,18 @@ export function ReviewGenerationControls({ state, controller, sourceReady, onSet
   const blocked = ["loading", "failed", "conflict", "review"].includes(state.status);
   const askBusy = (state.askAction?.status || "idle") !== "idle" || !!state.workspace?.ask_turns?.some(turn => turn.status === "processing");
   return <Panel className={variant === "setup" ? "cw-setup-generation" : ""}>
-    <h2 className="text-lg font-semibold">Start an AI review</h2>
-    <p className="mt-2 text-sm">The saved document text and your brief are sent to OpenAI using your key. API charges apply. Earlier runs and personal work are kept separately.</p>
-    <p className="mt-3 text-sm">Selected model: <strong>{settings?.model_id || "Unavailable"}</strong> · {settings?.reasoning_effort || "medium"} reasoning</p>
-    <p className="mt-1 text-sm text-text-secondary">{isLoading ? "Loading key status…" : settings?.has_api_key && !settings.api_key_needs_reentry ? "Your API key is saved." : "Add or re-enter your API key in Settings before starting. Reading and saving existing work remain available."}</p>
+    <h2 className="text-lg font-semibold">AI review</h2>
+    <p className="mt-1 text-sm text-text-secondary">Sends document text and your instructions to OpenAI. API charges apply.</p>
+    <p className="mt-3 text-sm"><strong>{settings?.model_id || "Model unavailable"}</strong> · {settings?.reasoning_effort || "medium"} reasoning</p>
+    {(isLoading || !settings?.has_api_key || settings.api_key_needs_reentry) && <p className="mt-1 text-sm text-text-secondary">{isLoading ? "Loading key status…" : "Add or re-enter your API key in Settings before starting. Reading and saving existing work remain available."}</p>}
     {error && <p role="alert" className="mt-2 text-sm">Settings could not be confirmed. {error}</p>}
     <div className="mt-3 flex flex-wrap gap-2">
       <Action className={variant === "setup" ? "cw-start-review" : undefined} disabled={working || action.status === "uncertain" || askBusy || blocked || !!processing.length || !sourceReady || isLoading || !!error || !settings?.has_api_key || settings.api_key_needs_reentry}
         onClick={() => settings && void controller.startReview(settings.model_id, crypto.randomUUID(), settings.reasoning_effort)}>
-        {action.status === "preparing" ? "Confirming saved work…" : action.status === "generating" ? "Review request in progress…" : state.briefDraft ? "Save brief and start review" : "Start review"}
+        {action.status === "preparing" ? "Confirming saved work…" : action.status === "generating" ? "Review request in progress…" : state.briefDraft ? "Save instructions and start review" : "Start review"}
       </Action>
       <Action disabled={working} onClick={onSettings}>Open Settings</Action>
-      <Action disabled={working || isLoading} onClick={() => void refresh()}>Refresh model and key status</Action>
+      {(error || !settings?.has_api_key || settings.api_key_needs_reentry) && <Action disabled={working || isLoading} onClick={() => void refresh()}>Refresh model and key status</Action>}
     </div>
     {!sourceReady && <p className="mt-2 text-sm">Load an extracted source before starting a review.</p>}
     {blocked && <p className="mt-2 text-sm">Resolve pending save errors or compare local changes before starting.</p>}
@@ -54,8 +54,8 @@ export function ReviewGenerationControls({ state, controller, sourceReady, onSet
   </Panel>;
 }
 
-export function ReviewRunSummary({ run, contextChanged, compact = false }: {
-  run: ReviewRun; contextChanged: boolean; compact?: boolean;
+export function ReviewRunSummary({ run, contextChanged, compact = false, includeDetails = true }: {
+  run: ReviewRun; contextChanged: boolean; compact?: boolean; includeDetails?: boolean;
 }) {
   const introduction = <>
     <p className="font-semibold">{run.kind === "fixture" ? "Synthetic example — not an AI-generated review" : runLabel(run)}</p>
@@ -70,11 +70,23 @@ export function ReviewRunSummary({ run, contextChanged, compact = false }: {
     {contextChanged && <p className="mt-2 font-medium">{compact ? "The saved brief differs; these findings keep their original perspective and have not been rerun." : "The saved brief differs from this review's context. These findings keep their original perspective; changing the brief has not rerun them."}</p>}
   </>;
   const hasWarning = contextChanged || runStatus(run) !== "ready" || !!run.failure;
+  if (compact && !hasWarning && !includeDetails) return null;
   return <div className={compact ? "cw-run-summary" : "rounded-lg border border-accent-amber/50 bg-accent-amber/10 p-4 text-sm"} data-warning={hasWarning || undefined}>
     {!compact && introduction}
     {hasWarning && <div className={compact ? "cw-run-warnings" : undefined}>{warnings}</div>}
-    <details className={compact ? "cw-provenance" : "mt-2"}><summary className="cursor-pointer">Review context and provenance</summary>
-      {compact && introduction}
+    {includeDetails && <ReviewRunDetails run={run} introduction={compact ? introduction : undefined} />}
+  </div>;
+}
+
+export function ReviewRunDetails({ run, introduction }: { run: ReviewRun; introduction?: React.ReactNode }) {
+  return <details className="cw-provenance" onKeyDown={event => {
+    if (event.key === "Escape" && event.currentTarget.open) {
+      event.currentTarget.open = false;
+      event.currentTarget.querySelector("summary")?.focus();
+    }
+  }}><summary aria-label="Review details">Details</summary>
+    <div className="cw-provenance-content">
+      {introduction || <p>{run.kind === "fixture" ? "Authored synthetic example, not an AI-generated review." : "AI output may be incomplete or wrong. Source matches locate wording, not verified conclusions."}</p>}
       <p className="mt-2">{run.context.role || run.context.perspective}</p><p>{run.context.priorities || "No extra priorities supplied."}</p>
       <p className="mt-2">Recorded: {run.created_at}</p>
       {run.generation && <div className="mt-2 space-y-1 break-words text-xs">
@@ -84,6 +96,6 @@ export function ReviewRunSummary({ run, contextChanged, compact = false }: {
         <p>{run.generation.usage ? `Provider usage: ${run.generation.usage.prompt_tokens} input + ${run.generation.usage.completion_tokens} output = ${run.generation.usage.total_tokens} tokens` : "Provider usage unavailable; this does not mean no charge."}</p>
         {run.generation.duration_ms !== null && <p>Duration: {(run.generation.duration_ms / 1000).toFixed(1)} seconds</p>}
       </div>}
-    </details>
-  </div>;
+    </div>
+  </details>;
 }

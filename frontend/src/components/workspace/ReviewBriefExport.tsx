@@ -56,14 +56,14 @@ export function ReviewBriefExport({ unavailable, compact = false, ...input }: Re
   }
 
   return <section className="co-export" aria-label={compact ? "Export confirmed review brief" : undefined} aria-labelledby={compact ? undefined : "review-brief-heading"}>
-    {!compact && <div><h3 id="review-brief-heading">Take your review with you</h3>
-      <p className="co-note">Confirmed questions, personal markers and finding context from this run. Drafts and Ask answers stay out. No AI call.</p>
+    {!compact && <div><h3 id="review-brief-heading">Export review brief</h3>
+      <p className="co-note">Saved questions, markers and their finding context. Drafts and Ask answers are excluded.</p>
     </div>}
     <div className="co-export-actions">
       <Action disabled={disabled || activeCopy} onClick={() => void copy()}>{activeCopy ? "Copying…" : "Copy brief"}</Action>
       <Action disabled={disabled} onClick={download}>Download Markdown</Action>
     </div>
-    {unavailable ? <p className="co-note">{unavailable}</p> : !brief ? <p className="co-note">Save a question or add a personal marker to create a brief.</p> : null}
+    {unavailable ? <p className="co-note">{unavailable}</p> : !brief && !compact ? <p className="co-note">Save a question or add a personal marker to create a brief.</p> : null}
     {currentFeedback && <p className="co-note" role={currentFeedback.error ? "alert" : "status"}>{currentFeedback.message}</p>}
     {currentFeedback?.manualCopy && brief && <label className="co-export-fallback">Review brief (Markdown)
       <textarea readOnly value={brief.markdown} rows={8} onFocus={event => event.currentTarget.select()} />

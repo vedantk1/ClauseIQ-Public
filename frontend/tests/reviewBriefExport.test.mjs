@@ -67,10 +67,21 @@ function harness({ copy, download, overrides = {} } = {}) {
 
 test("rendering the export controls never starts delivery or calls an API", () => {
   const h = harness();
-  assert.match(h.html(), /Take your review with you/);
-  assert.match(h.html(), /Drafts and Ask answers stay out\. No AI call/);
+  assert.match(h.html(), /Export review brief/);
+  assert.match(h.html(), /Drafts and Ask answers are excluded/);
   assert.equal(h.button("Copy brief").props.disabled, false);
   assert.equal(h.button("Download Markdown").props.disabled, false);
+  assert.deepEqual(h.copies, []);
+  assert.deepEqual(h.downloads, []);
+});
+
+test("compact export avoids a duplicate empty-state explanation but retains blocking feedback", () => {
+  const h = harness({ overrides: { compact: true, personal: { saved_questions: {}, markers: {}, drafts: {} } } });
+  assert.doesNotMatch(h.html(), /Export review brief|Save a question or add a personal marker/);
+  assert.equal(h.button("Copy brief").props.disabled, true);
+  assert.equal(h.button("Download Markdown").props.disabled, true);
+  h.props.unavailable = "Resolve pending changes before exporting.";
+  assert.match(h.html(), /Resolve pending changes before exporting/);
   assert.deepEqual(h.copies, []);
   assert.deepEqual(h.downloads, []);
 });

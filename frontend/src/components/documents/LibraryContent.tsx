@@ -16,13 +16,10 @@ export function ContinueReviewing({ document }: { document: DocumentItem | null 
   if (!document) return null;
   return <section className="cl-continue" aria-labelledby="continue-heading">
     <div className="cl-resume-card">
-      <FileText size={23} aria-hidden="true" className="cl-document-icon" />
+      <FileText size={20} aria-hidden="true" className="cl-document-icon" />
       <div className="cl-resume-body">
         <h2 id="continue-heading">Continue reviewing</h2>
         <h3>{document.filename}</h3>
-        <div className="cl-meta"><span>Last activity {libraryDateTime(document.review_summary?.last_activity_at)}</span>
-          <ExampleBadge document={document} />
-        </div>
         {sourceNotice(document) && <p className="cl-warning">{sourceNotice(document)}</p>}
       </div>
       <Link className="cl-button" href={documentDestination(document, true)}>Resume review <ArrowRight size={18} aria-hidden="true" /></Link>
@@ -34,7 +31,7 @@ export function AgreementInspector({ document, onDelete, deleting }: {
   document: DocumentItem | null; onDelete: (document: DocumentItem) => void; deleting: boolean;
 }) {
   return <aside className="cl-inspector" id="agreement-inspector" aria-labelledby="inspector-heading">
-    <h2 id="inspector-heading">Selected agreement</h2>
+    <h2 id="inspector-heading" className="cl-visually-hidden">Selected agreement</h2>
     {!document ? <p className="cl-muted">Select an agreement to see its details.</p> : <>
       <div className="cl-inspector-title"><FileText size={24} aria-hidden="true" className="cl-document-icon" />
         <div><h3>{document.filename}</h3><p>{pageCountLabel(document)}</p></div>
@@ -51,7 +48,6 @@ export function AgreementInspector({ document, onDelete, deleting }: {
       {document.review_summary?.status === "unavailable" && <p className="cl-source-notice">Saved review metadata could not be read. Your stored work has not been changed.</p>}
       <div className="cl-inspector-actions">
         <Link className="cl-button" href={documentDestination(document)}>{canOpenWorkspace(document) ? "Open workspace" : "Open earlier review"}<ArrowRight size={18} aria-hidden="true" /></Link>
-        <p>Opening saved work does not run AI.</p>
         {canOpenWorkspace(document) && hasCompletedAnalysis(document) && <Link className="cl-text-link" href={`/review?documentId=${encodeURIComponent(document.id)}`}>Earlier analysis &amp; original</Link>}
       </div>
       <button type="button" className="cl-delete" disabled={deleting} onClick={() => onDelete(document)}><Trash2 size={16} aria-hidden="true" />{deleting ? "Deleting…" : "Delete agreement"}</button>
@@ -93,18 +89,17 @@ export function LibraryContent(props: LibraryContentProps) {
   const recent = continuingDocument(documents);
   return <div className="cl-content">
     <section className="cl-intro" aria-labelledby="library-heading">
-      <div><h1 id="library-heading">Library</h1><p>Your agreements and saved review work.</p></div>
-      <div className="cl-import-action"><Link href="/import" className="cl-button cl-primary"><Upload size={17} aria-hidden="true" />Import agreement</Link>
-        <p className="cl-boundary">Importing and opening files do not run AI.</p></div>
+      <div><h1 id="library-heading">Library</h1><p>Your agreements and review notes.</p></div>
+      <div className="cl-import-action"><Link href="/import" className="cl-button cl-primary"><Upload size={17} aria-hidden="true" />Import agreement</Link></div>
     </section>
     {loading ? <section className="cl-state" role="status"><h2>Loading your library…</h2><p>Reading saved agreements and review details.</p></section>
       : error ? <section className="cl-state" role="alert"><h2>Couldn’t load your library</h2><p>{error}</p><button type="button" className="cl-button" onClick={props.onRetry}>Retry</button></section>
-      : documents.length === 0 ? <section className="cl-state"><FileText size={32} aria-hidden="true" /><h2>Your agreements belong here</h2><p>Import a PDF to read the original and prepare a review. No API key is needed to import.</p><p>Nothing runs until you explicitly start an AI review.</p></section>
+      : documents.length === 0 ? <section className="cl-state"><FileText size={32} aria-hidden="true" /><h2>Your first agreement</h2><p>Import a PDF to start reading. No API key needed.</p></section>
       : <>
         <ContinueReviewing document={recent} />
         <div className="cl-library-grid">
           <section className="cl-agreements" aria-labelledby="agreements-heading">
-            <div className="cl-list-heading"><div><h2 id="agreements-heading">All agreements</h2><p aria-live="polite">{filteredDocuments.length} of {documents.length} {documents.length === 1 ? "agreement" : "agreements"}</p></div>
+            <div className="cl-list-heading"><div><h2 id="agreements-heading">All agreements</h2><p aria-live="polite">{filteredDocuments.length !== documents.length ? `${filteredDocuments.length} of ` : ""}{documents.length} {documents.length === 1 ? "agreement" : "agreements"}</p></div>
               <button type="button" onClick={props.onRetry} className="cl-icon-button" aria-label="Refresh library" title="Refresh library"><RefreshCw size={18} aria-hidden="true" /></button>
             </div>
             <div className="cl-toolbar">
@@ -126,16 +121,16 @@ export function LibraryContent(props: LibraryContentProps) {
             </div>}
             {!filteredDocuments.length ? <div className="cl-state"><h3>No matching agreements</h3><p>Try another name or clear your filters.</p><button className="cl-button" type="button" onClick={() => { props.onSearch(""); props.onContractType(""); }}>Clear filters</button></div>
               : <>
-                <div className="cl-column-headings" aria-hidden="true"><span>Name</span><span>Review status</span><span>Activity / imported</span><span>Details</span></div>
+                <div className="cl-column-headings" aria-hidden="true"><span>Agreement</span><span>Review</span><span>Last activity</span><span>Details</span></div>
                 <ul className="cl-document-list" aria-label="Agreements">{filteredDocuments.map(document => <li key={document.id} className="cl-list-item">
                   {isSelectMode && <input className="cl-checkbox" type="checkbox" aria-label={`Select ${document.filename} for deletion`} checked={selectedDocuments.has(document.id)} disabled={props.busy} onChange={() => props.onToggleSelection(document.id)} />}
                   <div className="cl-document-row">
                     <Link href={documentDestination(document)} className="cl-document-name"><FileText size={22} aria-hidden="true" /><span><span className="cl-filename">{document.filename}</span><span className="cl-row-secondary">{pageCountLabel(document)}</span>{duplicateIdentity(document, documents) && <span className="cl-row-secondary">{duplicateIdentity(document, documents)}</span>}</span></Link>
-                    <span className="cl-document-status"><span>{libraryReviewLabel(document)}</span>{document.review_summary?.kind === "fixture" && <ExampleBadge document={document} />}
+                    <span className="cl-document-status"><span>{libraryReviewLabel(document)}</span>
                       {!!document.review_summary?.saved_question_count && <span className="cl-row-secondary">{savedQuestionLabel(document)}</span>}
                       {sourceNotice(document) && <span className="cl-row-secondary cl-warning">{sourceNotice(document)}</span>}
                     </span>
-                    <span className="cl-imported">{document.review_summary?.last_activity_at ? <>Active {libraryDate(document.review_summary.last_activity_at)}<span className="cl-row-secondary">Imported {libraryDate(document.upload_date)}</span></> : <>Imported {libraryDate(document.upload_date)}</>}</span>
+                    <span className="cl-imported" title={`Imported ${libraryDateTime(document.upload_date)}`}>{document.review_summary?.last_activity_at ? libraryDate(document.review_summary.last_activity_at) : <>Imported {libraryDate(document.upload_date)}</>}</span>
                     <button type="button" className="cl-details-button" aria-label={`Details for ${document.filename}${duplicateIdentity(document, documents) ? ` · ${document.id.slice(-6)}` : ""}`} aria-haspopup="dialog" onClick={() => onSelect(document.id)}>Details</button>
                   </div>
                 </li>)}</ul>

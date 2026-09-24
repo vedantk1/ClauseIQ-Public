@@ -121,6 +121,22 @@ test("compact provenance stays collapsed without hiding warnings", () => {
   assert.match(html({ ...run, failure: { message: "Safe failure detail" } }).split("<details")[0], /Safe failure detail/);
 });
 
+test("tab-bar provenance leaves no empty warning band and Escape restores summary focus", () => {
+  const props = { run, contextChanged: false, compact: true, includeDetails: false };
+  assert.equal(render(generation.ReviewRunSummary, props), "");
+  assert.match(render(generation.ReviewRunSummary, { ...props, contextChanged: true }), /saved brief differs/);
+  const details = generation.ReviewRunDetails({ run });
+  let focused = 0;
+  const target = { open: true, querySelector: selector => {
+    assert.equal(selector, "summary"); return { focus() { focused += 1; } };
+  } };
+  details.props.onKeyDown({ key: "Tab", currentTarget: target });
+  assert.equal(target.open, true);
+  details.props.onKeyDown({ key: "Escape", currentTarget: target });
+  assert.equal(target.open, false);
+  assert.equal(focused, 1);
+});
+
 test("compact provenance retains model, original context, usage caveat and bounded request details", () => {
   const html = render(generation.ReviewRunSummary, { compact: true, contextChanged: false,
     run: { ...run, kind: "ai", generation: { model_id: "test-model", endpoint: "chat_completions", reasoning_effort: "medium",

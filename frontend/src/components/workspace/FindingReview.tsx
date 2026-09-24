@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { ChevronRight, FileText, CircleHelp } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import type { DocumentSourceResponse, ReviewEvidence, ReviewFinding, ReviewMarker, ReviewPersonalState, ReviewRun, SavedReviewQuestion } from "@clauseiq/shared-types";
 import { Action, fieldClass, markerLabels } from "./WorkspaceControls";
 import { EvidenceSourcePane } from "./EvidenceSourcePane";
@@ -97,8 +97,8 @@ export function FindingReview({ run, finding, personal, state, controller, sourc
         </div>
         <h2 id="selected-finding-title" className="cw-finding-title">{finding.title}</h2>
         <section className="cw-finding-section cw-facts"><h3>What the agreement says</h3><p>{finding.facts}</p></section>
-        <section className="cw-finding-section cw-with-icon"><FileText aria-hidden="true" /><div><h3>Why it matters</h3><p>{finding.interpretation}</p></div></section>
-        <section className="cw-finding-section cw-with-icon"><CircleHelp aria-hidden="true" /><div><h3>Still unknown</h3><p>{finding.uncertainty}</p></div></section>
+        <section className="cw-finding-section"><h3>Why it matters</h3><p>{finding.interpretation}</p></section>
+        <section className="cw-finding-section"><h3>Still unknown</h3><p>{finding.uncertainty}</p></section>
         {finding.basis === "not_found" && <section className="cw-finding-section"><h3>Not found within the reviewed scope</h3><p>{finding.coverage_basis || "No reviewed-scope explanation was supplied."}</p><p className="cw-muted">This is not proof of absence from the original, missing schedules or related documents.</p></section>}
         {finding.basis !== "not_found" && finding.coverage_basis && <section className="cw-finding-section"><h3>Reviewed scope</h3><p>{finding.coverage_basis}</p></section>}
         <section className="cw-finding-section"><h3>Possible next step</h3><p>{finding.next_step}</p></section>

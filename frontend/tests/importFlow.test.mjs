@@ -121,9 +121,11 @@ test("initial import is key-free, explicit and separates source import from paid
   const html = app.html();
   assert.match(html, /Import is local and needs no API key/);
   assert.match(html, /does not perform OCR and is not a completed review/);
-  assert.match(html, /AI review is a separate paid action that you start explicitly/);
+  assert.match(html, /AI review is a separate paid action/);
   assert.match(html, /Up to 3 MB/);
-  assert.match(html, /<details><summary>Try the synthetic example/);
+  assert.match(html, /<summary>Try the synthetic example/);
+  assert.match(html, /fixed example findings, not a live AI review/);
+  assert.equal((html.match(/<h1/g) || []).length, 1);
   assert.equal(button(app.render(), "Import agreement").props.disabled, true);
   assert.equal(app.header().props.current, "import");
   assert.equal(app.imports.length, 0);

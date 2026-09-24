@@ -9,7 +9,7 @@ import { useReviewWorkspace } from "@/hooks/useReviewWorkspace";
 import { draftKey, emptyPersonal, hasUnconfirmedChanges, paidActionBusy, sameBrief, runLabel, runStatus, safeReviewPosition, libraryResumePosition } from "./workspaceState";
 import { Action, BriefForm, Panel, SaveFeedback } from "./WorkspaceControls";
 import { DocumentWorkspace } from "./DocumentWorkspace";
-import { ReviewGenerationControls, ReviewRunSummary } from "./ReviewGenerationControls";
+import { ReviewGenerationControls, ReviewRunSummary, ReviewRunDetails } from "./ReviewGenerationControls";
 import { FindingReview } from "./FindingReview";
 import { WorkspaceHeader } from "./WorkspaceHeader";
 import { ReviewSetup } from "./ReviewSetup";
@@ -172,12 +172,14 @@ export default function ReviewWorkspace({ documentId, resumeOnOpen = false }: { 
     <SourceReadNotice sourceStatus={sourceStatus} metadataStatus={metadataStatus}
       sourceError={sourceError} metadataError={metadataError}
       onRetrySource={retrySource} onRetryMetadata={retryMetadata} />
-    {run && <ReviewRunSummary compact run={run} contextChanged={!sameBrief(run.context, workspace.brief)} />}
+    {run && <ReviewRunSummary compact includeDetails={false} run={run} contextChanged={!sameBrief(run.context, workspace.brief)} />}
     </div>
 
     <nav aria-label="Agreement workspace views" className="cw-tabs">
       {(Object.keys(viewNames) as ReviewPosition["view"][]).map(item => <button type="button" key={item} aria-current={view === item ? "page" : undefined}
-        onClick={() => navigate(item)}>{item === "overview" && !run ? "Review setup" : viewNames[item]}{item === "my_review" && saved.length > 0 && <span className="cw-tab-count">{saved.length} saved {saved.length === 1 ? "question" : "questions"}</span>}</button>)}
+        aria-label={item === "my_review" && saved.length > 0 ? `My review (${saved.length} saved ${saved.length === 1 ? "question" : "questions"})` : undefined}
+        onClick={() => navigate(item)}>{item === "overview" && !run ? "Review setup" : viewNames[item]}{item === "my_review" && saved.length > 0 && <span className="cw-tab-count" aria-hidden="true">{saved.length}</span>}</button>)}
+      {run && <ReviewRunDetails run={run} />}
       {workspace.runs.length > 1 && <label className="cw-run-selector">Review run <select className="ml-2 rounded border border-border-muted bg-bg-surface p-2" value={run?.id || ""} onChange={event => {
         setSelectedRun(event.target.value); setSelectionRunId(event.target.value); setSelectedFinding(null); setSelectedEvidence(null); setOverviewSource(null); setAskSource(null); setReviewSourceRunId(null); setView("overview");
       }}>{workspace.runs.map((item, index) => <option key={item.id} value={item.id}>{index + 1}. {runLabel(item)}{item.generation ? ` · ${item.generation.model_id}` : ""}</option>)}</select></label>}

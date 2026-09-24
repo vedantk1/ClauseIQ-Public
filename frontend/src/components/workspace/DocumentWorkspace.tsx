@@ -34,15 +34,17 @@ export function DocumentWorkspace({ documentId, filename, source, finding, evide
 
   return <section className={styles.workspace} aria-label="Document reader">
     {hasContext && <header className={styles.heading}>
+      <button type="button" className={styles.returnButton} onClick={onReturn}>← {backLabel}</button>
       <div className={styles.contextHeading}>
-        <span className={styles.eyebrow}>Source context</span><h2 title={contextTitle}>{contextTitle}</h2>
+        <h2 title={contextTitle}>{contextTitle}</h2>
       </div>
-      <div className={styles.actions}>
-        <button type="button" className={styles.returnButton} onClick={onReturn}>← {backLabel}</button>
-      </div>
-    </header>}
-    {hasContext && <details className={styles.context}>
-      <summary>{evidence ? `Source reference · page ${evidence.page_number}` : "Review context"}<span>Show context</span></summary>
+      <details className={styles.context} onKeyDown={event => {
+        if (event.key === "Escape" && event.currentTarget.open) {
+          event.currentTarget.open = false;
+          event.currentTarget.querySelector("summary")?.focus();
+        }
+      }}>
+      <summary>{evidence ? `Source reference · page ${evidence.page_number}` : "Review context"}</summary>
       <div className={styles.contextBody}>
         {answerText && <><p className={styles.contextLabel}>Ask answer</p><p>{answerText}</p>
           <p className={styles.note}>This answer may cite a passage beyond the finding’s references. A wording match is not legal verification.</p></>}
@@ -55,7 +57,8 @@ export function DocumentWorkspace({ documentId, filename, source, finding, evide
           <p className={styles.note}>The original opens at the physical page. No guessed highlight is applied.</p>
         </>}
       </div>
-    </details>}
+      </details>
+    </header>}
     {navigationError && <p role="alert" className={styles.navigationError}>{navigationError}</p>}
     <div className={`${styles.readingArea}${showText ? ` ${styles.withText}` : ""}`}>
       <div className={styles.pdfPane}>

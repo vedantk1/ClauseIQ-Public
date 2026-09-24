@@ -1,86 +1,51 @@
-.summaries { width: 100%; max-width: 1240px; margin: 0 auto; color: var(--text-primary); }
-.summaries :global(.co-heading) { display: flex; justify-content: space-between; align-items: start; gap: 20px; margin: 0 0 22px; }
-.summaries :global(.co-heading > div) { max-width: 780px; min-width: 0; }
-.summaries :global(.co-eyebrow) { color: var(--text-muted); text-transform: uppercase; font-size: 12px; letter-spacing: .6px; margin-bottom: 7px; }
-.summaries :global(.co-heading h2) { font-size: 26px; font-weight: 600; letter-spacing: -.35px; line-height: 1.3; }
-.summaries :global(.co-heading h2 + p) { color: var(--text-secondary); margin-top: 7px; font-size: 14px; line-height: 1.65; }
-.summaries :global(.co-secondary-action), .summaries :global(.co-primary-action), .summaries :global(.co-resume button), .summaries :global(.co-question-card > button) { display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 42px; flex-shrink: 0; }
-.summaries :global(.co-secondary-action) { background: var(--bg-primary); }
+.summaries { width: 100%; max-width: 960px; margin: 0 auto; color: var(--text-primary); }
+.summaries :global(.co-heading) { display: flex; justify-content: space-between; align-items: center; gap: 20px; margin-bottom: 28px; }
+.summaries :global(.co-heading > div) { min-width: 0; }
+.summaries :global(.co-heading h2) { font-size: 26px; font-weight: 550; letter-spacing: -.45px; line-height: 1.3; }
+.summaries :global(.co-example-label) { color: var(--text-muted); font-size: 12px; margin-top: 6px; }
+.summaries :global(.co-secondary-action), .summaries :global(.co-primary-action) { display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 38px; flex-shrink: 0; font-size: 13px; }
+.summaries :global(.co-secondary-action) { background: transparent; }
 .summaries :global(.co-primary-action) { background: var(--accent-purple); border-color: var(--accent-purple); color: var(--text-on-accent, white); }
-.summaries :global(.co-overview-grid), .summaries :global(.co-personal-grid) { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 32px; align-items: start; }
-.summaries :global(.co-overview-main) { min-width: 0; }
-.summaries :global(.co-summary-heading) { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+.summaries :global(.co-action-count) { font-size: 12px; opacity: .8; padding-left: 6px; border-left: 1px solid currentColor; }
 .summaries :global(.co-agreement-summary) { min-width: 0; }
-.summaries :global(.co-summary-items > article) { border-bottom: 1px solid var(--border-muted); padding: 0 0 18px; margin-bottom: 18px; }
-.summaries :global(.co-reading), .summaries :global(.co-question-wording) { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-secondary); font-size: 16px; line-height: 1.7; }
-.summaries :global(.co-overview-evidence) { margin-top: 13px; font-size: 14px; }
-.summaries :global(.co-overview-evidence > summary) { color: var(--accent-subtle); }
-.summaries :global(.co-overview-evidence blockquote) { font-size: 16px; line-height: 1.7; }
-.summaries :global(.co-findings-next) { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 0 0; }
-.summaries :global(.co-findings-next > div) { flex: 1; min-width: 210px; }
-.summaries :global(.co-findings-next h3), .summaries :global(.co-section-heading h3), .summaries :global(.co-activity h3), .summaries :global(.co-personal-markers > h3) { font-size: 18px; font-weight: 550; line-height: 1.4; }
-.summaries :global(.co-findings-next p) { font-size: 14px; color: var(--text-muted); line-height: 1.6; margin-top: 7px; }
-.summaries :global(.co-activity), .summaries :global(.co-personal-markers) { background: var(--bg-surface); border: 1px solid var(--border-muted); border-radius: 6px; padding: 18px; }
-.summaries :global(.co-activity-counts) { font-size: 14px; line-height: 1.65; margin: 13px 0 4px; }
-.summaries :global(.co-note) { font-size: 13px; line-height: 1.6; color: var(--text-muted); }
-.summaries :global(.co-resume) { padding: 16px 0; margin-top: 12px; border-top: 1px solid var(--border-muted); }
-.summaries :global(.co-resume p) { color: var(--text-secondary); font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; margin-bottom: 12px; }
-.summaries :global(.co-resume button) { width: 100%; font-size: 13px; }
-.summaries :global(.co-revisit h4), .summaries :global(.co-marker-group h4) { font-size: 14px; font-weight: 550; margin-bottom: 6px; }
-.summaries :global(.co-revisit li button), .summaries :global(.co-marker-group li button) { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; width: 100%; padding: 9px 0; text-align: left; color: var(--text-secondary); font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; }
-.summaries :global(.co-revisit li svg), .summaries :global(.co-marker-group li svg) { flex-shrink: 0; }
-.summaries :global(.co-text-action) { display: inline-flex; gap: 8px; align-items: center; color: var(--accent-subtle); font-size: 14px; padding: 8px 0; margin-top: 10px; }
-.summaries :global(.co-source-coverage) { border-top: 1px solid var(--border-muted); margin-top: 24px; padding-top: 18px; }
-.summaries :global(.co-section-heading) { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 10px 18px; margin-bottom: 12px; }
-.summaries :global(.co-source-coverage > p), .summaries :global(.co-source-details p), .summaries :global(.co-limitations) { color: var(--text-secondary); font-size: 14px; line-height: 1.7; margin-top: 7px; }
-.summaries :global(.co-source-coverage .co-limitation) { color: var(--text-primary); }
-.summaries :global(.co-limitations) { padding-left: 20px; list-style: disc; }
-.summaries :global(.co-source-details) { margin-top: 12px; color: var(--text-muted); font-size: 13px; }
-.summaries :global(.co-source-details dl) { margin-top: 12px; line-height: 1.6; }
-.summaries :global(.co-source-details dt) { color: var(--text-muted); margin-top: 9px; }
+.summaries :global(.co-summary-items) { max-width: 78ch; }
+.summaries :global(.co-summary-items > article) { margin-bottom: 25px; }
+.summaries :global(.co-reading) { max-width: 78ch; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-secondary); font-size: 16px; line-height: 1.75; }
+.summaries :global(.co-overview-evidence) { margin-top: 8px; font-size: 12px; }
+.summaries :global(.co-overview-evidence > summary) { color: var(--text-muted); width: fit-content; }
+.summaries :global(.co-overview-evidence[open]) { margin-bottom: 18px; }
+.summaries :global(.co-overview-evidence blockquote) { font-size: 15px; line-height: 1.7; }
+.summaries :global(.co-findings-next) { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 1px 0 24px; }
+.summaries :global(.co-findings-next > p) { font-size: 14px; color: var(--text-muted); line-height: 1.6; }
+.summaries :global(.co-revisit) { border-top: 1px solid var(--border-muted); padding: 15px 0; font-size: 13px; }
+.summaries :global(.co-revisit > summary span) { color: var(--text-muted); margin-left: 8px; }
+.summaries :global(.co-revisit ul) { margin-top: 8px; }
+.summaries :global(.co-revisit li button) { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; width: 100%; max-width: 78ch; padding: 8px 0; text-align: left; color: var(--text-secondary); font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; }
+.summaries :global(.co-revisit li svg) { flex-shrink: 0; }
+.summaries :global(.co-source-coverage) { border-top: 1px solid var(--border-muted); padding: 16px 0; }
+.summaries :global(.co-source-coverage > p), .summaries :global(.co-source-details p), .summaries :global(.co-limitations) { max-width: 85ch; color: var(--text-secondary); font-size: 13px; line-height: 1.7; }
+.summaries :global(.co-source-coverage > p), .summaries :global(.co-source-coverage > ul) { margin-bottom: 12px; }
+.summaries :global(.co-source-coverage .co-limitation) { color: var(--text-primary); border-left: 2px solid var(--accent-subtle); padding-left: 12px; }
+.summaries :global(.co-limitations) { padding-left: 18px; list-style: disc; }
+.summaries :global(.co-limitations li + li) { margin-top: 5px; }
+.summaries :global(.co-source-details) { color: var(--text-muted); font-size: 13px; }
+.summaries :global(.co-source-details p), .summaries :global(.co-source-details ul) { margin-top: 10px; }
+.summaries :global(.co-source-details dl) { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 18px; margin-top: 16px; line-height: 1.6; font-size: 12px; }
+.summaries :global(.co-source-details dt) { color: var(--text-muted); }
 .summaries :global(.co-source-details dd) { color: var(--text-secondary); overflow-wrap: anywhere; }
-.summaries :global(.co-review-controls) { border: 1px solid var(--border-muted); border-radius: 6px; margin-top: 24px; }
-.summaries :global(.co-review-controls > summary) { padding: 14px 16px; font-size: 14px; }
-.summaries :global(.co-review-controls > summary span + span) { display: block; font-size: 13px; color: var(--text-muted); margin: 5px 0 0 17px; }
-.summaries :global(.co-review-controls-content) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 18px; padding: 0 18px 18px; }
-.summaries :global(.co-question-list) { display: grid; gap: 20px; }
-.summaries :global(.co-question-card) { border: 1px solid var(--border-muted); border-radius: 8px; padding: 24px; min-width: 0; }
-.summaries :global(.co-question-context) { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
-.summaries :global(.co-question-context h4) { font-size: 17px; font-weight: 550; line-height: 1.5; overflow-wrap: anywhere; }
-.summaries :global(.co-marker-label) { color: var(--text-muted); font-size: 12px; border: 1px solid var(--border-muted); border-radius: 4px; padding: 4px 7px; flex-shrink: 0; }
-.summaries :global(.co-question-wording) { background: var(--bg-elevated); border-left: 2px solid var(--accent-subtle); border-radius: 4px; padding: 17px 20px; margin: 19px 0; }
-.summaries :global(.co-question-sources) { margin-top: 20px; border-top: 1px solid var(--border-muted); padding-top: 15px; font-size: 13px; }
-.summaries :global(.co-question-sources > p) { margin-top: 12px; }
-.summaries :global(.co-question-sources li button) { display: flex; align-items: center; gap: 11px; width: 100%; text-align: left; padding: 12px 0; color: var(--text-secondary); }
-.summaries :global(.co-question-sources li button > span) { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.summaries :global(.co-question-sources li button > svg) { flex-shrink: 0; }
-.summaries :global(.co-question-sources button:disabled) { color: var(--text-muted); cursor: not-allowed; }
-.summaries :global(.co-reference-page) { display: block; font-size: 12px; margin-top: 3px; color: var(--text-muted); }
-.summaries :global(.co-personal-markers > p) { margin-top: 10px; }
-.summaries :global(.co-export) { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 24px; padding: 20px; margin-bottom: 28px; border: 1px solid var(--border-muted); border-radius: 8px; background: var(--bg-surface); }
-.summaries :global(.co-export > div:first-child) { flex: 1; min-width: min(100%, 260px); }
-.summaries :global(.co-export h3) { font-size: 17px; font-weight: 550; margin-bottom: 7px; }
-.summaries :global(.co-export-actions) { display: flex; flex-wrap: wrap; gap: 10px; }
-.summaries :global(.co-export > p), .summaries :global(.co-export-fallback) { width: 100%; }
-.summaries :global(.co-export-fallback) { display: grid; gap: 8px; color: var(--text-secondary); font-size: 14px; }
-.summaries :global(.co-export-fallback textarea) { width: 100%; padding: 12px; border: 1px solid var(--border-muted); border-radius: 6px; background: var(--bg-primary); color: var(--text-primary); font-size: 14px; line-height: 1.6; resize: vertical; }
-.summaries :global(.co-marker-group) { padding-top: 21px; margin-top: 20px; border-top: 1px solid var(--border-muted); }
-.summaries :global(.co-marker-group h4) { display: flex; justify-content: space-between; gap: 12px; }
-.summaries :global(.co-marker-group h4 span) { color: var(--text-muted); font-weight: 400; }
-.summaries :global(.co-empty) { border: 1px dashed var(--border-muted); border-radius: 8px; padding: 28px; }
-.summaries :global(.co-empty h4) { font-size: 18px; font-weight: 550; }
-.summaries :global(.co-empty p) { color: var(--text-secondary); font-size: 15px; line-height: 1.7; margin-top: 10px; }
+.summaries :global(.co-review-controls) { border-top: 1px solid var(--border-muted); padding-top: 15px; }
+.summaries :global(.co-review-controls > summary) { font-size: 13px; color: var(--text-secondary); }
+.summaries :global(.co-controls-note) { margin: 15px 0; color: var(--text-muted); font-size: 13px; line-height: 1.6; }
+.summaries :global(.co-review-controls-content) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 18px; }
+.summaries :global(summary) { cursor: pointer; }
 .summaries :global(button:focus-visible), .summaries :global(summary:focus-visible) { outline: 2px solid var(--accent-subtle); outline-offset: 4px; }
 .summaries :global(button:not(:disabled):hover) { border-color: var(--accent-subtle); }
-@media (max-width: 1050px) {
-  .summaries :global(.co-overview-grid), .summaries :global(.co-personal-grid) { grid-template-columns: minmax(0, 1fr) 260px; gap: 24px; }
-  .summaries :global(.co-activity), .summaries :global(.co-personal-markers) { padding: 18px; }
-}
+.summaries :global(summary:hover) { color: var(--text-primary); }
 @media (max-width: 760px) {
-  .summaries :global(.co-heading) { flex-direction: column; gap: 16px; }
-  .summaries :global(.co-overview-grid), .summaries :global(.co-personal-grid), .summaries :global(.co-review-controls-content) { grid-template-columns: minmax(0, 1fr); }
-  .summaries :global(.co-heading h2) { font-size: 24px; }
-  .summaries :global(.co-question-card) { padding: 19px; }
-  .summaries :global(.co-question-context) { flex-wrap: wrap; }
-  .summaries :global(.co-reading), .summaries :global(.co-question-wording) { font-size: 16px; }
+  .summaries :global(.co-heading) { gap: 12px; margin-bottom: 23px; }
+  .summaries :global(.co-heading h2) { font-size: 23px; }
+  .summaries :global(.co-heading .co-secondary-action) { font-size: 12px; padding: 7px 9px; }
+  .summaries :global(.co-review-controls-content) { grid-template-columns: minmax(0, 1fr); }
+  .summaries :global(.co-source-details dl) { grid-template-columns: minmax(0, 1fr); gap: 3px; }
+  .summaries :global(.co-source-details dd + dt) { margin-top: 7px; }
 }

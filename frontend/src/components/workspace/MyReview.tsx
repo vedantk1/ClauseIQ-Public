@@ -36,9 +36,7 @@ export function MyReview({ filename = "Agreement", exportUnavailable, run, perso
   const removal = findings.find(finding => finding.id === removing && personal.saved_questions[finding.id]);
 
   return <div className={styles.review}>
-    <header className="mr-heading"><div><h2>My review</h2>
-      <p>Questions and personal markers · selected run only.</p>
-    </div><Action onClick={onExplore}>{run ? "Explore findings" : "Open review setup"}<ArrowRight size={16} aria-hidden="true" /></Action></header>
+    <header className="mr-heading"><h2>My review</h2><Action onClick={onExplore}>{run ? "Explore findings" : "Open review setup"}<ArrowRight size={16} aria-hidden="true" /></Action></header>
     <div className="mr-toolbar">
       <div className="mr-filters" role="group" aria-label="Filter review checklist">
         {([['work', 'Saved work', work.length], ['all', 'All findings', findings.length], ['revisit', 'Revisit', revisits.length], ['saved', 'Saved questions', saved.length]] as const).map(([value, label, count]) =>
@@ -46,10 +44,8 @@ export function MyReview({ filename = "Agreement", exportUnavailable, run, perso
       </div>
       <ReviewBriefExport key={run?.id || "no-run"} compact filename={filename} run={run} personal={personal} source={source} unavailable={exportUnavailable} />
     </div>
-    <details className="mr-summary"><summary>About saved work and export</summary><p>{saved.length} confirmed {saved.length === 1 ? "question" : "questions"}; {revisits.length} to revisit. Markers are personal activity, not legal safety or completeness. Saving never sends a message, accepts a term or resolves a finding. Export ignores filters.</p></details>
     {feedback && <p className="mr-feedback" role="status">{feedback}</p>}
     {state && blocked && <p className="mr-feedback" role="status">Finish saving or resolve pending changes above before changing saved questions or markers. Your draft stays available.</p>}
-    {run && !saved.length && <p className="mr-empty-note">No saved questions in this run. Recoverable drafts stay separate until you deliberately save.</p>}
     {visible.length ? <ol className="mr-list" aria-label="Review checklist">{visible.map(finding => {
       const question = personal.saved_questions[finding.id];
       const isEditing = editing === finding.id;
@@ -61,11 +57,12 @@ export function MyReview({ filename = "Agreement", exportUnavailable, run, perso
             {Object.entries(markerLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select></label>
         </div>
-        {question && <p className="mr-question">{question.text}</p>}
+        {question && !isEditing && <p className="mr-question">{question.text}</p>}
         {isEditing && <div className="mr-editor">
+          {blocked && <div className="mr-recovery"><strong>Last confirmed question</strong><p>{question?.text ?? "No saved question."}</p></div>}
           <label>Question draft for {finding.title}<textarea autoFocus rows={3} maxLength={5000} value={draft} readOnly={editBlocked}
             onChange={event => { if (!editBlocked && run) controller!.setDraft(run.id, finding.id, event.target.value); }} onBlur={() => controller?.flushDrafts()} /></label>
-          <p className="mr-muted">Drafts are kept for recovery. Only Save question changes your confirmed question and exported brief.</p>
+          <p className="mr-muted">Save to update your question. Closing keeps the draft.</p>
           {state?.status === "review" && personal.drafts[finding.id] !== undefined && personal.drafts[finding.id] !== draft && <div className="mr-recovery"><strong>Latest saved draft</strong><p>{personal.drafts[finding.id] || "Empty draft"}</p><p>Compare with your local wording before applying pending changes above.</p></div>}
           <div className="mr-actions"><Action disabled={blocked || !draft.trim() || draft === question?.text} onClick={() => {
             if (!blocked && run && draft.trim() && draft !== question?.text) { controller!.saveQuestion(run.id, finding.id, draft); setEditing(null); setFeedback("Question update requested. Wait for saved confirmation."); }
@@ -80,12 +77,13 @@ export function MyReview({ filename = "Agreement", exportUnavailable, run, perso
           <ul>{finding.evidence.map((evidence, index) => {
             const matched = evidence.source_revision_id === run?.source_revision_id && evidenceMatches(evidence, matchingSource);
             return <li key={`${evidence.span_id}:${index}`}><button type="button" disabled={!matched} onClick={() => { if (matched) onSource(finding.id, evidence); }}>
-              <FileText size={16} aria-hidden="true" /><span>{evidence.label}<span className="mr-reference-page">Page {evidence.page_number}{matched ? " · Open source" : " · Source not matched"}</span></span><ArrowRight size={15} aria-hidden="true" />
+              <FileText size={16} aria-hidden="true" /><span>{evidence.label}<span className="mr-reference-page">{matched ? `View page ${evidence.page_number}` : `Page ${evidence.page_number} · Source not matched`}</span></span>
             </button></li>;
           })}</ul>
         </details> : <p className="mr-source-note">No source reference accompanies this finding. A not-found claim is limited to the recorded review scope.</p>}
       </li>;
-    })}</ol> : <div className="mr-empty"><h3>{!run ? "No review run yet" : filter === "work" ? "Nothing saved or marked yet" : filter === "revisit" ? "Nothing marked for revisit" : filter === "saved" ? "No saved questions in this run" : "No findings in this run"}</h3><p>{!run ? "Start from review setup to keep questions and mark findings for later." : "Keep a question or set a personal status while reviewing. Recoverable drafts stay separate until saved."}</p>{run && <Action onClick={() => setFilter("all")}>Show all findings</Action>}</div>}
+    })}</ol> : <div className="mr-empty"><h3>{!run ? "No review run yet" : filter === "work" ? "No saved work yet" : filter === "revisit" ? "Nothing marked for revisit" : filter === "saved" ? "No saved questions in this run" : "No findings in this run"}</h3><p>{!run ? "Start a review to collect questions and mark findings for later." : filter === "all" ? "This review has no findings. Check its status and source coverage in Overview." : "Save a question or mark a finding to collect it here."}</p>{run && findings.length > 0 && <Action onClick={() => setFilter("all")}>Show all findings</Action>}</div>}
+    <details className="mr-summary"><summary>What’s included in export?</summary><p>{saved.length} confirmed {saved.length === 1 ? "question" : "questions"}; {revisits.length} to revisit. Export includes all saved questions and personal markers in this review, regardless of the active filter. Drafts and Ask answers are excluded.</p><p>Markers are personal activity, not legal safety or completeness. Saving never sends a message, accepts a term or resolves a finding.</p></details>
     <Modal isOpen={!!removal} onClose={() => setRemoving(null)} title="Remove saved question?" size="sm" footer={<>
       <Action onClick={() => setRemoving(null)}>Keep saved question</Action>
       <Action disabled={blocked} onClick={() => { if (!blocked && run && removal) { controller!.removeQuestion(run.id, removal.id); setRemoving(null); setEditing(null); setFeedback("Removal requested. Your draft and marker are retained; wait for saved confirmation."); } }}>Remove question</Action>

@@ -8,23 +8,18 @@
   background: var(--bg-primary);
   color: var(--text-primary);
 }
-.heading { display: flex; align-items: center; justify-content: space-between; gap: 12px 20px; padding: 11px 22px; flex-shrink: 0; border-bottom: 1px solid var(--border-muted); }
-.contextHeading { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.heading { position: relative; display: flex; align-items: center; gap: 16px; padding: 6px 20px; min-height: 42px; flex-shrink: 0; border-bottom: 1px solid var(--border-muted); }
+.contextHeading { flex: 1; min-width: 0; color: var(--text-muted); }
 .contextHeading h2 { font-size: 14px; font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .eyebrow { font-size: 11px; font-weight: 500; letter-spacing: .055em; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; }
-.actions { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
-.actions button { font-size: 12px; min-height: 30px; white-space: nowrap; }
-.returnButton { color: var(--text-secondary); }
+.returnButton { color: var(--text-secondary); font-size: 12px; min-height: 30px; flex-shrink: 0; }
 .returnButton:hover { color: var(--text-primary); }
 .textToggle { border: 1px solid var(--border-muted); border-radius: 5px; padding: 4px 10px; min-height: 32px; font-size: 12px; white-space: nowrap; color: var(--text-secondary); background: var(--bg-surface); }
 .textToggle[aria-expanded="true"] { border-color: var(--accent-subtle); color: var(--text-primary); }
-.context { flex-shrink: 0; border-bottom: 1px solid var(--border-muted); background: var(--bg-surface); }
-.context summary { display: flex; justify-content: space-between; gap: 12px; padding: 8px 22px; font-size: 12px; color: var(--text-secondary); list-style: none; }
+.context { flex-shrink: 0; margin-left: auto; }
+.context summary { padding: 5px 0; font-size: 12px; color: var(--text-secondary); cursor: pointer; }
 .context summary::-webkit-details-marker { display: none; }
-.context summary > span { color: var(--text-muted); }
-.context summary > span::after { content: " +"; }
-.context[open] summary > span::after { content: " −"; }
-.contextBody { padding: 4px 22px 16px; max-height: 24dvh; overflow-y: auto; overscroll-behavior: contain; }
+.contextBody { position: absolute; top: 100%; right: 12px; z-index: 25; width: min(640px, calc(100% - 24px)); padding: 16px 20px; max-height: 24dvh; overflow-y: auto; overscroll-behavior: contain; background: var(--bg-elevated); border: 1px solid var(--border-muted); border-radius: 6px; box-shadow: 0 12px 28px #0005; }
 .contextBody > p, .contextBody blockquote { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.65; color: var(--text-secondary); }
 .contextBody blockquote { padding-left: 13px; border-left: 2px solid var(--border-muted); margin-top: 9px; }
 .contextBody .contextLabel { margin-top: 12px; font-size: 12px; font-weight: 550; color: var(--text-primary); }
@@ -42,17 +37,13 @@
 
 @media (max-width: 1000px) {
   .heading { padding: 9px 14px; gap: 8px; }
-  .contextHeading { display: block; }
-  .contextHeading .eyebrow { display: block; margin-bottom: 3px; }
-  .actions { gap: 10px; }
   .withText { grid-template-columns: minmax(0, 1fr) 280px; }
   .extraction { padding: 17px; }
 }
 
 @media (max-width: 700px) {
-  .heading { align-items: start; flex-wrap: wrap; }
-  .contextHeading { width: 100%; }
-  .actions { width: 100%; justify-content: space-between; }
+  .heading { flex-wrap: wrap; gap: 4px 12px; }
+  .contextHeading { display: none; }
   .readingArea { position: relative; }
   .withText { grid-template-columns: minmax(0, 1fr); }
   .extraction { position: absolute; inset: 0 0 0 auto; width: min(88%, 340px); z-index: 15; box-shadow: -8px 0 28px rgb(0 0 0 / 16%); }

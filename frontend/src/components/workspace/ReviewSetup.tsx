@@ -1,5 +1,5 @@
 import React from "react";
-import { ArrowLeft, ArrowUpRight, FileText } from "lucide-react";
+import { ArrowLeft, FileText } from "lucide-react";
 import type { DocumentSourceResponse } from "@clauseiq/shared-types";
 import { BriefForm, Action, Panel } from "./WorkspaceControls";
 import { ReviewGenerationControls } from "./ReviewGenerationControls";
@@ -19,18 +19,18 @@ export function ReviewSetup({ documentId, filename, source, sourceError, state, 
   const blocked = ["loading", "failed", "conflict", "review"].includes(state.status);
   const sourceState = reviewSetupSource(source, documentId, workspace.source_revision_id, sourceError);
   return <section className={styles.setup} aria-labelledby="review-setup-heading">
-    <div className="cs-intro"><p className="cs-eyebrow">Review setup</p><h2 id="review-setup-heading">What would you like to understand?</h2>
-      <p>Choose a perspective and add what matters to you. You can read the original or save your brief without running AI.</p></div>
+    <div className="cs-intro"><h2 id="review-setup-heading">Set up your review</h2>
+      <p>Choose a perspective and the questions that matter to you.</p></div>
     <div className="cs-grid">
       <aside className="cs-source" aria-labelledby="setup-agreement-heading">
         <h3 id="setup-agreement-heading">Your agreement</h3>
         <div className="cs-file"><FileText size={30} aria-hidden="true" /><div><p>{filename}</p><span>{sourceState.pageCount === null ? "Page count unavailable" : `${sourceState.pageCount} ${sourceState.pageCount === 1 ? "page" : "pages"}`}</span></div></div>
         <div className="cs-source-status" data-limited={sourceState.limited || undefined} role="status">
-          <h4>{sourceState.title}</h4><p>{sourceState.message}</p>
+          <h4>{sourceState.title}</h4>{(!sourceState.canReview || sourceState.limited) && <p>{sourceState.message}</p>}
           {source?.source_extraction && <p>{sourceState.extracted} of {sourceState.pageCount} pages have extracted text.</p>}
           {!!sourceState.missing.length && <p>Pages with missing text: {sourceState.missing.map(page => `${page.page_number} (${page.status === "empty" ? "no text" : "extraction failed"})`).join(", ")}. No OCR is performed.</p>}
         </div>
-        <Action onClick={onOriginal} className="cs-original">View original <ArrowUpRight size={16} aria-hidden="true" /></Action>
+        <Action onClick={onOriginal} className="cs-original">View original</Action>
         {!sourceState.canReview && !!source && <button type="button" className="cs-text-action" onClick={onEarlierDocument}>Inspect saved document record</button>}
         <details className="cs-details"><summary>Source details</summary><dl><dt>Source revision</dt><dd>{workspace.source_revision_id}</dd><dt>SHA-256</dt><dd>{source?.source_sha256 || "Unavailable"}</dd><dt>Extractor</dt><dd>{source?.source_extraction?.extraction_version || "Unavailable"}</dd></dl></details>
         {workspace.fixture_available && <details className="cs-details cs-example"><summary>Try the synthetic example</summary><p>This PDF matches the supported synthetic agreement. Its authored customer-perspective findings are separate from AI output and do not use your brief.</p>

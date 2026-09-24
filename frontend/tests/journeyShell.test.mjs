@@ -12,7 +12,7 @@ function loadModule(path, imports = {}) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React, esModuleInterop: true },
   }).outputText;
   const exports = {};
-  vm.runInNewContext(compiled, { exports, React, require(name) {
+  vm.runInNewContext(compiled, { exports, React, Error, require(name) {
     assert.ok(name in imports, `Unexpected dependency: ${name}`);
     return imports[name];
   } });
@@ -116,7 +116,7 @@ const defaultSettings = { has_api_key: true, model_id: "review-model", query_gat
   retention_days: 0, toast_notifications_enabled: true };
 
 function settingsHarness(overrides = {}) {
-  const slots = [], effects = [], calls = [];
+  const slots = [], effects = [], calls = [], focus = [], mountedRefs = [];
   let index = 0;
   const hooks = { ...React,
     useState(initial) {
@@ -124,14 +124,22 @@ function settingsHarness(overrides = {}) {
       if (!(current in slots)) slots[current] = initial;
       return [slots[current], value => { slots[current] = typeof value === "function" ? value(slots[current]) : value; }];
     },
-    useEffect(effect) {
+    useRef(initial) {
       const current = index++;
-      if (!(current in slots)) { slots[current] = true; effects.push(effect); }
+      if (!(current in slots)) slots[current] = { current: initial };
+      return slots[current];
+    },
+    useEffect(effect, dependencies) {
+      const current = index++;
+      if (!(current in slots) || dependencies.some((value, position) => !Object.is(value, slots[current][position]))) {
+        slots[current] = dependencies;
+        effects.push(effect);
+      }
     },
   };
   const context = { settings: defaultSettings, isLoading: false, error: null,
     refresh: async () => calls.push(["refresh"]),
-    updateSettings: async update => calls.push(["settings", JSON.parse(JSON.stringify(update))]),
+    updateSettings: async update => { calls.push(["settings", JSON.parse(JSON.stringify(update))]); context.settings = { ...context.settings, ...update }; },
     saveApiKey: async key => calls.push(["key", key]),
     removeApiKey: async () => calls.push(["remove"]), ...overrides };
   const Button = ({ children, loading: _loading, variant: _variant, ...props }) => React.createElement("button", props, children);
@@ -143,23 +151,41 @@ function settingsHarness(overrides = {}) {
     "@/components/ui/ConfirmModal": Modal, "./Settings.module.css": {},
   }).default;
   const view = () => { index = 0; return Settings(); };
+  const commit = () => {
+    const tree = view();
+    mountedRefs.splice(0).forEach(ref => { ref.current = null; });
+    for (const item of nodes(tree)) {
+      const ref = item.props.ref;
+      if (!ref || typeof ref !== "object") continue;
+      mountedRefs.push(ref);
+      ref.current = item.type === "input" ? { focus: () => focus.push("key-input") } : {
+        querySelector(selector) {
+          assert.equal(selector, "[data-key-change]");
+          return nodes(tree).some(candidate => candidate.props["data-key-change"])
+            ? { focus: () => focus.push("change-key") } : null;
+        },
+      };
+    }
+    effects.splice(0).forEach(effect => effect());
+  };
   view(); effects.splice(0).forEach(effect => effect());
-  return { view, calls, context,
+  return { view, calls, context, focus, commit,
     html: () => render(view()),
     change: (id, value) => node(view(), item => item.props.id === id).props.onChange({ target: { value } }),
     toggle: number => { const input = nodes(view()).filter(item => item.type === "input" && item.props.type === "checkbox")[number]; input.props.onChange({ target: { checked: !input.props.checked } }); },
-    submit: number => nodes(view()).filter(item => item.type === "form")[number].props.onSubmit({ preventDefault() {} }),
+    submit: (label = "Workspace preferences") => node(view(), item => item.type === "form" && item.props["aria-label"] === label).props.onSubmit({ preventDefault() {} }),
     modal: title => node(view(), item => item.type === Modal && item.props.title === title),
     click: label => node(view(), item => item.type === Button && item.props.children === label).props.onClick(),
+    button: label => node(view(), item => item.type === Button && item.props.children === label),
   };
 }
 
 test("Settings groups render locally with no secret value, model changes or nested main", () => {
   const h = settingsHarness();
   const html = h.html();
-  for (const label of ["OpenAI API key", "AI models", "Document library", "Notifications", "Key saved locally"])
+  for (const label of ["OpenAI API key", "AI models", "Document library", "Notifications", "Key saved"])
     assert.ok(html.includes(label), label);
-  assert.match(html, /type="password"[^>]*value=""/);
+  assert.doesNotMatch(html, /id="openai-key"|Replacement API key|Key verified|Connected/);
   assert.match(html, /saved legacy model/);
   assert.doesNotMatch(html, /<main|type="text"[^>]*id="openai-key"/);
   assert.deepEqual(h.calls, []);
@@ -168,7 +194,7 @@ test("Settings groups render locally with no secret value, model changes or nest
 test("Settings save preserves distinct review and query choices and disabled retention", async () => {
   const h = settingsHarness();
   h.change("analysis-model", "other-model");
-  h.submit(1);
+  h.submit();
   await Promise.resolve();
   assert.deepEqual(h.calls, [["settings", { model_id: "other-model", reasoning_effort: "medium", query_gate_model_id: "saved-legacy", retention_days: 0, toast_notifications_enabled: true }]]);
 });
@@ -179,7 +205,7 @@ test("model and effort stay local until explicit save and query preparation rema
   h.change("analysis-model", "other-model");
   assert.equal(node(h.view(), item => item.props.id === "reasoning-effort").props.value, "max");
   assert.deepEqual(h.calls, []);
-  h.submit(1); await Promise.resolve();
+  h.submit(); await Promise.resolve();
   assert.equal(h.calls[0][1].reasoning_effort, "max");
   assert.equal(h.calls[0][1].query_gate_model_id, "saved-legacy");
 });
@@ -200,14 +226,14 @@ test("automatic deletion remains opt-in and requires explicit confirmation", asy
   const h = settingsHarness();
   h.toggle(0);
   h.change("retention-days", "90");
-  h.submit(1);
+  h.submit();
   assert.deepEqual(h.calls, []);
   const confirmation = h.modal("Enable automatic deletion?");
   assert.equal(confirmation.props.isOpen, true);
   assert.match(confirmation.props.message, /90 days ago.*permanent deletion/);
   confirmation.props.onClose();
   assert.deepEqual(h.calls, []);
-  h.submit(1);
+  h.submit();
   h.modal("Enable automatic deletion?").props.onConfirm();
   await Promise.resolve();
   assert.equal(h.calls[0][1].retention_days, 90);
@@ -215,11 +241,11 @@ test("automatic deletion remains opt-in and requires explicit confirmation", asy
 
 test("invalid retention and unavailable saved models cannot silently save", () => {
   const h = settingsHarness();
-  h.toggle(0); h.change("retention-days", "0"); h.submit(1);
+  h.toggle(0); h.change("retention-days", "0"); h.submit();
   assert.deepEqual(h.calls, []);
   assert.match(h.html(), /whole number of days/);
   const missing = settingsHarness({ settings: { ...defaultSettings, model_id: "unavailable" } });
-  missing.submit(1);
+  missing.submit();
   assert.deepEqual(missing.calls, []);
   assert.match(missing.html(), /Unavailable model: unavailable/);
 });
@@ -241,4 +267,112 @@ test("connection failure keeps explicit retry separate from mutations", () => {
   assert.deepEqual(h.calls, []);
   h.click("Retry connection");
   assert.deepEqual(h.calls, [["refresh"]]);
+});
+
+test("saved key replacement opens deliberately and Cancel clears the unsent replacement", () => {
+  const h = settingsHarness();
+  h.click("Change key");
+  assert.match(h.html(), /Replacement API key/);
+  assert.match(h.html(), /type="password"[^>]*value=""/);
+  h.change("openai-key", "synthetic-unsent-value");
+  h.click("Cancel");
+  assert.doesNotMatch(h.html(), /id="openai-key"/);
+  h.click("Change key");
+  assert.equal(node(h.view(), item => item.props.id === "openai-key").props.value, "");
+  assert.deepEqual(h.calls, []);
+});
+
+test("missing or unrestorable keys expose entry without a false saved-success claim", () => {
+  for (const overrides of [{ has_api_key: false }, { has_api_key: true, api_key_needs_reentry: true }]) {
+    const h = settingsHarness({ settings: { ...defaultSettings, ...overrides } });
+    assert.match(h.html(), /id="openai-key"/);
+    assert.equal(h.button(overrides.has_api_key ? "Replace key" : "Save key").props.disabled, true);
+    assert.deepEqual(h.calls, []);
+    if (overrides.api_key_needs_reentry) {
+      assert.match(h.html(), /Key needs attention|previous key could not be restored/);
+      assert.doesNotMatch(h.html(), />Key saved</);
+    }
+  }
+});
+
+test("key replacement is explicit, clears its draft after saving and does not test the key", async () => {
+  const h = settingsHarness();
+  h.click("Change key");
+  h.change("openai-key", "synthetic-test-only-value");
+  assert.deepEqual(h.calls, []);
+  h.submit("API key");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(h.calls, [["key", "synthetic-test-only-value"]]);
+  assert.doesNotMatch(h.html(), /id="openai-key"/);
+  assert.match(h.html(), /No AI request was made/);
+  h.click("Change key");
+  assert.equal(node(h.view(), item => item.props.id === "openai-key").props.value, "");
+});
+
+test("a failed key save retains the replacement form without claiming success", async () => {
+  const h = settingsHarness({ saveApiKey: async () => { throw new Error("Synthetic key save failure"); } });
+  h.click("Change key"); h.change("openai-key", "synthetic-test-only-value");
+  h.submit("API key");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(h.html(), /Synthetic key save failure/);
+  assert.equal(node(h.view(), item => item.props.id === "openai-key").props.value, "synthetic-test-only-value");
+  assert.doesNotMatch(h.html(), /API key saved\./);
+});
+
+test("key editor moves keyboard focus on opening, cancel and successful replacement only", async () => {
+  const h = settingsHarness();
+  h.commit();
+  assert.deepEqual(h.focus, [], "Initial Settings rendering must not steal focus");
+  h.click("Change key"); h.commit();
+  assert.deepEqual(h.focus, ["key-input"]);
+  h.change("openai-key", "synthetic-test-only-value"); h.commit();
+  assert.deepEqual(h.focus, ["key-input"], "Typing must not refocus the field");
+  h.click("Cancel"); h.commit();
+  assert.deepEqual(h.focus, ["key-input", "change-key"]);
+  h.click("Change key"); h.commit();
+  h.change("openai-key", "synthetic-test-only-value");
+  h.submit("API key"); h.commit();
+  await new Promise(resolve => setImmediate(resolve));
+  h.commit();
+  assert.deepEqual(h.focus, ["key-input", "change-key", "key-input", "change-key"]);
+});
+
+test("failed key replacement keeps its editor without moving focus to a removed trigger", async () => {
+  const h = settingsHarness({ saveApiKey: async () => { throw new Error("Synthetic key save failure"); } });
+  h.click("Change key"); h.commit();
+  h.change("openai-key", "synthetic-test-only-value"); h.submit("API key"); h.commit();
+  await new Promise(resolve => setImmediate(resolve));
+  h.commit();
+  assert.deepEqual(h.focus, ["key-input"]);
+  assert.match(h.html(), /Synthetic key save failure/);
+  assert.equal(node(h.view(), item => item.props.id === "openai-key").props.value, "synthetic-test-only-value");
+});
+
+test("unchanged settings do not save; edits and reverting show accurate dirty state", async () => {
+  const h = settingsHarness();
+  assert.equal(h.button("Save changes").props.disabled, true);
+  assert.match(h.html(), /No unsaved changes/);
+  h.submit();
+  assert.deepEqual(h.calls, []);
+  h.change("reasoning-effort", "high");
+  assert.equal(h.button("Save changes").props.disabled, false);
+  assert.match(h.html(), /Unsaved changes/);
+  h.change("reasoning-effort", "medium");
+  assert.equal(h.button("Save changes").props.disabled, true);
+  h.toggle(1);
+  assert.equal(h.button("Save changes").props.disabled, false);
+  h.submit();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.button("Save changes").props.disabled, true);
+  assert.match(h.html(), /No unsaved changes/);
+  assert.equal(h.calls.length, 1);
+});
+
+test("failed settings save keeps edits available and reports the failure", async () => {
+  const h = settingsHarness({ updateSettings: async () => { throw new Error("Synthetic save failure"); } });
+  h.change("reasoning-effort", "high"); h.submit();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(h.html(), /Synthetic save failure/);
+  assert.equal(node(h.view(), item => item.props.id === "reasoning-effort").props.value, "high");
+  assert.equal(h.button("Save changes").props.disabled, false);
 });
