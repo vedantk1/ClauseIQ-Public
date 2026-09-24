@@ -182,11 +182,13 @@ its own selected-file/pending-import guard. Settings groups existing credential,
 model, opt-in retention and notification controls without changing save semantics.
 
 For an existing run, AgreementOverview leads with the saved agreement summary,
-evidence and source/run coverage, alongside compact personal activity. The brief
-and another explicit generation sit in a secondary disclosure, opened for pending
-edits or recovery. Global changed-context, incomplete/failed-run and save-recovery
-warnings remain outside it. Source coverage sits with the summary independently
-of the activity sidebar's height. MyReview is a full-width selected-run checklist,
+source references and direct Findings/My review actions. It has no reserved
+activity sidebar; revisit items and routine source/run details use disclosures.
+The brief and another explicit generation sit in a secondary disclosure, opened
+for pending edits or recovery. Changed-context, incomplete/failed-run and
+save-recovery warnings remain visible, as do model-authored limitations that may
+describe material omissions. Only the exact fixed generator disclaimer is treated
+as routine. MyReview is a full-width selected-run checklist,
 defaulting to Saved work (confirmed questions or explicit personal markers),
 with All findings, Revisit and Saved questions filters, direct markers and inline
 question editing. Explicit Save changes confirmed wording; Cancel closes the
@@ -263,11 +265,16 @@ uses a larger, more relaxed hierarchy while retaining Inter and both dark themes
 An unchanged, confirmed saved question shows quiet status instead of a disabled
 update button; pending writes and conflicts never acquire that saved-state claim.
 Editing restores the action and retains the previously saved wording. Opening
-Ask swaps the companion pane without dispatching a provider request. The Send
-action, independent Ask drafts and saved personal questions retain their existing
-controller contracts. Layout styles are scoped to the workspace and consume the
-shared Black/Graphite theme tokens; no provider or persistence schema changes
-are required for this presentation layer.
+Ask replaces the centre-column reading content while the evidence companion stays
+visible. Compact source chips preview the exact evidence associated with each
+answer paragraph rather than repeating full quotations in the conversation.
+Some stored answer text includes request-local passage IDs with no persisted
+inline association. The display labels these as unlinked references and preserves
+the original IDs in a disclosure; it does not infer a mapping from their order or
+wording. The Send action, independent Ask drafts and saved personal questions
+retain their existing controller contracts. Layout styles consume the shared
+Black/Graphite theme tokens; this presentation layer does not change provider or
+persistence schemas.
 
 Physical source-page navigation disables the viewer's smooth-scroll animation;
 an animated jump would keep writing a pixel offset measured before a resize.

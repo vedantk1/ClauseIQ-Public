@@ -1,7 +1,7 @@
 # Synthetic workspace demonstration
 
 The JSON is authored fixture data, not provider output, legal advice or a quality
-benchmark. It exercises the new review workspace before generation is connected.
+benchmark. It exercises the review workspace without a key or provider request.
 Only the exact SHA-256 of tests/fixtures/pdfs/managed-services-25p.pdf is accepted;
 the filename alone is never sufficient. No fixture is installed into a library
 automatically. Loading the example is an explicit local action and spends no AI

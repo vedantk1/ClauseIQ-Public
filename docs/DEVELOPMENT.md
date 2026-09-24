@@ -74,10 +74,85 @@ also prepare these assets. The Docker build follows the same npm hook.
 | npm test | Deterministic backend and frontend tests, no paid AI calls |
 | npm run test:backend | Backend tests only |
 | npm run test:frontend | Local API, persistence state, viewer adapter and render-contract tests |
+| npm --prefix frontend run test:e2e | Isolated, synthetic Chromium UI journeys; separate from npm run check |
 | npm run typecheck | Frontend types |
 | npm run lint | Frontend lint |
 | npm run build | Shared types and frontend production build |
 | npm run check | Complete deterministic validation sequence |
+
+## Continuous integration
+
+[The CI workflow](../.github/workflows/ci.yml) runs on pull requests targeting main
+and pushes to main. Its independent jobs cover:
+
+- Backend deterministic Pytest tests using Python 3.13. A key-free preflight
+  downloads the public tokenizer vocabularies needed by the tests.
+- Shared TypeScript build; frontend unit/component tests, typecheck, lint and
+  production bundle build using Node.js 24.
+- Chromium browser journeys on an isolated development frontend with synthetic
+  API responses. No real backend, database or saved credentials are accessed.
+- Gitleaks scanning across the fetched reachable Git history, with redacted output.
+
+Actions and the secret scanner are pinned; workflow permissions are read-only and
+checkout credentials are not persisted. Failed browser runs can retain synthetic
+diagnostics for seven days. Dependency installation and tokenizer/browser downloads
+need network access; this is an unpaid workflow, not an air-gapped one.
+
+There are no paid evaluations, live storage harnesses, deployment steps or changes
+to repository settings. Required-check enforcement must be configured separately.
+Passing CI does not establish legal quality, exhaustive security or compatibility
+with a particular person's saved installation. Keep isolated storage smoke checks
+for changes to persistence or migration, and retain the batched visual review.
+
+### Browser smoke
+
+After normal dependency setup, install the browser once and run the journeys from
+the repository root:
+
+~~~bash
+(cd frontend && npx --no-install playwright install chromium)
+npm --prefix frontend run test:e2e
+~~~
+
+On Linux CI, installation also uses `--with-deps` for system libraries. The pinned
+Playwright runner starts its own Next.js development server at 127.0.0.1:3100 and
+refuses to reuse an existing server on that port. Its `CLAUSEIQ_E2E=1` build uses
+`.next-e2e` and `tsconfig.e2e.json`, separate from the ordinary development cache.
+The normal TypeScript configuration excludes `.next-e2e`. Next.js still temporarily
+rewrites the shared generated `next-env.d.ts`; the test-server wrapper snapshots
+that file and restores its original bytes when it shuts down. Do not run the
+ordinary frontend typecheck or build concurrently with this smoke suite.
+Do not stop the person's port-3000 application or switch its database to run it.
+Playwright stops only the server it started.
+
+The tests cover direct Library opening, finding excerpt preview, physical PDF-page
+navigation and return, explicit question saving, refresh/resume, PDF selection into
+unpaid setup, the 1280×800 entry layout, Black/Graphite captures at 1440×1000 and
+the finding selector at 720px width. API
+responses and saved work are test-owned in-memory fixtures derived from the exact
+synthetic 25-page PDF and its authored review. The browser still runs the actual
+frontend and local PDF.js renderer. Unexpected API routes, external traffic and
+provider-dispatch routes fail the test instead of falling through to live services.
+
+This tests browser interaction with a synthetic API contract, not FastAPI extraction,
+real database durability, credential handling, model quality or a complete
+accessibility audit. Retain unit/controller tests and isolated backend storage
+smokes for those respective boundaries. `npm run check` does not include the
+browser command; CI runs it as a separate job. Diagnostics and generated screenshots
+stay under ignored `output/playwright/`.
+
+For a reproducible product capture only:
+
+~~~bash
+npm --prefix frontend run test:e2e:screenshots
+~~~
+
+This runs the synthetic showcase case and produces Black/Graphite captures under
+`output/playwright/showcase/`. It does not capture the person's live installation.
+Review selected images against [repository policy](REPOSITORY_POLICY.md) before
+publishing a copy under docs/images; generated test-output folders stay untracked.
+
+### Focused local checks
 
 Focused commands:
 
@@ -156,6 +231,18 @@ No automatic review occurs on import, navigation, brief changes or reload.
 
 ## Findings presentation checks
 
+The workspace keeps provenance in the compact Details disclosure beside its tabs.
+Overview uses one summary heading and direct Findings/My review actions rather
+than a reserved activity sidebar. Routine source details are disclosed; missing
+pages, source/read failures and unknown model-authored limitations stay visible.
+Only the fixed generator disclaimer is treated as routine automatically; do not
+use text heuristics to hide potentially material limitations or rewrite stored output.
+
+Settings keeps a saved key collapsed until Change key is selected (or re-entry is
+required). Cancelling clears the replacement draft and returns focus to Change key.
+Save changes is disabled while preferences are unchanged; changing a field clears
+stale success feedback. Key status describes local storage, not provider validation.
+
 For the shared entry/Settings shell, existing-run Overview, confirmed My review
 and independent source/metadata read recovery, run:
 
@@ -193,14 +280,19 @@ above compact reference selectors. Excerpt/passage labels do not certify a compl
 clause. Optional surrounding extracted text is display-only and stays separate
 from the unchanged saved citation. Unchanged, confirmed saved questions use quiet
 status; edited wording restores the save action. Review and Ask switch in the
-centre column while evidence stays available. Opening/copying a question never
-sends through the paid controls. My review defaults to confirmed questions and
-marked findings; All findings remains available without affecting export scope.
+centre column while evidence stays available. Ask's compact source chips select
+the exact saved passage associated with an answer paragraph, without repeating
+the quotation in the conversation. Raw inline citation IDs with no stored passage
+association receive display-only unlinked-reference labels; their original IDs
+remain disclosed. This does not repair attribution or infer claim-to-citation links.
+Opening/copying a question never sends through the paid controls. My review defaults
+to confirmed questions and marked findings; All findings remains available without
+affecting export scope.
 
 Focused checks, from the repository root:
 
 ~~~bash
-node --test frontend/tests/evidencePresentation.test.mjs frontend/tests/evidenceSelection.test.mjs frontend/tests/findingReview.test.mjs frontend/tests/reviewWorkspace.test.mjs frontend/tests/themePalette.test.mjs frontend/tests/readerViewState.test.mjs frontend/tests/pdfPageNavigation.test.mjs frontend/tests/pdfJsRenderer.test.mjs frontend/tests/myReviewChecklist.test.mjs frontend/tests/library.test.mjs
+node --test frontend/tests/evidencePresentation.test.mjs frontend/tests/evidenceSelection.test.mjs frontend/tests/askAnswerPresentation.test.mjs frontend/tests/findingReview.test.mjs frontend/tests/reviewWorkspace.test.mjs frontend/tests/themePalette.test.mjs frontend/tests/readerViewState.test.mjs frontend/tests/pdfPageNavigation.test.mjs frontend/tests/pdfJsRenderer.test.mjs frontend/tests/myReviewChecklist.test.mjs frontend/tests/library.test.mjs
 npm --prefix frontend run typecheck
 npm --prefix frontend run lint
 ~~~
@@ -255,7 +347,8 @@ do not click Start review. No storage or provider contract changed in this UI sl
 ## Library and resume checks
 
 The /documents Library uses the compact GET /documents/ summary, not one full
-workspace request per agreement. Its inspector follows the visible selection;
+workspace request per agreement. Filenames open directly; each row's Details
+action opens a dismissible inspector rather than reserving an empty column.
 Continue reviewing is independent of filters and chooses an eligible latest run
 by recorded review activity. The resume link restores the saved view, finding and
 evidence locally; it does not enqueue a save or dispatch AI. Import links continue
@@ -299,7 +392,11 @@ At a batched UI checkpoint, use a retained synthetic review, copy/download its
 brief and compare it with My review. Do not export private source records as test
 artifacts or treat a successful copy as legal validation.
 
-Checklist edits use the existing revisioned workspace queue. Include inline
+My review prioritizes saved wording with one empty state and compact filters/export.
+Ordinary editing avoids duplicating confirmed wording; blocked editing shows the
+last confirmed question beside the local draft for recovery comparison. A refreshed
+saved draft remains separately identifiable, and removed questions are not restored
+implicitly. Checklist edits use the existing revisioned workspace queue. Include inline
 edit/cancel/save, direct markers, Revisit/Saved questions filters, remove-confirm
 and cancel, absent-question replay and cross-tab conflict checks. Removal must
 preserve newer/empty drafts, recover wording only when no draft exists, and leave
@@ -317,7 +414,9 @@ node --test frontend/tests/documentWorkspace.test.mjs frontend/tests/pdfPageNavi
 At one batched browser checkpoint, inspect Library, Overview, Findings, Document
 and My review in Black/Graphite. Check physical-page entry and source-return,
 zoom/mode switching, the optional extraction panel, narrow viewport scrolling and
-keyboard focus. Reader toolbar regressions keep the native mode selector labelled
+keyboard focus. Citation context uses one compact return/title/disclosure row;
+opening its source details does not change the saved quotation or guess a highlight.
+Reader toolbar regressions keep the native mode selector labelled
 and aligned with zoom, without a redundant button-like border around its label.
 CSS contract tests guard layout intent; they are not a substitute
 for visual inspection or a measured accessibility assessment.

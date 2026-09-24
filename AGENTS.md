@@ -1,8 +1,10 @@
 # Repository Guidance
 
 This file contains stable project instructions for coding assistants and human
-contributors. Transient handovers, session notes, screenshots, and local tool
-state belong in .local-only or another ignored path.
+contributors. Transient handovers, session notes, test captures, and local tool
+state belong in .local-only or another ignored path. Reviewed product screenshots
+containing only synthetic fixture data may be tracked under docs/images as
+specified in docs/REPOSITORY_POLICY.md.
 
 ## Project shape
 

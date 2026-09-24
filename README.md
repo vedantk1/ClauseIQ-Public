@@ -1,166 +1,113 @@
 # ClauseIQ
 
-ClauseIQ is a personal contract-review application that runs on your computer.
-Import a PDF, understand it through an evidence-linked review, inspect the source,
-keep questions and personal markers, and ask finding-grounded follow-ups.
+A local contract-review workspace that keeps the agreement, its findings and your
+questions together. Import a PDF, inspect evidence in the original document, and
+turn the review into a short list of questions to raise.
 
-The application opens directly into one local workspace. There are no accounts,
-passwords, email verification, or admin roles. AI features use the OpenAI API
-with your own key, entered in Settings. This is not an offline AI application
-or a public, application-funded service.
+![ClauseIQ Findings workspace in Black theme, with an authored synthetic finding beside its source evidence](docs/images/review-workspace.png)
 
-> ClauseIQ is an experimental engineering project, not legal advice. AI output
-> can be incomplete or wrong and must be checked against the source. A synthetic
-> 25-page check missed a material pricing ambiguity and some handover detail;
-> matched citations are not a completeness or correctness guarantee.
+*Actual application UI with the authored synthetic example—not AI-generated output.
+[Reproduce this walkthrough](docs/WALKTHROUGH.md).*
 
-## Technology
+ClauseIQ runs as one personal workspace: no accounts or administrator setup.
+Importing, reading, saving questions and exporting your review are local actions.
+AI reviews and follow-up answers use your own OpenAI key, only when explicitly
+requested. There is no application-funded service or supported hosted deployment.
 
-- Frontend: Next.js 15, React 19, TypeScript, Tailwind CSS
-- Backend: FastAPI, Python 3.13
-- Storage: MongoDB, GridFS and Qdrant
-- Local infrastructure: Docker Compose
+> Experimental engineering project, not legal advice. AI can miss material terms
+> or misinterpret them. A matched citation locates source wording; it does not
+> establish correctness or a complete review.
 
-## Local development
+## The workflow
 
-Prerequisites: Node.js 24+, Python 3.13+, Docker with Docker Compose, and an
-OpenAI API key if you want to run AI features.
+1. **Import an agreement.** Keep the original PDF and page-aware extracted text;
+   inspect missing-text limitations before reviewing.
+2. **Review with evidence.** Choose your perspective, then explicitly generate a
+   summary and findings. Preview an excerpt beside its finding and open its
+   physical PDF page.
+3. **Ask and decide.** Ask a finding-grounded follow-up, keep your own question,
+   or mark a finding to revisit. Drafts, AI answers and confirmed questions stay
+   separate.
+4. **Take your work with you.** Resume your reading position and export confirmed
+   questions and markers as a Markdown review brief.
+
+The reading workspace offers Black and Graphite themes. Settings exposes the
+application's GPT-6 Luna, Sol and Astra catalog with configurable reasoning effort;
+Sol/Medium is the default. Changing a model or instructions never reruns a review
+or rewrites an earlier result.
+
+**Try it without an API key:** import the reviewed
+[25-page synthetic agreement](tests/fixtures/pdfs/managed-services-25p.pdf) and
+load its labelled, authored example. Follow the
+[short walkthrough](docs/WALKTHROUGH.md); the example is not live AI output.
+
+## Run locally
+
+Prerequisites: Node.js 24+, Python 3.13+, Docker with Docker Compose. An OpenAI API
+key is needed only for AI operations.
+
+Before starting, check whether ClauseIQ already uses ports 3000, 8000, 27017,
+6333 and 6334. **Existing installation?** Keep its environment files, database
+selection and credential directory. Read
+[workspace continuity](docs/DEVELOPMENT.md#existing-workspace-continuity) and
+[Qdrant data guidance](DOCKER.md#qdrant-versions-and-existing-stores) before changing
+storage or recreating containers.
 
 ~~~bash
 cp -n backend/.env.example backend/.env
 cp -n frontend/.env.example frontend/.env.local
 npm ci
 npm run setup
-~~~
-
-No application secrets or email configuration need to be generated. Check that
-ports 3000, 8000, 27017, 6333 and 6334 are free or already running ClauseIQ.
-
-Existing installation? Read [Qdrant version and data guidance](DOCKER.md#qdrant-versions-and-existing-stores)
-before recreating its database container with a changed image. Keep your existing
-environment files and database name; see [workspace continuity](docs/DEVELOPMENT.md#existing-workspace-continuity)
-before changing storage configuration.
-
-~~~bash
 docker compose -f docker-compose.dev.yml up -d
 npm run dev
 ~~~
 
-Open http://localhost:3000 and add your key in Settings. The backend is at
-http://localhost:8000; its API documentation is at http://localhost:8000/docs.
-Only local access is supported. Do not expose these services to a network or
-put them behind a public tunnel.
+Open [localhost:3000](http://localhost:3000). Add your key in Settings when needed;
+no JWT, SMTP or account configuration is required. The API and its generated docs
+are at [localhost:8000/docs](http://localhost:8000/docs). Keep all services on
+loopback; do not expose this unauthenticated local workspace through a public tunnel.
 
-Documents stay in the library until you delete them, unless you explicitly
-enable automatic deletion in Settings. There is no document-count cap; individual
-upload size and request limits still apply. Existing saved reviews, PDFs, notes
-and reports remain usable without an AI key.
+Documents stay until deleted unless you deliberately enable retention. Saved
+reviews remain readable without a key. Local storage does not mean offline AI:
+explicit AI requests send document content to OpenAI.
 
-Appearance offers Black and Graphite dark themes through the navigation theme
-switch. The choice is saved in this browser; light mode is no longer offered.
+## Engineering
 
-The app opens into the Library at /documents, which combines direct agreement
-links, on-demand details and Continue reviewing for the latest eligible saved
-review activity. Review
-status is separate from source extraction and earlier analysis; examples remain
-labelled. Resume restores the latest run's saved view without starting AI. Search,
-sorting, contract-type filters and confirmed deletion remain available. About is
-accessible through More; saved earlier analyses retain document-specific review
-links. Library, Import, Settings and the workspace share the same navigation.
-The retired /analytics and /legacy-analysis URLs redirect to Library and Import.
-Settings groups personal AI access, model and reasoning choices, document retention and notifications.
+Next.js 15, React 19 and TypeScript on the frontend; FastAPI and Python on the
+backend; MongoDB/GridFS for workspace data and originals; Qdrant for retained
+document-chat retrieval. PDF reading uses locally served Mozilla PDF.js assets,
+not a viewer CDN.
 
-The Library offers Import agreement without AI: choose or drop one PDF, confirm
-the import, then open review setup. Setup shows source readiness and missing-text
-limitations beside a short, optional review brief. Read the original or save the
-brief and return later without a key. Starting an AI review is a separate explicit
-action using the model and key configured in Settings. Existing runs keep their
-overview and original review context. Their Overview leads with the saved agreement
-summary and source coverage; editing the brief and starting another run are secondary,
-explicit actions. Recovery controls and consequential warnings remain available.
-New work uses Import and the review workspace; the earlier analysis uploader has
-been retired. Existing earlier results, notes, chat and reports remain accessible.
-Extraction or AI failures do not discard an already stored PDF.
-Imported/not-ready records are labelled separately from completed analysis.
-
-The review workspace connects Overview, Findings, Document and My review to
-local persistence. Save a brief, then explicitly Start review using the model
-selected in Settings. One bounded generation request produces an evidence-linked
-overview and findings; changing the brief never reruns AI or changes older runs.
-Source quotes are checked against stored extraction, not proof of legal accuracy.
-Findings show all navigation items and put the selected quote first. Saved excerpts
-are labelled as potentially partial; separately disclosed surrounding source text
-helps inspect context without changing the quotation or claiming a complete clause.
-Incomplete extraction, invalid output and interrupted requests remain visible.
-Draft recovery, explicit saved questions, personal markers and resume position
-remain separate. My review opens on Saved work (confirmed questions and personal
-markers), with All findings, Revisit and Saved questions filters, inline question
-editing, explicit save/removal and
-reversible personal markers. Removing a saved question keeps its recoverable draft
-and marker; drafts and AI answers never become confirmed questions automatically.
-The Document view prioritizes the original PDF, with page/zoom controls, Fit width/
-Fit page and optional source context and extracted text. Page, within-page position,
-zoom and reading mode are remembered per document/source revision in this browser;
-explicit citation clicks still open their exact source page. Copy brief and
-Download Markdown take confirmed
-questions and markers out of My review, with finding context, source-page references
-and the selected run's limitations, regardless of the checklist filter. Export is
-local and makes no AI call.
-Finding-scoped Ask occupies the centre column beside evidence, with Review/Ask
-switching and deliberate question editing. Use review question copies wording into
-the separate Ask draft; replacing different wording requires confirmation and never
-sends automatically. Answer references preview alongside the conversation.
-Ask uses the selected review's original perspective
-and extracted source, with its own recoverable draft and saved answer history.
-Sending is an explicit paid action; opening answers or saving drafts is not.
-Answers include source links, model attribution and any input limitations.
-Quote matching establishes location, not correctness. Importing, reading and
-saving personal work make no provider calls. Source and filename reads recover
-independently: explicit read retries preserve drafts and do not re-extract or run AI.
-An optional authored synthetic
-example remains available only for the unchanged
-tests/fixtures/pdfs/managed-services-25p.pdf and is labelled separately from AI output.
-See docs/API_REFERENCE.md for source and review-workspace APIs.
-
-## Validation
-
-For routine development, run the tests and type/lint checks affected by the change.
-Batch broader manual UI testing and production builds at meaningful checkpoints;
-neither is required after every small implementation. The complete checkpoint is:
+The implementation separates immutable source/review snapshots from revisioned
+personal work. Review-workspace generation and Ask have explicit dispatch, bounded
+input/output, persisted attempt identities and no automatic retries. Source
+matching and deterministic tests check engineering contracts, not legal quality.
 
 ~~~bash
-npm run check
+npm test           # deterministic backend and frontend tests; no paid AI
+npm run typecheck
+npm run lint
+npm run check      # complete checkpoint, including the production build
 ~~~
 
-This runs deterministic backend/frontend tests, shared-type build, frontend
-type checking, lint and production build. It does not call paid AI services.
-See docs/DEVELOPMENT.md for the incremental workflow. Reviewed synthetic PDFs
-and their reproducible sources are in tests/fixtures/pdfs.
+Use focused checks during development; batch broader browser checks and builds at
+meaningful checkpoints. See [Development](docs/DEVELOPMENT.md) for commands,
+isolated storage checks and separately approved live evaluations.
 
-## Documentation
+[CI](.github/workflows/ci.yml) checks backend/frontend tests, types, lint, a
+production build, synthetic Chromium journeys and reachable-history secret scanning.
+It needs no AI key and does not deploy the application.
 
-- docs/DEVELOPMENT.md — setup, commands, migration and troubleshooting
-- docs/ARCHITECTURE.md — components and data boundaries
-- docs/API_REFERENCE.md — API groups and local access
-- docs/SECURITY.md — local trust model, credentials and known limitations
-- docs/REPOSITORY_POLICY.md — public/private file policy
-- docs/CONTRIBUTING.md — contribution workflow
-- DOCKER.md — infrastructure and container smoke runs
+## More information
 
-## Project status and licensing
+- [Walkthrough](docs/WALKTHROUGH.md) — a reproducible, key-free product tour
+- [Architecture](docs/ARCHITECTURE.md) — services, source identity and state boundaries
+- [API reference](docs/API_REFERENCE.md) — local access and endpoint contracts
+- [Security](docs/SECURITY.md) — credentials, backups and supported trust boundary
+- [Contributing](docs/CONTRIBUTING.md) and [repository policy](docs/REPOSITORY_POLICY.md)
+- [Docker](DOCKER.md) — infrastructure and isolated container checks
 
-Experimental project under active development. There is no supported hosted production
-environment, deployment workflow or CI pipeline. Settings offers GPT-6 Luna,
-Sol and Astra. Sol with Medium reasoning is the default for reviews and answers;
-the separate query-preparation model uses Low effort. Reasoning effort is
-configurable for new reviews and answers. Higher effort can take longer and use
-more tokens within the same request limits. Retired GPT-5/5.6 selections resolve
-to Sol; historical results keep their original model and effort attribution.
-Choose models deliberately; there is no automatic provider fallback.
+## License
 
-ClauseIQ is licensed under the [MIT License](LICENSE). Third-party dependencies
-remain subject to their own licenses.
-
-PDF rendering uses Mozilla PDF.js (Apache-2.0). The worker and supporting assets
-are generated from the locked dependency before development/build and served
-locally; opening a saved PDF does not contact a viewer CDN.
+[MIT](LICENSE). Third-party dependencies retain their own licenses; PDF.js is
+Apache-2.0 and its generated assets retain the upstream notices.

@@ -1,5 +1,6 @@
 # ClauseIQ documentation
 
+- WALKTHROUGH.md — key-free product tour using the authored synthetic example
 - DEVELOPMENT.md — prerequisites, setup, checks, and troubleshooting
 - ARCHITECTURE.md — runtime components, flows, and trust boundaries
 - API_REFERENCE.md — API groups and access rules

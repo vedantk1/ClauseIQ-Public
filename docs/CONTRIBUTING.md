@@ -8,8 +8,9 @@
 4. Open a pull request with behavior, risk, and verification notes.
 5. Merge only after review and passing required checks.
 
-There is no permanent dev branch. Direct pushes to main should be avoided once
-branch protection and continuous integration are configured.
+There is no permanent dev branch. CI runs on pull requests and pushes to main;
+branch protection and required-check settings are separate repository decisions.
+Prefer reviewed pull requests over direct main pushes.
 
 ## Validation
 
@@ -37,6 +38,15 @@ for the cadence and synthetic PDF fixtures. Report deferred checks clearly.
 Tests that call live AI services must not run in the default suite. Use mocks
 for deterministic behavior; keep paid, live-model evaluations manual,
 explicit, and cost-capped.
+
+## Continuous integration
+
+The workflow checks backend tests, shared-type build, frontend tests/typecheck/lint
+and production build, unpaid Chromium journeys, and reachable-history secret
+scanning. Browser journeys use synthetic API fixtures, not a running application
+database. No API keys, live model calls or deployment steps belong in this workflow.
+See [Development](DEVELOPMENT.md#continuous-integration) for its exact scope and
+the local browser command. A passing run is not AI-quality or security certification.
 
 ## Code expectations
 

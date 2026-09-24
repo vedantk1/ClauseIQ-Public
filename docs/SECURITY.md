@@ -77,14 +77,17 @@ is outside ClauseIQ's storage protections and may be handled by other local apps
 or OS sync. Review it before sharing. Literal Markdown preserves supplied wording
 without introducing active images, links or HTML; it is not a sanitized legal opinion.
 
-Never commit credentials, real contracts, exports, local state or logs. The only
-tracked PDF exception is the reviewed synthetic test corpus described in
-REPOSITORY_POLICY.md; it contains no private source documents. Rotate a
+Never commit credentials, real contracts, exports, local state or logs. The tracked
+document/capture exceptions are the reviewed synthetic test corpus and reviewed
+synthetic product screenshots described in REPOSITORY_POLICY.md; neither may
+contain private source documents or a real user's workspace state. Rotate a
 credential if exposed; removing a file or Git commit is not enough.
 
 ## Known limitations
 
-- The repository has no CI security gates or supported production environment.
+- The repository has deterministic CI and a history secret scan, not a complete
+  security audit or supported production environment. These checks do not establish
+  that dependencies or arbitrary documents are safe.
 - PDF rendering uses pinned Mozilla PDF.js 6.3.289, replacing React PDF Viewer
   and its vulnerable PDF.js 3 dependency. `isEvalSupported: false` remains defense
   in depth; PDF scripting and editing are disabled. Source documents are still
@@ -102,11 +105,13 @@ credential if exposed; removing a file or Git commit is not enough.
   It sends extracted source text and the saved brief using a request-scoped personal
   key. Document content is untrusted prompt input, never executable instructions;
   no external tools or research are available to this review call. Structured output
-  and exact quote checks reduce format/reference failures but cannot guarantee
-  resistance to prompt injection or correct legal interpretation. A quote must
-  match the cited stored span or a unique, word-bounded literal excerpt within it;
-  the server always publishes the full stored passage. There is no fuzzy matching
-  or whitespace/case correction. This validates location, not claim support.
+  and source-ID checks reduce format/reference failures but cannot guarantee
+  resistance to prompt injection or correct legal interpretation. New generation
+  returns only supplied passage IDs and relevance labels; the server resolves them
+  to exact original text and anchors from the prepared source snapshot. Unknown
+  IDs or duplicate IDs in an evidence list are rejected. Provider-authored
+  quotations and page numbers are not accepted as evidence. There is no fuzzy
+  matching or whitespace/case correction. This validates location, not claim support.
   A persisted request ID prevents automatic duplicate generation on replay; provider
   retries are disabled. An interrupted/lost response can still incur a charge.
   Marking an attempt interrupted fences local output but does not cancel OpenAI.
@@ -127,6 +132,8 @@ credential if exposed; removing a file or Git commit is not enough.
 
 ## Reporting
 
-Do not disclose vulnerabilities in public issues. Until a public repository
-with private vulnerability reporting is established, contact the repository
-owner privately.
+Do not disclose vulnerabilities, document content or credentials in public issues.
+Use GitHub's private vulnerability reporting only if the repository's Security tab
+offers it; this project does not assume that feature is enabled. Otherwise contact
+the repository owner privately to agree on a safe reporting channel before sharing
+sensitive details.

@@ -129,7 +129,7 @@ cleanup report.
 
 test_review_generation.py covers the versioned prompt and strict output contract,
 full-source/schema input budgeting, unsupported/partial input, exact source
-references (including unique literal excerpts resolved to full stored passages),
+references (supplied passage IDs resolved to exact stored source ranges),
 refusal/length handling and usage attribution. It uses the installed
 SDK with a local HTTP mock to verify request serialization and disabled retries.
 test_review_generation_lifecycle.py checks claim-before-call, same-ID replay,
@@ -138,7 +138,7 @@ HTTP errors. test_review_run_contract.py rejects inconsistent persisted states.
 None of these tests validates live legal interpretation or spends API credit.
 
 manual_review_generation_check.py is excluded from Pytest. It requires separate
-paid-call approval and explicit flags, uses Terra with a known synthetic fixture,
+paid-call approval and explicit flags, uses GPT-6 Sol with a known synthetic fixture,
 reserves a conservative request ceiling plus explicitly supplied prior reservations,
 and refuses a reused report name. See docs/DEVELOPMENT.md for the fixed text-only
 bound and manual accounting boundary; it does not read account billing.
