@@ -270,7 +270,7 @@ export default function PDFViewer({
             disabled={zoomLevel >= 3} onClick={() => setScale(Math.min(3, Math.max(.5, Math.round((zoomLevel + 0.2) * 10) / 10)))}>+</Button>
         </div>
         <div className={styles.viewControls}>
-          <label className={styles.modeButton}>View <select aria-label="PDF reading mode" value={viewMode}
+          <label className={styles.modeControl}><span>View</span><select aria-label="PDF reading mode" value={viewMode}
             onChange={event => setViewMode(event.target.value as "single" | "continuous")}>
             <option value="continuous">Continuous</option><option value="single">Single page</option>
           </select></label>

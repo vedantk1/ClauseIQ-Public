@@ -317,7 +317,9 @@ node --test frontend/tests/documentWorkspace.test.mjs frontend/tests/pdfPageNavi
 At one batched browser checkpoint, inspect Library, Overview, Findings, Document
 and My review in Black/Graphite. Check physical-page entry and source-return,
 zoom/mode switching, the optional extraction panel, narrow viewport scrolling and
-keyboard focus. CSS contract tests guard layout intent; they are not a substitute
+keyboard focus. Reader toolbar regressions keep the native mode selector labelled
+and aligned with zoom, without a redundant button-like border around its label.
+CSS contract tests guard layout intent; they are not a substitute
 for visual inspection or a measured accessibility assessment.
 
 ## Finding-scoped Ask checks

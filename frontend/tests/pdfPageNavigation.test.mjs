@@ -450,6 +450,26 @@ test("optional document actions share the reader toolbar and survive PDF failure
   assert.ok(findElement(toolbar, item => item.props?.["aria-label"] === "Extracted text"), "extraction remains reachable if rendering fails");
 });
 
+test("reading mode uses one native field with an unboxed inline label", () => {
+  const harness = viewerHarness();
+  const tree = harness.render({ documentId: "doc-1" });
+  const label = findElement(tree, item => item.type === "label" && item.props.className === "pdf-modeControl");
+  assert.ok(label);
+  assert.ok(findElement(label, item => item.type === "span" && item.props.children === "View"));
+  const select = findElement(label, item => item.type === "select");
+  assert.equal(select.props["aria-label"], "PDF reading mode");
+  assert.equal(select.props.value, "continuous");
+  assert.equal(findElement(label, item => item.type === "button" || item.type === "svg"), null);
+  const css = readFileSync(new URL("../src/components/pdf/PDFReader.module.css", import.meta.url), "utf8");
+  const labelRule = css.match(/\.modeControl\s*\{([^}]+)\}/)?.[1];
+  assert.match(labelRule, /display:\s*inline-flex/);
+  assert.match(labelRule, /align-items:\s*center/);
+  assert.match(labelRule, /white-space:\s*nowrap/);
+  assert.doesNotMatch(labelRule, /border:|background:|padding:/);
+  assert.match(css, /\.toolbar select\s*\{[^}]*height:\s*32px/);
+  assert.match(css, /\.toolbar select:focus-visible\s*\{[^}]*outline:/);
+});
+
 test("direct page entry is physical, range-checked and independent of text search", async () => {
   const harness = viewerHarness();
   harness.render({ documentId: "source-doc", sourceRevisionId: "revision-1" });
