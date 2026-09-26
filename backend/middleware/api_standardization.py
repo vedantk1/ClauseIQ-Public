@@ -3,13 +3,14 @@ API response standardization middleware and utilities.
 Provides consistent API response formats, error handling, and request tracking.
 """
 import time
-import uuid
 import logging
-from typing import Any, Dict, Optional, Union, TypeVar, Generic
-from fastapi import Request, Response, HTTPException
+from typing import Any, Dict, Optional, TypeVar, Generic
+from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
+
+from middleware.request_context import current_request_id, request_context
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ def create_success_response(
         success=True,
         data=data,
         meta=meta,
-        correlation_id=correlation_id
+        correlation_id=correlation_id or current_request_id()
     )
 
 
@@ -72,7 +73,7 @@ def create_error_response(
     return APIResponse[None](
         success=False,
         error=error.model_dump(),
-        correlation_id=correlation_id
+        correlation_id=correlation_id or current_request_id()
     )
 
 
@@ -107,29 +108,17 @@ class APIStandardizationMiddleware(BaseHTTPMiddleware):
     Middleware for API request/response standardization.
 
     Features:
-    - Adds correlation IDs to requests
+    - Shares the server-generated HTTP request identity
     - Tracks request timing
     - Standardizes error responses
-    - Logs API requests and responses
     """
 
     async def dispatch(self, request: Request, call_next):
-        # Generate correlation ID
-        correlation_id = str(uuid.uuid4())
-        request.state.correlation_id = correlation_id
+        with request_context(request) as correlation_id:
+            return await self._dispatch_with_context(request, call_next, correlation_id)
 
-        # Add correlation ID to response headers
-        start_time = time.time()
-
-        # Log request (FND-009: query_params redacted)
-        logger.info(
-            "API request started: method=%s",
-            request.method,
-            extra={
-                "correlation_id": correlation_id,
-                "method": request.method,
-            },
-        )
+    async def _dispatch_with_context(self, request: Request, call_next, correlation_id: str):
+        start_time = time.perf_counter()
 
         try:
             response = await call_next(request)
@@ -149,34 +138,18 @@ class APIStandardizationMiddleware(BaseHTTPMiddleware):
             )
 
             # CORS is applied once by the outer configured middleware.
-            cors_headers = {"X-Correlation-ID": correlation_id} if correlation_id else {}
-
-            return JSONResponse(
+            response = JSONResponse(
                 status_code=500,
                 content=error_response.model_dump(),
-                headers=cors_headers
             )
 
         # Calculate request duration
-        duration = time.time() - start_time
+        duration = time.perf_counter() - start_time
 
         # Add correlation ID to response headers
         response.headers["X-Correlation-ID"] = correlation_id
+        response.headers["X-Request-ID"] = correlation_id
         response.headers["X-Request-Duration"] = f"{duration:.3f}s"
-
-        # Log response
-        logger.info(
-            "API response completed: method=%s status_code=%s duration=%.3f",
-            request.method,
-            response.status_code,
-            duration,
-            extra={
-                "correlation_id": correlation_id,
-                "status_code": response.status_code,
-                "duration": duration,
-                "method": request.method,
-            },
-        )
 
         return response
 
@@ -294,7 +267,6 @@ def create_success_response_with_request(
 ) -> APIResponse[T]:
     """
     Create standardized success response with request context.
-    Enterprise-grade helper for router endpoints.
     """
     correlation_id = get_correlation_id(request) if request else None
     return create_success_response(
@@ -315,7 +287,6 @@ def create_error_response_with_request(
 ) -> APIResponse[None]:
     """
     Create standardized error response with request context.
-    Enterprise-grade helper for router endpoints.
 
     Note: HTTP status codes should be handled by raising HTTPException.
     This function creates the error response structure.

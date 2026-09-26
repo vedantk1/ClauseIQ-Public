@@ -1,26 +1,35 @@
-"""
-🚀 FOUNDATIONAL LOGGING CONFIGURATION
-Centralized, robust logging for the entire ClauseIQ backend.
-"""
+"""Explicit application logging configuration with content-safe request IDs."""
 import logging
 import logging.handlers
 import os
 import re
 import sys
 
+from middleware.request_context import current_request_id
+
+
+class RequestContextFilter(logging.Filter):
+    """Attach the server-owned HTTP ID, never an arbitrary LogRecord extra."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.http_request_id = current_request_id() or "-"
+        return True
+
 
 class FoundationalLogger:
-    """
-    🎯 FOUNDATIONAL: Single source of truth for all application logging.
-    No more scattered basicConfig calls - everything goes through here!
-    """
+    """Configure application logging explicitly, independent of import order."""
 
     _configured = False
+    _configuration: tuple[str, str] | None = None
 
     @classmethod
     def configure(cls, log_level: str = "INFO", log_dir: str = "logs"):
         """Configure logging for the entire application."""
-        if cls._configured:
+        level = logging.getLevelNamesMapping().get(log_level.upper())
+        if level is None:
+            raise ValueError("Unsupported logging level")
+        configuration = (log_level.upper(), os.path.abspath(log_dir))
+        if cls._configured and cls._configuration == configuration:
             return
 
         # Create logs directory
@@ -28,16 +37,21 @@ class FoundationalLogger:
 
         # Root logger configuration
         root_logger = logging.getLogger()
-        root_logger.setLevel(getattr(logging, log_level.upper()))
+        root_logger.setLevel(level)
 
-        # Clear any existing handlers
-        root_logger.handlers.clear()
+        # Close only owned handlers. Keep handlers installed by test runners or
+        # host processes, including when explicitly changing the configuration.
+        for name in ("", "chat", "clauseiq_api"):
+            target = logging.getLogger(name)
+            for handler in tuple(target.handlers):
+                if getattr(handler, "_clauseiq_handler", False):
+                    target.removeHandler(handler)
+                    handler.close()
 
-        # Console handler with colored output
         console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(logging.INFO)
+        cls._prepare_handler(console_handler, level)
         console_formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            '%(asctime)s - %(name)s - %(levelname)s - request_id=%(http_request_id)s - %(message)s'
         )
         console_handler.setFormatter(console_formatter)
         root_logger.addHandler(console_handler)
@@ -49,9 +63,9 @@ class FoundationalLogger:
             maxBytes=10*1024*1024,  # 10MB
             backupCount=5
         )
-        app_file_handler.setLevel(logging.DEBUG)
+        cls._prepare_handler(app_file_handler, level)
         app_file_formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - [%(funcName)s:%(lineno)d] - %(message)s'
+            '%(asctime)s - %(name)s - %(levelname)s - request_id=%(http_request_id)s - [%(funcName)s:%(lineno)d] - %(message)s'
         )
         app_file_handler.setFormatter(app_file_formatter)
         root_logger.addHandler(app_file_handler)
@@ -63,27 +77,32 @@ class FoundationalLogger:
             maxBytes=10*1024*1024,  # 10MB
             backupCount=3
         )
-        error_file_handler.setLevel(logging.ERROR)
+        cls._prepare_handler(error_file_handler, max(level, logging.ERROR))
         error_file_handler.setFormatter(app_file_formatter)
         root_logger.addHandler(error_file_handler)
 
         # Configure specific loggers
-        cls._configure_chat_logger(log_dir)
-        cls._configure_api_logger(log_dir)
+        cls._configure_chat_logger(log_dir, level)
+        cls._configure_api_logger(log_dir, level)
 
         cls._configured = True
+        cls._configuration = configuration
 
         # Log the configuration
         logger = logging.getLogger("foundational.logging")
-        logger.info("Foundational logging configuration complete")
-        logger.info("Log level configured: %s", log_level.upper())
-        logger.info("Application and error log handlers configured")
+        logger.info("Application logging configured: level=%s", log_level.upper())
+
+    @staticmethod
+    def _prepare_handler(handler: logging.Handler, level: int) -> None:
+        handler._clauseiq_handler = True
+        handler.setLevel(level)
+        handler.addFilter(RequestContextFilter())
 
     @classmethod
-    def _configure_chat_logger(cls, log_dir: str):
+    def _configure_chat_logger(cls, log_dir: str, level: int):
         """Configure dedicated chat logger."""
         chat_logger = logging.getLogger("chat")
-        chat_logger.setLevel(logging.DEBUG)
+        chat_logger.setLevel(level)
 
         # Chat-specific file handler
         chat_log_file = os.path.join(log_dir, "chat.log")
@@ -92,9 +111,9 @@ class FoundationalLogger:
             maxBytes=5*1024*1024,  # 5MB
             backupCount=3
         )
-        chat_file_handler.setLevel(logging.DEBUG)
+        cls._prepare_handler(chat_file_handler, level)
         chat_formatter = logging.Formatter(
-            '%(asctime)s - CHAT - %(levelname)s - [%(funcName)s:%(lineno)d] - %(message)s'
+            '%(asctime)s - CHAT - %(levelname)s - request_id=%(http_request_id)s - [%(funcName)s:%(lineno)d] - %(message)s'
         )
         chat_file_handler.setFormatter(chat_formatter)
         chat_logger.addHandler(chat_file_handler)
@@ -103,10 +122,10 @@ class FoundationalLogger:
         chat_logger.propagate = True
 
     @classmethod
-    def _configure_api_logger(cls, log_dir: str):
+    def _configure_api_logger(cls, log_dir: str, level: int):
         """Configure dedicated API request/response logger."""
         api_logger = logging.getLogger("clauseiq_api")
-        api_logger.setLevel(logging.INFO)
+        api_logger.setLevel(level)
 
         # API-specific file handler
         api_log_file = os.path.join(log_dir, "api.log")
@@ -115,9 +134,9 @@ class FoundationalLogger:
             maxBytes=10*1024*1024,  # 10MB
             backupCount=5
         )
-        api_file_handler.setLevel(logging.INFO)
+        cls._prepare_handler(api_file_handler, level)
         api_formatter = logging.Formatter(
-            '%(asctime)s - API - %(levelname)s - %(message)s'
+            '%(asctime)s - API - %(levelname)s - request_id=%(http_request_id)s - %(message)s'
         )
         api_file_handler.setFormatter(api_formatter)
         api_logger.addHandler(api_file_handler)
@@ -127,9 +146,7 @@ class FoundationalLogger:
 
     @classmethod
     def get_logger(cls, name: str) -> logging.Logger:
-        """Get a logger with proper configuration."""
-        if not cls._configured:
-            cls.configure()
+        """Retrieve a logger without changing configuration during imports."""
         return logging.getLogger(name)
 
     @classmethod
@@ -154,10 +171,7 @@ class FoundationalLogger:
 
 
 def get_foundational_logger(name: str) -> logging.Logger:
-    """
-    🚀 FOUNDATIONAL: Get a properly configured logger.
-    Use this instead of logging.getLogger() throughout the app.
-    """
+    """Retrieve an application logger; startup owns its configuration."""
     return FoundationalLogger.get_logger(name)
 
 

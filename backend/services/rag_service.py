@@ -1,21 +1,9 @@
 """
 RAG (Retrieval Augmented Generation) Service for ClauseIQ.
 
-This service provides document chunking, embedding generation, vector storage,
-and chat functionality using Qdrant for vector storage and OpenAI's
-embeddings/chat APIs.
-
-DESIGN PRINCIPLES:
-- Zero disruption to existing functionality
-- Additive enhancement to current document processing
-- Safe fallbacks and error handling
-- Cost-efficient with caching and batching
-
-ARCHITECTURE:
-- Document Chunking: Smart legal document segmentation
-- Embeddings: OpenAI text-embedding-3-large for maximum accuracy
-- Vector Storage: Qdrant (self-hosted) with workspace isolation via filtering
-- RAG Pipeline: Retrieval + Generation with source attribution
+Retained document chat uses this chunking, embedding and Qdrant retrieval path.
+The review workspace and finding-scoped Ask use their own full-source engines;
+this service does not implement library-wide search.
 """
 import asyncio
 import hashlib
@@ -95,7 +83,7 @@ class RAGService:
         from config.environments import get_environment_config
         self.config = get_environment_config()
 
-        self.embedding_model = "text-embedding-3-large"  # Upgraded to 3072 dimensions
+        self.embedding_model = "text-embedding-3-large"
         self.chunk_size = 1000  # tokens
         self.chunk_overlap = 200  # tokens
         self.max_chunks_per_query = 5
@@ -122,7 +110,7 @@ class RAGService:
     async def is_available(self) -> bool:
         """Check if RAG service is available."""
         try:
-            # Check if OpenAI client is available (either user context or global)
+            # Credentials come only from the active request context.
             from services.ai.client_manager import get_openai_client
 
             client = get_openai_client()
@@ -346,30 +334,6 @@ class RAGService:
         except Exception as e:
             logger.error("RAG document processing failed: %s", type(e).__name__)
             raise RuntimeError("RAG operation failed") from None
-
-    def _calculate_similarity(self, query_embedding: List[float], chunk_embedding: List[float]) -> float:
-        """Calculate cosine similarity between two embeddings."""
-        try:
-            import numpy as np
-
-            # Convert to numpy arrays
-            query_vec = np.array(query_embedding)
-            chunk_vec = np.array(chunk_embedding)
-
-            # Calculate cosine similarity
-            dot_product = np.dot(query_vec, chunk_vec)
-            norm_query = np.linalg.norm(query_vec)
-            norm_chunk = np.linalg.norm(chunk_vec)
-
-            if norm_query == 0 or norm_chunk == 0:
-                return 0.0
-
-            similarity = dot_product / (norm_query * norm_chunk)
-            return float(similarity)
-
-        except Exception as e:
-            logger.error("Similarity calculation failed: %s", type(e).__name__)
-            return 0.0
 
     async def _needs_conversation_context(self, query: str) -> bool:
         """Gate: Determine if query needs conversation context using workspace-configured gate model."""
@@ -642,145 +606,6 @@ RESPONSE:"""
         except Exception as e:
             logger.error("RAG response generation failed: %s", type(e).__name__)
             raise AIRequestError("Chat response generation failed. Please retry.") from None
-
-    async def _get_or_create_vector_store(self, workspace_id: str) -> str:
-        """
-        LEGACY (OpenAI Vector Store) – not used in current architecture.
-        Qdrant is the active vector storage via `QdrantVectorService`.
-        Kept for potential future migrations; safe to ignore.
-        """
-        try:
-            client = _get_openai_client()
-
-            # For now, create one vector store per user
-            # In production, you might want to optimize this
-            vector_store_name = f"clauseiq-workspace-{workspace_id}"
-
-            # Try to find existing vector store
-            vector_stores = await client.vector_stores.list()
-            async for vs in vector_stores:
-                if vs.name == vector_store_name:
-                    logger.info("Using existing legacy vector store")
-                    return vs.id
-
-            # Create new vector store
-            vector_store = await client.vector_stores.create(
-                name=vector_store_name,
-                expires_after={
-                    "anchor": "last_active_at",
-                    "days": 90  # Auto-cleanup after 90 days of inactivity
-                }
-            )
-
-            logger.info("Created legacy vector store")
-            return vector_store.id
-
-        except Exception as e:
-            logger.error("Legacy vector store creation failed: %s", type(e).__name__)
-            raise RuntimeError("RAG operation failed") from None
-
-    async def _upload_to_vector_store(self, vector_store_id: str, text: str, filename: str) -> str:
-        """
-        LEGACY (OpenAI Vector Store) – not used in current architecture.
-        Qdrant ingestion is handled by `QdrantVectorService.store_document_chunks`.
-        """
-        try:
-            import tempfile
-            import os
-
-            client = _get_openai_client()
-
-            # Create a temporary file with the document text
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as temp_file:
-                temp_file.write(text)
-                temp_file_path = temp_file.name
-
-            try:
-                # Upload file to OpenAI
-                with open(temp_file_path, 'rb') as file_obj:
-                    file_response = await client.files.create(
-                        file=file_obj,
-                        purpose="assistants"
-                    )
-
-                # Add file to vector store
-                await client.vector_stores.files.create(
-                    vector_store_id=vector_store_id,
-                    file_id=file_response.id
-                )
-
-                logger.info("Uploaded file to legacy vector store")
-                return file_response.id
-
-            finally:
-                # Clean up temporary file
-                try:
-                    os.unlink(temp_file_path)
-                except Exception as e:
-                    logger.warning(f"Could not delete temporary upload file: {type(e).__name__}")
-
-        except Exception as e:
-            logger.error("Legacy vector store upload failed: %s", type(e).__name__)
-            raise RuntimeError("RAG operation failed") from None
-
-    async def _retrieve_from_local_chunks(self, query: str, chunks: List[Dict[str, Any]], max_chunks: int) -> List[Dict[str, Any]]:
-        """Fallback method to retrieve chunks using local embeddings."""
-        if not chunks:
-            return []
-
-        try:
-            safe_embedding_call = _get_rate_limited_embedding_call()
-            if not safe_embedding_call:
-                logger.warning("Rate-limited embedding call not available, falling back to text matching")
-                # Skip embedding and fall back to text matching below
-                query_embedding = None
-            else:
-                # Define the embedding API call function
-                async def make_query_embedding_call(client, model, input_texts):
-                    return await client.embeddings.create(model=model, input=input_texts)
-
-                # Generate embedding for the query using rate-limited call
-                response = await safe_embedding_call(
-                    make_query_embedding_call,
-                    self.embedding_model,
-                    [query]
-                )
-
-                if response is None:
-                    logger.warning("Failed to generate query embedding, falling back to text matching")
-                    query_embedding = None
-                else:
-                    query_embedding = response.data[0].embedding
-
-            # Calculate similarities with stored chunks
-            chunk_similarities = []
-            for chunk in chunks:
-                # For local chunks, we don't store embeddings yet (would be expensive)
-                # Instead, do simple text matching as fallback
-                text_lower = chunk.get("text", "").lower()
-                query_lower = query.lower()
-
-                # Simple keyword matching score
-                query_words = query_lower.split()
-                text_words = text_lower.split()
-
-                matches = sum(1 for word in query_words if word in text_words)
-                score = matches / len(query_words) if query_words else 0
-
-                if score > 0.1:  # Minimum relevance threshold
-                    chunk_similarities.append((chunk, score))
-
-            # Sort by similarity and return top chunks
-            chunk_similarities.sort(key=lambda x: x[1], reverse=True)
-            relevant_chunks = [chunk for chunk, score in chunk_similarities[:max_chunks]]
-
-            logger.info(f"Retrieved {len(relevant_chunks)} chunks using fallback method")
-            return relevant_chunks
-
-        except Exception as e:
-            logger.error("Fallback chunk retrieval failed: %s", type(e).__name__)
-            # Last resort: return first few chunks
-            return chunks[:max_chunks] if chunks else []
 
     async def delete_document_from_rag(self, document_id: str, workspace_id: str) -> bool:
         """

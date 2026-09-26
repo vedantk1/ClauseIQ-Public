@@ -3,15 +3,15 @@
 import json
 import logging
 import re
-import sys
 import time
-import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Mapping, Optional
 
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from middleware.api_standardization import create_error_response
+from middleware.request_context import current_request_id, request_context
 
 _SAFE_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,79}$")
 _SAFE_SECURITY_STRING_FIELDS = frozenset(
@@ -23,7 +23,7 @@ _SAFE_SECURITY_NUMBER_FIELDS = frozenset(
 
 
 def _utc_timestamp() -> str:
-    return datetime.utcnow().isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _safe_token(value: Any, fallback: str) -> str:
@@ -85,14 +85,6 @@ class StructuredLogger:
 
     def __init__(self) -> None:
         self.logger = logging.getLogger("clauseiq_api")
-        if not self.logger.handlers:
-            handler = logging.StreamHandler(sys.stdout)
-            formatter = logging.Formatter(
-                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-            )
-            handler.setFormatter(formatter)
-            self.logger.addHandler(handler)
-            self.logger.setLevel(logging.INFO)
 
     def log_request(
         self,
@@ -157,18 +149,20 @@ structured_logger = StructuredLogger()
 
 async def logging_middleware(request: Request, call_next):
     """Track request lifecycle without persisting request or user content."""
+    with request_context(request) as request_id:
+        return await _log_request(request, call_next, request_id)
 
-    request_id = str(uuid.uuid4())
-    start_time = time.time()
+
+async def _log_request(request: Request, call_next, request_id: str):
+    start_time = time.perf_counter()
 
     structured_logger.log_request(request_id, request)
 
-    request.state.request_id = request_id
     request.state.start_time = start_time
 
     try:
         response = await call_next(request)
-        duration = time.time() - start_time
+        duration = time.perf_counter() - start_time
 
         response_size = 0
         if hasattr(response, "body"):
@@ -181,6 +175,7 @@ async def logging_middleware(request: Request, call_next):
             response_size,
         )
         response.headers["X-Request-ID"] = request_id
+        response.headers["X-Correlation-ID"] = request_id
         response.headers["X-Response-Time"] = f"{duration * 1000:.2f}ms"
         return response
     except HTTPException as http_error:
@@ -188,23 +183,24 @@ async def logging_middleware(request: Request, call_next):
         structured_logger.log_response(
             request_id,
             http_error.status_code,
-            time.time() - start_time,
+            time.perf_counter() - start_time,
         )
         raise
     except Exception as error:
         structured_logger.log_error(request_id, error, request)
-        duration = time.time() - start_time
+        duration = time.perf_counter() - start_time
         structured_logger.log_response(request_id, 500, duration)
 
         return JSONResponse(
             status_code=500,
-            content={
-                "error": "Internal server error",
-                "request_id": request_id,
-                "timestamp": _utc_timestamp(),
-            },
+            content=create_error_response(
+                code="INTERNAL_SERVER_ERROR",
+                message="An unexpected error occurred",
+                correlation_id=request_id,
+            ).model_dump(),
             headers={
                 "X-Request-ID": request_id,
+                "X-Correlation-ID": request_id,
                 "X-Response-Time": f"{duration * 1000:.2f}ms",
             },
         )
@@ -215,14 +211,6 @@ class SecurityLogger:
 
     def __init__(self) -> None:
         self.logger = logging.getLogger("clauseiq_security")
-        if not self.logger.handlers:
-            handler = logging.StreamHandler(sys.stdout)
-            formatter = logging.Formatter(
-                "%(asctime)s - SECURITY - %(levelname)s - %(message)s"
-            )
-            handler.setFormatter(formatter)
-            self.logger.addHandler(handler)
-            self.logger.setLevel(logging.WARNING)
 
     def log_suspicious_activity(
         self, event_type: str, details: Dict[str, Any]
@@ -235,6 +223,8 @@ class SecurityLogger:
             "metadata": _safe_security_metadata(details),
             "timestamp": _utc_timestamp(),
         }
+        if request_id := current_request_id():
+            log_data["request_id"] = request_id
         self.logger.warning(json.dumps(log_data))
 
     def log_auth_failure(

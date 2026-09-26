@@ -2,19 +2,21 @@
 
 The diagnostic logger intentionally records only an explicit allowlist of
 operational metadata. User prompts, document content, request bodies,
-credentials, identifiers, exception messages, and tracebacks are never
-persisted by this module.
+credentials, document/person identifiers, exception messages, and tracebacks
+are never persisted. The server-generated HTTP ID can correlate safe events.
 """
 
 import json
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, Mapping, Optional
 
 import psutil
+
+from middleware.request_context import current_request_id
 
 
 class DebugLevel(Enum):
@@ -111,7 +113,7 @@ _SAFE_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,79}$")
 
 
 def _utc_timestamp() -> str:
-    return datetime.utcnow().isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _safe_identifier(value: Any) -> Optional[str]:
@@ -223,6 +225,8 @@ class AIDebugLogger:
     ) -> None:
         """Log an event without retaining user content or exception details."""
 
+        # Do not treat a caller-provided identifier (possibly a paid-attempt ID
+        # or user content) as the HTTP identity. Only middleware owns that ID.
         del message, user_id, request_id
 
         safe_event_type = _safe_identifier(event_type) or "UNSPECIFIED_EVENT"
@@ -233,6 +237,8 @@ class AIDebugLogger:
             "message": "Diagnostic event recorded",
             "context": sanitize_diagnostic_context(context),
         }
+        if http_request_id := current_request_id():
+            log_entry["request_id"] = http_request_id
 
         if error is not None:
             log_entry["error"] = {
@@ -241,22 +247,15 @@ class AIDebugLogger:
             }
 
         json_log = json.dumps(log_entry, default=str)
-        human_log = f"[{level.value}] {safe_event_type}"
-
         if level == DebugLevel.CRITICAL:
-            self.logger.critical(human_log)
             self.logger.critical(f"JSON: {json_log}")
         elif level == DebugLevel.ERROR:
-            self.logger.error(human_log)
             self.logger.error(f"JSON: {json_log}")
         elif level == DebugLevel.WARNING:
-            self.logger.warning(human_log)
             self.logger.warning(f"JSON: {json_log}")
         elif level == DebugLevel.INFO:
-            self.logger.info(human_log)
             self.logger.info(f"JSON: {json_log}")
         else:
-            self.logger.debug(human_log)
             self.logger.debug(f"JSON: {json_log}")
 
     def log_rag_pipeline_step(

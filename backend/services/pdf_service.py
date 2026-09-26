@@ -1,6 +1,5 @@
 """
-PDF report generation service for legal document analysis using ReportLab.
-Enhanced with professional visuals, executive summaries, and comprehensive legal insights.
+PDF report generation for retained earlier-analysis results using ReportLab.
 """
 import io
 import logging
@@ -946,56 +945,48 @@ async def generate_pdf_report(document_data: Dict[str, Any]) -> bytes:
         # Build report sections in optimized order with error handling for each
         try:
             template.add_title_page()
-            print("✓ Title page added")
         except Exception as e:
             logger.warning("PDF title page generation failed: %s", type(e).__name__)
 
         try:
             template.add_table_of_contents()
-            print("✓ TOC added")
         except Exception as e:
             logger.warning("PDF table of contents generation failed: %s", type(e).__name__)
 
         try:
             template.add_executive_highlights()
-            print("✓ Executive highlights added")
         except Exception as e:
             logger.warning("PDF executive highlights generation failed: %s", type(e).__name__)
 
         try:
             template.add_document_insights()
-            print("✓ Document insights added")
         except Exception as e:
             logger.warning("PDF document insights generation failed: %s", type(e).__name__)
 
         try:
             template.add_executive_summary()
-            print("✓ Executive summary added")
         except Exception as e:
             logger.warning("PDF executive summary generation failed: %s", type(e).__name__)
 
         try:
             template.add_structured_sections()
-            print("✓ Structured sections added")
         except Exception as e:
             logger.warning("PDF structured sections generation failed: %s", type(e).__name__)
 
         try:
             template.add_clause_analysis()
-            print("✓ Clause analysis added")
         except Exception as e:
             logger.warning("PDF clause analysis generation failed: %s", type(e).__name__)
 
         try:
             template.add_final_sections()
-            print("✓ Final sections added")
         except Exception as e:
             logger.warning("PDF final sections generation failed: %s", type(e).__name__)
 
         # Generate PDF
-        print("Building PDF...")
+        logger.debug("Building earlier-analysis PDF report")
         pdf_bytes = template.build_pdf()
-        print(f"✓ PDF generated: {len(pdf_bytes)} bytes")
+        logger.debug("Earlier-analysis PDF report generated")
         return pdf_bytes
 
     except Exception as e:

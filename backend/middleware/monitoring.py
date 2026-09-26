@@ -4,6 +4,7 @@ Performance monitoring middleware for tracking API metrics and health.
 import time
 import psutil
 import asyncio
+from contextvars import Context
 from typing import Dict, List, Optional
 from fastapi import Request
 from datetime import datetime, timedelta
@@ -44,7 +45,11 @@ class PerformanceMetrics:
         if self.monitoring_task is None:
             try:
                 loop = asyncio.get_running_loop()
-                self.monitoring_task = loop.create_task(self._monitor_system_metrics())
+                # This is process-level work, not a continuation of the first
+                # request. Do not retain its HTTP identity or other request state.
+                self.monitoring_task = loop.create_task(
+                    self._monitor_system_metrics(), context=Context(),
+                )
             except RuntimeError:
                 # No event loop running, monitoring will start when middleware is used
                 pass

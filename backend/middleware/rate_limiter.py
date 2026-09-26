@@ -137,10 +137,10 @@ async def rate_limit_middleware(request: Request, call_next):
             security_monitor.record_suspicious_activity(client_key, "rate_limit_exceeded")
 
             from fastapi.responses import JSONResponse
-            return JSONResponse(status_code=429, content={
-                "success": False,
-                "error": {"code": "RATE_LIMIT_EXCEEDED", "message": "Rate limit exceeded"},
-            }, headers={"Retry-After": str(max(1, int(info["reset_time"] - time.time())))})
+            from middleware.api_standardization import create_error_response
+            return JSONResponse(status_code=429, content=create_error_response(
+                code="RATE_LIMIT_EXCEEDED", message="Rate limit exceeded",
+            ).model_dump(), headers={"Retry-After": str(max(1, int(info["reset_time"] - time.time())))})
 
         # Process request
         response = await call_next(request)

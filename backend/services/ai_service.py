@@ -54,7 +54,7 @@ async def detect_contract_type(document_text: str, filename: str = "", model: st
         optimal_response_tokens = get_optimal_response_tokens("classification", model)
         max_input_tokens = calculate_token_budget(model, response_tokens=optimal_response_tokens)
 
-        print(f"🏷️ Contract classification using {max_input_tokens} input tokens for {model}")
+        logger.debug("Classification budget: input=%d output=%d", max_input_tokens, optimal_response_tokens)
 
         prompt_template = """
         Analyze this legal document and identify its type. Based on the content, language, and structure, determine which category best describes this document:
@@ -127,8 +127,7 @@ async def extract_clauses_with_llm(document_text: str, contract_type: ContractTy
         optimal_response_tokens = get_optimal_response_tokens("extraction", model)
         max_input_tokens = calculate_token_budget(model, response_tokens=optimal_response_tokens)
 
-        print(f"🔍 Clause extraction using {optimal_response_tokens} response tokens, {max_input_tokens} input tokens for {model}")
-        print(f"📄 Can analyze {max_input_tokens//4:.0f} characters (~{max_input_tokens//250:.0f} pages) of legal text")
+        logger.debug("Extraction budget: input=%d output=%d", max_input_tokens, optimal_response_tokens)
 
         prompt_template = """
         Analyze this {contract_type} document and identify ALL significant clauses with comprehensive detail.
@@ -243,7 +242,7 @@ async def generate_structured_document_summary(document_text: str, filename: str
         optimal_response_tokens = get_optimal_response_tokens("summary", model)
         max_input_tokens = calculate_token_budget(model, response_tokens=optimal_response_tokens)
 
-        print(f"📊 Contract-specific structured analysis using {optimal_response_tokens} response tokens, {max_input_tokens} input tokens for {model}")
+        logger.debug("Summary budget: input=%d output=%d", max_input_tokens, optimal_response_tokens)
         logger.info("Running contract-specific structured analysis")
 
         # Contract-type-specific structured prompts
@@ -428,7 +427,7 @@ async def generate_clause_rewrite(
         optimal_response_tokens = get_optimal_response_tokens("rewrite", model)
         max_input_tokens = calculate_token_budget(model, response_tokens=optimal_response_tokens)
 
-        print(f"✏️ Clause rewrite using {optimal_response_tokens} response tokens, {max_input_tokens} input tokens for {model}")
+        logger.debug("Rewrite budget: input=%d output=%d", max_input_tokens, optimal_response_tokens)
 
         prompt = f"""You are a legal expert specializing in contract clause optimization.
 
@@ -461,7 +460,7 @@ Provide ONLY the rewritten clause text, no explanations or commentary."""
         )
 
         rewrite_suggestion = response.choices[0].message.content.strip()
-        print(f"✅ Generated rewrite suggestion ({len(rewrite_suggestion)} characters)")
+        logger.debug("Clause rewrite completed")
 
         return rewrite_suggestion
 

@@ -70,7 +70,7 @@ async def run_main(operation, model):
     ("classification", "nda"), ("extraction", json.dumps({"clauses": [CLAUSE]})),
     ("summary", json.dumps(SUMMARY)), ("rewrite", "Each party must protect confidential information."),
 ])
-async def test_main_operations_honor_selected_model_and_task_budget(provider, model, operation, content):
+async def test_main_operations_honor_selected_model_and_task_budget(provider, model, operation, content, capsys):
     provider.chat.completions.create.return_value = completion(content)
     result = await run_main(operation, model)
     assert result
@@ -80,6 +80,7 @@ async def test_main_operations_honor_selected_model_and_task_budget(provider, mo
     assert request["reasoning_effort"] == "medium"
     if operation in {"extraction", "summary"}:
         assert request["response_format"] == {"type": "json_object"}
+    assert capsys.readouterr().out == ""
 
 
 @pytest.mark.asyncio
@@ -127,7 +128,7 @@ def rag(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("operation,content", [("query_gate", "YES"), ("query_rewrite", "What is the notice period?")])
-async def test_chat_helpers_honor_terra_selection_and_low_reasoning(provider, rag, operation, content):
+async def test_chat_helpers_honor_selected_model_and_low_reasoning(provider, rag, operation, content):
     provider.chat.completions.create.return_value = completion(content)
     if operation == "query_gate":
         assert await rag._needs_conversation_context("What about that?") is True
@@ -137,6 +138,22 @@ async def test_chat_helpers_honor_terra_selection_and_low_reasoning(provider, ra
     assert request["model"] == "gpt-6-sol"
     assert request["reasoning_effort"] == "low"
     assert request["max_completion_tokens"] == get_optimal_response_tokens(operation, "gpt-6-sol")
+
+
+@pytest.mark.asyncio
+async def test_retained_chat_retrieval_stays_document_and_workspace_scoped(rag):
+    vector = SimpleNamespace(search_similar_chunks=AsyncMock(return_value=[{
+        "content": "Synthetic evidence", "metadata": {"chunk_id": "chunk-1"},
+        "similarity_score": 0.8, "document_id": "document-1",
+    }]))
+    rag._vector_service = vector
+    result = await rag.retrieve_relevant_chunks("Notice period?", "document-1", "local")
+    vector.search_similar_chunks.assert_awaited_once_with(
+        query="Notice period?", workspace_id="local", document_id="document-1",
+        k=3, similarity_threshold=0.15,
+    )
+    assert result["chunks"][0]["chunk_id"] == "chunk-1"
+    assert result["chunks"][0]["source"] == "qdrant_vector"
 
 
 @pytest.mark.asyncio

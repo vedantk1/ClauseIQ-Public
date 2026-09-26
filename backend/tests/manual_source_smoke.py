@@ -34,10 +34,12 @@ FIXTURE_DIR = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "pdfs
 WORKSPACE = "synthetic-source-workspace"
 
 
-def isolated_adapter(database_name):
+def isolated_adapter(database_name, mongo_port=27017):
+    if type(mongo_port) is not int or not 1024 <= mongo_port <= 65535:
+        raise ValueError("Isolated MongoDB smoke requires a nonprivileged localhost port")
     return MongoDBAdapter(ConnectionConfig(
         backend=DatabaseBackend.MONGODB,
-        uri="mongodb://127.0.0.1:27017",
+        uri=f"mongodb://127.0.0.1:{mongo_port}",
         database=database_name,
         min_pool_size=0,
         server_selection_timeout_ms=5000,

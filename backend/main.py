@@ -3,6 +3,12 @@ from fastapi.security import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from config.environments import get_environment_config
+from config.logging import FoundationalLogger, get_foundational_logger
+
+# Startup owns logging; retrieving a module logger has no configuration side effects.
+FoundationalLogger.configure(log_level="INFO", log_dir="logs")
+logger = get_foundational_logger(__name__)
+
 from routers import documents, analysis, health, reports, chat, app_config, workspace, review_workspace
 from middleware.local_access import local_access_middleware
 from middleware.rate_limiter import rate_limit_middleware
@@ -12,13 +18,6 @@ from middleware.security import security_middleware
 from middleware.api_standardization import add_api_standardization
 from middleware.versioning import VersionedAPIRouter, APIVersion
 from database.factory import get_database_factory
-from config.logging import FoundationalLogger, get_foundational_logger
-
-# 🚀 FOUNDATIONAL LOGGING: Configure once, use everywhere!
-FoundationalLogger.configure(log_level="DEBUG", log_dir="logs")
-logger = get_foundational_logger(__name__)
-
-# 🤖 AI DEBUG INTEGRATION: Enhanced logging for AI assistant troubleshooting
 from utils.ai_debug_helper import log_startup_diagnostics, ai_debug, DebugLevel
 
 @asynccontextmanager
@@ -27,10 +26,8 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting ClauseIQ Legal AI Backend...")
 
-    # 🤖 LOG STARTUP FOR AI DEBUGGING
     log_startup_diagnostics()
 
-    # 🤖 AI DEBUG: Log startup diagnostics for AI assistant reference
     ai_debug.log_system_event(
         event_type="BACKEND_STARTUP",
         level=DebugLevel.INFO,
@@ -194,14 +191,14 @@ async def lifespan(app: FastAPI):
     logger.info("ClauseIQ shutdown completed")
 
 # Create FastAPI app
-# FND-011: Disable docs/redoc/openapi in production
+# Preserve the production guard on interactive API documentation.
 config = get_environment_config()
 _is_production = config.is_production()
 
 app = FastAPI(
     title="ClauseIQ Legal AI Backend",
     version="1.0.0",
-    description="Advanced legal document analysis with AI-powered clause detection and risk assessment",
+    description="Local, evidence-first agreement review with original PDFs, saved questions and explicit AI requests.",
     docs_url=None if _is_production else "/docs",
     redoc_url=None if _is_production else "/redoc",
     openapi_url=None if _is_production else "/openapi.json",
@@ -211,7 +208,7 @@ app = FastAPI(
 # Get environment configuration (already loaded above)
 
 # Add middleware in correct order (LIFO - Last In, First Out)
-# Security middleware first (outermost layer)
+# Security middleware is inside the request-logging layer.
 app.middleware("http")(security_middleware)
 
 # API standardization middleware for consistent responses
@@ -223,7 +220,7 @@ app.middleware("http")(rate_limit_middleware)
 # Performance monitoring
 app.middleware("http")(performance_monitoring_middleware)
 
-# Logging (innermost layer for complete request context)
+# Logging wraps admitted application requests; the local boundary stays outside.
 app.middleware("http")(logging_middleware)
 
 # Outermost gate runs before logging, parsing uploads, database or AI work.
@@ -267,13 +264,12 @@ async def root():
         "docs": "/docs",
         "health": "/health",
         "features": [
-            "Document Upload & Analysis",
-            "AI-Powered Clause Detection",
-            "Risk Assessment",
-            "Chat with Documents (RAG)",
             "Single-person Local Workspace",
-            "Performance Monitoring",
-            "Security Hardening"
+            "Local PDF Import and Original-page Reading",
+            "Evidence-linked Agreement Reviews",
+            "Finding-scoped Ask",
+            "Saved Questions and Personal Review Markers",
+            "Retained Legacy Analysis and Document Chat"
         ]
     }
 
