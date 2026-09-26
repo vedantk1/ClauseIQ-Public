@@ -56,6 +56,7 @@ export function AgreementInspector({ document, onDelete, deleting }: {
 }
 
 export interface LibraryContentProps {
+  searchPanel?: React.ReactNode;
   documents: DocumentItem[];
   filteredDocuments: DocumentItem[];
   loading: boolean;
@@ -97,6 +98,7 @@ export function LibraryContent(props: LibraryContentProps) {
       : documents.length === 0 ? <section className="cl-state"><FileText size={32} aria-hidden="true" /><h2>Your first agreement</h2><p>Import a PDF to start reading. No API key needed.</p></section>
       : <>
         <ContinueReviewing document={recent} />
+        {props.searchPanel}
         <div className="cl-library-grid">
           <section className="cl-agreements" aria-labelledby="agreements-heading">
             <div className="cl-list-heading"><div><h2 id="agreements-heading">All agreements</h2><p aria-live="polite">{filteredDocuments.length !== documents.length ? `${filteredDocuments.length} of ` : ""}{documents.length} {documents.length === 1 ? "agreement" : "agreements"}</p></div>

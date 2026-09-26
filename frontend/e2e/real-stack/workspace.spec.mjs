@@ -11,6 +11,7 @@ const question = "Please clarify the Archive pilot credit band boundaries.";
 test("real import → authored finding → durable saved question → original PDF page", async ({ page, context }) => {
   const forbidden = [];
   const errors = [];
+  const searchRequests = [];
   page.on("pageerror", error => errors.push(error.message));
   await context.route("**/*", async route => {
     const request = route.request();
@@ -18,7 +19,10 @@ test("real import → authored finding → durable saved question → original P
     const method = request.method();
     if (url.origin === WEB && !url.pathname.startsWith("/api/")) return route.continue();
     const path = url.pathname;
-    const read = method === "GET" && (
+    if (method === "POST" && path === "/api/v1/library/search") {
+      searchRequests.push({ query: request.postDataJSON()?.query, urlQuery: url.search });
+    }
+    const read = (method === "POST" && path === "/api/v1/library/search") || method === "GET" && (
       ["/api/v1/workspace", "/api/v1/app-config", "/api/v1/documents/"].includes(path)
       || /^\/api\/v1\/documents\/[^/]+(?:\/source|\/pdf|\/review-workspace)?$/.test(path)
     );
@@ -83,6 +87,25 @@ test("real import → authored finding → durable saved question → original P
   await expect(physicalPage.locator(".textLayer")).toContainText("Archive");
   await page.getByRole("button", { name: /Return to this finding$/ }).click();
   await expect(page.getByRole("heading", { name: "Clarify how service credits are earned", exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Library", exact: true }).click();
+  const textSearch = page.getByRole("search");
+  await textSearch.getByRole("searchbox", { name: "Search agreement text" }).fill("Staged export and verification");
+  await textSearch.getByRole("button", { name: "Search text" }).click();
+  const latePage = page.getByRole("list", { name: "Agreement text results" }).getByRole("link", { name: "View page 25" }).first();
+  await expect(latePage).toBeVisible();
+  const source = await get(`/documents/${id}/source`);
+  const target = new URL(await latePage.getAttribute("href"), WEB);
+  expect(target.searchParams.get("documentId")).toBe(id);
+  expect(target.searchParams.get("sourceRevisionId")).toBe(source.source_revision_id);
+  expect(target.searchParams.get("page")).toBe("25");
+  expect(target.searchParams.has("query")).toBe(false);
+  await latePage.click();
+  await expect(page.getByRole("textbox", { name: "PDF page number", exact: true })).toHaveValue("25");
+  const searchedPage = page.locator('.pdfViewer .page[data-page-number="25"]');
+  await expect(searchedPage).toBeInViewport();
+  await expect(searchedPage.locator(".textLayer")).toContainText("Staged export");
+  expect(searchRequests).toEqual([{ query: "Staged export and verification", urlQuery: "" }]);
 
   const original = await context.request.get(`${API}/api/v1/documents/${id}/pdf`, { headers: { "X-ClauseIQ-Local": "1" } });
   expect(original.ok()).toBe(true);

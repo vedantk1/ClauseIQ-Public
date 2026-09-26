@@ -595,7 +595,7 @@ const evidenceControls = loadModule("../src/components/workspace/EvidenceSourceP
   "./WorkspaceControls": controls, "lucide-react": icons,
 });
 const documentControls = loadModule("../src/components/workspace/DocumentWorkspace.tsx", {
-  react: React, "@/components/PDFViewer": () => null,
+  react: React, "@/components/PDFViewer": props => props.toolbarLeading || null,
   "./evidencePresentation": evidencePresentation, "./DocumentWorkspace.module.css": {},
 });
 const askControls = loadModule("../src/components/workspace/FindingAsk.tsx", {
@@ -644,6 +644,7 @@ function renderWorkspace(view, overrides = {}) {
     "next/navigation": { useRouter: () => ({ push() {} }) },
     "@/components/ui/Modal": () => null,
     "@/hooks/useReviewWorkspace": { useReviewWorkspace: () => ({ controller: {}, state, source: null, filename: "synthetic.pdf", sourceError: null }) },
+    "@/lib/librarySearch": { librarySourceTargetError: () => null },
     "./workspaceState": stateHelpers, "./WorkspaceControls": controls,
     "./DocumentWorkspace": { DocumentWorkspace: () => null },
     "./EvidenceSourcePane": { EvidenceSourcePane: () => null, EvidenceList: () => null },
@@ -672,6 +673,7 @@ function initialWorkspaceReadHarness(overrides = {}) {
     "@/components/ui/Modal": () => null,
     "@/hooks/useReviewWorkspace": { useReviewWorkspace: () => ({ ...reads,
       controller: { reloadSaved: () => calls.push("workspace") } }) },
+    "@/lib/librarySearch": { librarySourceTargetError: () => null },
     "./workspaceState": stateHelpers, "./WorkspaceControls": controls,
     "./DocumentWorkspace": documentControls,
     "./EvidenceSourcePane": evidenceControls, "./ReviewGenerationControls": generationControls,
@@ -738,7 +740,7 @@ test("initial workspace loading reports a read in progress and still offers othe
   assert.deepEqual(h.calls, ["source"]);
 });
 
-function workspaceInteractionHarness(workspace, source = null, readOverrides = {}, resumeOnOpen = false) {
+function workspaceInteractionHarness(workspace, source = null, readOverrides = {}, resumeOnOpen = false, sourceTarget) {
   const slots = [];
   const operations = [];
   let cursor = 0;
@@ -759,6 +761,10 @@ function workspaceInteractionHarness(workspace, source = null, readOverrides = {
       controller: { enqueue(operation) { operations.push(clone(operation)); state.workspace = apply(state.workspace, operation); } },
       state, ...reads,
     }) },
+    "@/lib/librarySearch": { librarySourceTargetError(target, currentSource) {
+      if (target.sourceRevisionId !== currentSource.source_revision_id) return "Stale source revision";
+      return target.pageNumber <= currentSource.source_extraction?.page_count ? null : "Source page unavailable";
+    } },
     "./workspaceState": stateHelpers, "./WorkspaceControls": controls,
     "./DocumentWorkspace": { DocumentWorkspace: DocumentProbe },
     "./EvidenceSourcePane": { EvidenceList: () => null },
@@ -768,7 +774,7 @@ function workspaceInteractionHarness(workspace, source = null, readOverrides = {
     "./AgreementOverview": overviewControls, "./MyReview": myReviewControls, "./SourceReadNotice": readNoticeControls,
     "./ReviewWorkspace.module.css": { workspace: "workspace-shell" },
   }).default;
-  function tree() { cursor = 0; const result = component({ documentId: workspace.document_id, resumeOnOpen }); const pending = effects; effects = []; pending.forEach(callback => callback()); return result; }
+  function tree() { cursor = 0; const result = component({ documentId: workspace.document_id, resumeOnOpen, sourceTarget }); const pending = effects; effects = []; pending.forEach(callback => callback()); return result; }
   function children(node) {
     if (!React.isValidElement(node)) return [];
     return [node, ...React.Children.toArray(node.props.children).flatMap(children)];
@@ -783,6 +789,28 @@ function workspaceInteractionHarness(workspace, source = null, readOverrides = {
     mount() { tree(); },
   };
 }
+
+test("a Library text result opens its exact physical source page without saving or running AI", () => {
+  const source = { source_revision_id: "source-1", source_extraction: { page_count: 25 } };
+  const target = { kind: "target", target: { sourceRevisionId: "source-1", pageNumber: 24 } };
+  const h = workspaceInteractionHarness(initial(), source, {}, false, target);
+  h.mount();
+  const reader = h.document();
+  assert.ok(reader);
+  assert.equal(reader.navigationRequest.pageNumber, 24);
+  assert.equal(reader.navigationRequest.restore, undefined);
+  assert.equal(reader.returnLabel, "Return to Library");
+  assert.deepEqual(h.operations, []);
+});
+
+test("a stale Library source result never substitutes a current page or saved bookmark", () => {
+  const source = { source_revision_id: "source-2", source_extraction: { page_count: 25 } };
+  const target = { kind: "target", target: { sourceRevisionId: "source-1", pageNumber: 24 } };
+  const h = workspaceInteractionHarness(initial(), source, {}, false, target);
+  h.mount();
+  assert.equal(h.document(), undefined);
+  assert.deepEqual(h.operations, []);
+});
 
 test("My review exports only after pending saves and conflicts are resolved", () => {
   const h = workspaceInteractionHarness(initial());

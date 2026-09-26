@@ -62,6 +62,13 @@ class DocumentService:
         db = await self._get_db()
         return await db.list_document_summaries(workspace_id, limit, offset)
 
+    async def list_source_snapshots_for_search(
+        self, workspace_id: str, limit: int,
+    ) -> tuple[int, List[Dict[str, Any]]]:
+        """Read only current source snapshots in the server-selected workspace."""
+        db = await self._get_db()
+        return await db.list_source_snapshots_for_search(workspace_id, limit)
+
     async def delete_document_for_workspace(self, doc_id: str, workspace_id: str) -> bool:
         """Delete document for a specific workspace and clean up RAG data and PDF files."""
         try:

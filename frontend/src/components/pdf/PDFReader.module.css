@@ -11,6 +11,8 @@
 }
 
 .toolbar {
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -25,6 +27,7 @@
 }
 
 .identity { margin-right: auto; font-weight: 550; color: var(--text-muted); white-space: nowrap; }
+.leading { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; margin-right: auto; min-width: 0; }
 .controlGroup, .viewControls { display: flex; align-items: center; gap: 3px; }
 .controlGroup + .controlGroup { border-left: 1px solid var(--border-muted); padding-left: 12px; }
 .iconButton { width: 30px; min-height: 32px; padding: 3px !important; font-size: 16px !important; }
@@ -53,7 +56,7 @@
 .zoomValue { display: inline-flex; align-items: center; min-width: 41px; text-align: center; font-variant-numeric: tabular-nums; }
 .toolbar select { background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-muted); border-radius: 4px; height: 32px; padding: 4px 6px; }
 .toolbar select:focus-visible { outline: 2px solid var(--accent-subtle); outline-offset: 2px; }
-.canvas { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+.canvas { flex: 1; min-height: 0; position: relative; z-index: 0; overflow: hidden; }
 .canvas :global(.pdfjs-renderer), .canvas :global(.pdfjs-scroll-container) {
   background: color-mix(in srgb, var(--bg-primary) 75%, var(--bg-elevated));
 }

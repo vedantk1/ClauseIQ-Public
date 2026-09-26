@@ -7,13 +7,14 @@ import ts from "typescript";
 
 function elements(node, predicate) {
   if (!node || typeof node !== "object") return [];
-  return [...(predicate(node) ? [node] : []), ...React.Children.toArray(node.props?.children).flatMap(child => elements(child, predicate))];
+  return [...(predicate(node) ? [node] : []),
+    ...React.Children.toArray([node.props?.children, node.props?.toolbarLeading, node.props?.toolbarActions]).flatMap(child => elements(child, predicate))];
 }
 
 function text(node) {
   if (node == null || typeof node === "boolean") return "";
   if (typeof node !== "object") return String(node);
-  return React.Children.toArray(node.props?.children).map(text).join(" ");
+  return React.Children.toArray([node.props?.children, node.props?.toolbarLeading, node.props?.toolbarActions]).map(text).join(" ");
 }
 
 function harness(initial = {}) {
@@ -91,7 +92,7 @@ test("source context is a compact closed disclosure and forwards exact physical 
   const details = h.find(node => node.type === "details");
   assert.ok(details);
   assert.notEqual(details.props.open, true);
-  assert.match(h.text(), /Source reference · page 2/);
+  assert.equal(h.find(node => node.type === "summary").props["aria-label"], "Source reference · page 2");
   assert.equal(text(h.find(node => node.type === "blockquote")), evidence.quote);
   assert.match(h.text(), /Quote matched to source\s*\.\s*Saved excerpt\s*; may begin or end mid-clause/);
   assert.match(h.text(), /No guessed highlight is applied/);
@@ -105,19 +106,32 @@ test("source context is a compact closed disclosure and forwards exact physical 
   assert.equal(returned, 1);
 });
 
-test("citation context shares its header with return navigation and dismisses with Escape", () => {
+test("citation return and context share the PDF toolbar and context dismisses with Escape", () => {
   const h = harness({ finding, evidence, source });
   h.render();
-  const header = h.find(node => node.type === "header");
-  const details = elements(header, node => node.type === "details");
+  assert.equal(h.all(node => node.type === "header").length, 0, "citations must not add a second reader bar");
+  const leading = h.viewer().toolbarLeading;
+  const details = elements(leading, node => node.type === "details");
   assert.equal(details.length, 1);
-  assert.ok(elements(header, node => node.type === "button").some(node => text(node).includes("Return")));
-  assert.ok(elements(header, node => node.type === "h2").some(node => text(node) === finding.title));
+  assert.ok(elements(leading, node => node.type === "button").some(node => text(node).includes("Return")));
+  assert.ok(elements(details[0], node => node.type === "h2").some(node => text(node) === finding.title));
   let focused = false;
   const target = { open: true, querySelector: () => ({ focus() { focused = true; } }) };
   details[0].props.onKeyDown({ key: "Escape", currentTarget: target });
   assert.equal(target.open, false);
   assert.equal(focused, true);
+});
+
+test("Library return uses the reader toolbar without a placeholder source heading", () => {
+  let returned = false;
+  const h = harness({ source, returnLabel: "Return to Library", onReturn() { returned = true; } });
+  h.render();
+  assert.equal(h.all(node => node.type === "header" || node.type === "details").length, 0);
+  assert.doesNotMatch(h.text(), /Agreement source/);
+  const action = elements(h.viewer().toolbarLeading, node => node.type === "button")[0];
+  assert.match(text(action), /Return to Library/);
+  action.props.onClick();
+  assert.equal(returned, true);
 });
 
 test("overview, Ask and My review preserve distinct return context without finding facts", () => {

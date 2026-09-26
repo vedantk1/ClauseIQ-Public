@@ -29,23 +29,20 @@ export function DocumentWorkspace({ documentId, filename, source, finding, evide
   const presentation = evidence ? presentEvidence(evidence, source) : null;
   // A default selected finding is not a source context for a direct Document-tab visit.
   const hasContext = !!(evidence || overviewText || answerText || returnLabel);
-  const contextTitle = overviewText ? "Agreement overview" : answerText ? "Ask answer" : finding?.title || evidence?.label || "Review source";
+  const contextTitle = overviewText ? "Agreement overview" : answerText ? "Ask answer" : finding?.title || evidence?.label || "Agreement source";
   const backLabel = returnLabel || (overviewText ? "Return to overview" : "Return to this finding");
 
-  return <section className={styles.workspace} aria-label="Document reader">
-    {hasContext && <header className={styles.heading}>
+  const readerContext = hasContext ? <>
       <button type="button" className={styles.returnButton} onClick={onReturn}>← {backLabel}</button>
-      <div className={styles.contextHeading}>
-        <h2 title={contextTitle}>{contextTitle}</h2>
-      </div>
-      <details className={styles.context} onKeyDown={event => {
+      {(evidence || overviewText || answerText || finding) && <details className={styles.context} onKeyDown={event => {
         if (event.key === "Escape" && event.currentTarget.open) {
           event.currentTarget.open = false;
           event.currentTarget.querySelector("summary")?.focus();
         }
       }}>
-      <summary>{evidence ? `Source reference · page ${evidence.page_number}` : "Review context"}</summary>
+      <summary aria-label={evidence ? `Source reference · page ${evidence.page_number}` : "Review context"}>Context</summary>
       <div className={styles.contextBody}>
+        <h2 className={styles.contextTitle}>{contextTitle}</h2>
         {answerText && <><p className={styles.contextLabel}>Ask answer</p><p>{answerText}</p>
           <p className={styles.note}>This answer may cite a passage beyond the finding’s references. A wording match is not legal verification.</p></>}
         {overviewText && <><p className={styles.contextLabel}>Agreement overview</p><p>{overviewText}</p></>}
@@ -57,12 +54,15 @@ export function DocumentWorkspace({ documentId, filename, source, finding, evide
           <p className={styles.note}>The original opens at the physical page. No guessed highlight is applied.</p>
         </>}
       </div>
-      </details>
-    </header>}
+      </details>}
+    </> : undefined;
+
+  return <section className={styles.workspace} aria-label="Document reader">
     {navigationError && <p role="alert" className={styles.navigationError}>{navigationError}</p>}
     <div className={`${styles.readingArea}${showText ? ` ${styles.withText}` : ""}`}>
       <div className={styles.pdfPane}>
         <PDFViewer key={`${documentId}:${source?.source_revision_id || "pending"}`} rememberView documentId={documentId} fileName={filename} sourceRevisionId={source?.source_revision_id || undefined}
+          toolbarLeading={readerContext}
           toolbarActions={<button type="button" className={styles.textToggle} aria-expanded={showText} aria-controls="document-extracted-text"
             onClick={() => setShowText(value => !value)}>{showText ? "Hide extracted text" : "Extracted text"}</button>}
           navigationRequest={navigationRequest} onPageChange={page => { setPageNumber(page); setNavigationError(null); }}

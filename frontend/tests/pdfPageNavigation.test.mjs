@@ -438,16 +438,21 @@ test("compact reader preserves the full-height canvas and groups reading control
 
 test("optional document actions share the reader toolbar and survive PDF failure", async () => {
   const action = React.createElement("button", { "aria-label": "Extracted text" }, "Extracted text");
+  let returned = false;
+  const leading = React.createElement("button", { onClick() { returned = true; } }, "Return to Library");
   const harness = viewerHarness();
-  let tree = harness.render({ documentId: "doc-1", toolbarActions: action });
+  let tree = harness.render({ documentId: "doc-1", toolbarActions: action, toolbarLeading: leading });
   let toolbar = findElement(tree, item => item.props?.className === "pdf-toolbar");
   assert.ok(findElement(toolbar, item => item.props?.["aria-label"] === "Extracted text"));
+  assert.ok(findElement(toolbar, item => item.props?.children === "Return to Library"));
   await harness.flush();
   harness.render();
   harness.viewer().onError("Unable to render");
   tree = harness.render();
   toolbar = findElement(tree, item => item.props?.className === "pdf-toolbar");
   assert.ok(findElement(toolbar, item => item.props?.["aria-label"] === "Extracted text"), "extraction remains reachable if rendering fails");
+  findElement(toolbar, item => item.props?.children === "Return to Library").props.onClick();
+  assert.equal(returned, true, "return navigation remains usable after rendering fails");
 });
 
 test("reading mode uses one native field with an unboxed inline label", () => {

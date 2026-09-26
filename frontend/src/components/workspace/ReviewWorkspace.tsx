@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import type { ReviewEvidence, ReviewPosition } from "@clauseiq/shared-types";
 import Modal from "@/components/ui/Modal";
 import { useReviewWorkspace } from "@/hooks/useReviewWorkspace";
+import { librarySourceTargetError, type ParsedLibrarySourceTarget } from "@/lib/librarySearch";
 import { draftKey, emptyPersonal, hasUnconfirmedChanges, paidActionBusy, sameBrief, runLabel, runStatus, safeReviewPosition, libraryResumePosition } from "./workspaceState";
 import { Action, BriefForm, Panel, SaveFeedback } from "./WorkspaceControls";
 import { DocumentWorkspace } from "./DocumentWorkspace";
@@ -22,7 +23,9 @@ const viewNames: Record<ReviewPosition["view"], string> = {
   overview: "Overview", findings: "Findings", document: "Document", my_review: "My review",
 };
 
-export default function ReviewWorkspace({ documentId, resumeOnOpen = false }: { documentId: string; resumeOnOpen?: boolean }) {
+export default function ReviewWorkspace({ documentId, resumeOnOpen = false, sourceTarget = { kind: "none" } }: {
+  documentId: string; resumeOnOpen?: boolean; sourceTarget?: ParsedLibrarySourceTarget;
+}) {
   const { controller, state, source, filename, sourceError, metadataError,
     sourceStatus, metadataStatus, retrySource, retryMetadata } = useReviewWorkspace(documentId);
   const router = useRouter();
@@ -36,11 +39,14 @@ export default function ReviewWorkspace({ documentId, resumeOnOpen = false }: { 
   const [askSource, setAskSource] = useState<{ runId: string; text: string; evidence: ReviewEvidence } | null>(null);
   const [askPanelTarget, setAskPanelTarget] = useState<{ runId: string; findingId: string } | null>(null);
   const [reviewSourceRunId, setReviewSourceRunId] = useState<string | null>(null);
+  const [librarySourceActive, setLibrarySourceActive] = useState(false);
+  const [sourceLinkError, setSourceLinkError] = useState<string | null>(null);
   const [navigationRequest, setNavigationRequest] = useState<{ runId: string; requestId: number; pageNumber: number; restore?: boolean }>();
   const [leaveWarning, setLeaveWarning] = useState(false);
   const [leaveDestination, setLeaveDestination] = useState("/documents");
   const workspace = state?.workspace;
   const resumed = useRef(false);
+  const handledSourceTarget = useRef<string | null>(null);
   useEffect(() => {
     if (!resumeOnOpen || !workspace || resumed.current) return;
     resumed.current = true;
@@ -55,9 +61,45 @@ export default function ReviewWorkspace({ documentId, resumeOnOpen = false }: { 
     if (target.pageNumber) setNavigationRequest({ runId: target.runId, requestId: 1, pageNumber: target.pageNumber, restore: true });
   }, [resumeOnOpen, workspace]);
 
+  useEffect(() => {
+    if (sourceTarget.kind === "none") {
+      if (handledSourceTarget.current !== null) {
+        handledSourceTarget.current = null;
+        setLibrarySourceActive(false);
+        setSourceLinkError(null);
+      }
+      return;
+    }
+    const key = sourceTarget.kind === "target"
+      ? JSON.stringify([sourceTarget.target.sourceRevisionId, sourceTarget.target.pageNumber])
+      : `invalid:${sourceTarget.message}`;
+    if (handledSourceTarget.current === key) return;
+    if (sourceTarget.kind === "invalid") {
+      handledSourceTarget.current = key;
+      setSourceLinkError(sourceTarget.message);
+      return;
+    }
+    // Wait for both saved workspace and current source. A stale result must not
+    // briefly navigate a remembered page before the source revision is checked.
+    if (!workspace || sourceStatus !== "ready" || !source) return;
+    handledSourceTarget.current = key;
+    const issue = librarySourceTargetError(sourceTarget.target, source);
+    if (issue) { setSourceLinkError(issue); return; }
+    setSourceLinkError(null);
+    setLibrarySourceActive(true);
+    setReviewSourceRunId(null);
+    setOverviewSource(null);
+    setAskSource(null);
+    setView("document");
+    const activeRun = workspace.runs.find(item => item.id === selectedRun) || workspace.runs.at(-1);
+    setNavigationRequest(previous => ({ runId: activeRun?.id || "", requestId: (previous?.requestId || 0) + 1,
+      pageNumber: sourceTarget.target.pageNumber }));
+  }, [sourceTarget, workspace, sourceStatus, source, selectedRun]);
+
   if (!state || !controller) return <p className="p-8" role="status">Loading review workspace…</p>;
   if (!workspace) return <div className="mx-auto max-w-3xl space-y-4 p-6">
     <h1 className="text-2xl font-semibold">Review workspace</h1>
+    {sourceTarget.kind === "invalid" && <p role="alert" className="rounded-lg border border-border-muted p-3 text-sm">{sourceTarget.message}</p>}
     {state.status === "loading" ? <p role="status" className="text-sm text-text-secondary">Loading saved review workspace…</p>
       : <div role="alert" className="rounded-lg border border-border-muted p-3 text-sm">
         <p>The review workspace could not be loaded. {state.error}</p>
@@ -93,6 +135,7 @@ export default function ReviewWorkspace({ documentId, resumeOnOpen = false }: { 
   const savedQuestion = finding ? personal.saved_questions[finding.id] : undefined;
 
   function navigate(nextView: ReviewPosition["view"], findingId = finding?.id || null, evidenceId = evidence?.span_id || null, sourceOpened = false) {
+    setLibrarySourceActive(false);
     setReviewSourceRunId(null);
     setOverviewSource(null);
     setAskSource(null);
@@ -159,6 +202,7 @@ export default function ReviewWorkspace({ documentId, resumeOnOpen = false }: { 
     <WorkspaceHeader documentId={documentId} filename={filename} run={run} state={state} onLeave={leave} />
 
     <div className="cw-notices">
+    {sourceLinkError && <p className="cw-action-notice rounded-lg border border-border-muted p-3 text-sm" role="alert">{sourceLinkError}</p>}
     <SaveFeedback compact state={state} onReload={() => void controller.reloadSaved()} onRetry={() => controller.retryPending()} />
     {(state.askAction?.status !== undefined && state.askAction.status !== "idle" || workspace.ask_turns?.some(turn => turn.status === "processing")) && <div className="cw-action-notice rounded-lg border border-border-muted p-3 text-sm" role="status">
       <p>An Ask request is running or its outcome needs attention. Navigation and saving do not send another question.</p>
@@ -211,11 +255,11 @@ export default function ReviewWorkspace({ documentId, resumeOnOpen = false }: { 
       : <Panel><h2 className="text-lg font-semibold">{run ? "No usable findings in this run" : "No review run yet"}</h2><p className="mt-2 text-sm">An empty finding list is not proof that the agreement has no issues. Check the run status and coverage on Overview.</p><Action className="mt-3" onClick={() => navigate("overview")}>Return to overview</Action></Panel>)}
 
     {view === "document" && <DocumentWorkspace documentId={documentId} filename={filename} source={source}
-      finding={activeOverviewSource || activeAskSource || navigationRequest?.runId !== run?.id ? null : finding}
-      evidence={activeOverviewSource?.evidence || activeAskSource?.evidence || (navigationRequest?.runId === run?.id ? evidence : null)}
-      overviewText={activeOverviewSource?.text} answerText={activeAskSource?.text} navigationRequest={navigationRequest?.runId === run?.id ? navigationRequest : undefined}
-      returnLabel={activeAskSource ? "Return to Ask" : reviewSourceRunId === run?.id ? "Return to My review" : undefined}
-      onReturn={() => navigate(activeOverviewSource ? "overview" : reviewSourceRunId === run?.id ? "my_review" : "findings")} />}
+      finding={librarySourceActive || activeOverviewSource || activeAskSource || navigationRequest?.runId !== (run?.id || "") ? null : finding}
+      evidence={activeOverviewSource?.evidence || activeAskSource?.evidence || (!librarySourceActive && navigationRequest?.runId === (run?.id || "") ? evidence : null)}
+      overviewText={activeOverviewSource?.text} answerText={activeAskSource?.text} navigationRequest={navigationRequest?.runId === (run?.id || "") ? navigationRequest : undefined}
+      returnLabel={librarySourceActive ? "Return to Library" : activeAskSource ? "Return to Ask" : reviewSourceRunId === run?.id ? "Return to My review" : undefined}
+      onReturn={() => librarySourceActive ? leave("/documents") : navigate(activeOverviewSource ? "overview" : reviewSourceRunId === run?.id ? "my_review" : "findings")} />}
 
     {view === "my_review" && <MyReview key={run?.id || "no-run"} filename={filename} run={run} personal={personal} source={sourceError ? null : source} state={state} controller={controller}
       exportUnavailable={blocked || state.pending > 0 || state.status === "saving" || paidActionBusy(state)

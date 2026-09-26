@@ -9,7 +9,7 @@ from config.logging import FoundationalLogger, get_foundational_logger
 FoundationalLogger.configure(log_level="INFO", log_dir="logs")
 logger = get_foundational_logger(__name__)
 
-from routers import documents, analysis, health, reports, chat, app_config, workspace, review_workspace
+from routers import documents, analysis, health, reports, chat, app_config, workspace, review_workspace, library_search
 from middleware.local_access import local_access_middleware
 from middleware.rate_limiter import rate_limit_middleware
 from middleware.logging import logging_middleware
@@ -239,6 +239,7 @@ local_marker = APIKeyHeader(name="X-ClauseIQ-Local", auto_error=False,
 v1_router = VersionedAPIRouter(version=APIVersion.V1, dependencies=[Security(local_marker)])
 v1_router.include_router(workspace.router)
 v1_router.include_router(documents.router)
+v1_router.include_router(library_search.router)
 v1_router.include_router(review_workspace.router)
 v1_router.include_router(analysis.router, prefix="/analysis")
 v1_router.include_router(health.router)

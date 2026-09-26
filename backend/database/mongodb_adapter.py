@@ -10,6 +10,7 @@ from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase, AsyncI
 from pymongo.errors import DuplicateKeyError, ConnectionFailure, OperationFailure
 import logging
 from .library_summary import library_item, library_projection
+from .library_search import search_source_projection
 
 from .interface import (
     DatabaseInterface,
@@ -171,6 +172,22 @@ class MongoDBAdapter(DatabaseInterface):
         except Exception as error:
             logger.error("Database Library listing failed: %s", type(error).__name__)
             raise DatabaseError("Failed to list document summaries") from None
+
+    async def list_source_snapshots_for_search(
+        self, workspace_id: str, limit: int,
+    ) -> tuple[int, List[Dict[str, Any]]]:
+        """Fetch current extraction only, never reviews, files or credentials."""
+        try:
+            collection = self._get_collection("documents")
+            scope = {"workspace_id": workspace_id}
+            total = await collection.count_documents(scope)
+            cursor = collection.find(scope, search_source_projection()).sort(
+                [("upload_date", -1), ("id", 1)]
+            ).limit(limit)
+            return total, await cursor.to_list(length=limit)
+        except Exception as error:
+            logger.error("Database Library search read failed: %s", type(error).__name__)
+            raise DatabaseError("Failed to read Library search sources") from None
 
     async def update_document(self, document_id: str, workspace_id: str, update_data: Dict[str, Any]) -> bool:
         """Update document data."""

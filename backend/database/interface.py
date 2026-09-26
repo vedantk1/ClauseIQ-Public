@@ -110,6 +110,13 @@ class DatabaseInterface(ABC):
         pass
 
     @abstractmethod
+    async def list_source_snapshots_for_search(
+        self, workspace_id: str, limit: int,
+    ) -> tuple[int, List[Dict[str, Any]]]:
+        """Count scoped documents and read a bounded, source-only projection."""
+        pass
+
+    @abstractmethod
     async def update_document(self, document_id: str, workspace_id: str, update_data: Dict[str, Any]) -> bool:
         """Update document data."""
         pass

@@ -16,6 +16,7 @@ interface PDFViewerProps {
   documentId: string;
   fileName?: string;
   className?: string;
+  toolbarLeading?: React.ReactNode;
   toolbarActions?: React.ReactNode;
   rememberView?: boolean;
   sourceRevisionId?: string;
@@ -38,7 +39,7 @@ interface PDFViewerProps {
 export default function PDFViewer({
   documentId, fileName = "Document", className = "", sourceRevisionId,
   navigationRequest, onPageChange, onNavigationError, highlightText,
-  highlightClause, onHighlightComplete, dropdownMenuItems, toolbarActions, rememberView = false,
+  highlightClause, onHighlightComplete, dropdownMenuItems, toolbarLeading, toolbarActions, rememberView = false,
 }: PDFViewerProps) {
   const sourceKey = pdfSourceKey(documentId, sourceRevisionId);
   const bookmark = useMemo(() => rememberView && sourceRevisionId ? readReaderView(sourceKey) : null, [rememberView, sourceRevisionId, sourceKey]);
@@ -228,7 +229,10 @@ export default function PDFViewer({
 
   if (error) return (
     <section className={`${styles.reader} ${className}`} aria-label={`PDF reader: ${fileName}`}>
-      {toolbarActions && <div className={styles.toolbar}>{toolbarActions}</div>}
+      {(toolbarLeading || toolbarActions) && <div className={styles.toolbar} aria-label="PDF reading controls">
+        {toolbarLeading && <div className={styles.leading}>{toolbarLeading}</div>}
+        {toolbarActions}
+      </div>}
       <div role="alert" className={styles.error}>
         <h3 className="text-lg font-semibold text-text-primary">Failed to load PDF</h3>
         <p className="my-3 text-text-secondary">{error}</p>
@@ -240,7 +244,8 @@ export default function PDFViewer({
   return (
     <section className={`${styles.reader} ${className}`} aria-label={`PDF reader: ${fileName}`}>
       <div className={styles.toolbar} aria-label="PDF reading controls">
-        <span className={styles.identity} title={fileName}>Original PDF</span>
+        {toolbarLeading ? <div className={styles.leading}>{toolbarLeading}</div>
+          : <span className={styles.identity} title={fileName}>Original PDF</span>}
         {toolbarActions}
         <div className={styles.controlGroup} role="group" aria-label="Page navigation">
           <Button type="button" size="sm" variant="tertiary" className={styles.iconButton} title="Previous page" aria-label="Previous page"

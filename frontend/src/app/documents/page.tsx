@@ -8,6 +8,7 @@ import { useDocumentOperations } from "@/hooks/useDocumentOperations";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { LibraryHeader } from "@/components/documents/LibraryHeader";
 import { LibraryContent } from "@/components/documents/LibraryContent";
+import { LibrarySearch } from "@/components/documents/LibrarySearch";
 import { DeleteAllModal } from "@/components/documents/DeleteAllModal";
 import { DeleteDocumentModal } from "@/components/documents/DeleteDocumentModal";
 import { DeleteSelectedModal } from "@/components/documents/DeleteSelectedModal";
@@ -37,7 +38,7 @@ export default function Documents() {
 
   return <div className={styles.library}>
     <LibraryHeader />
-    <LibraryContent documents={documents} filteredDocuments={filtering.filteredDocuments}
+    <LibraryContent searchPanel={<LibrarySearch />} documents={documents} filteredDocuments={filtering.filteredDocuments}
       loading={loading} error={error} onRetry={() => void retryFetch()}
       selectedId={selectedId} onSelect={setSelectedId}
       searchQuery={filtering.searchQuery} onSearch={filtering.setSearchQuery} searchInputRef={searchInputRef}
