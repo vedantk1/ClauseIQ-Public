@@ -67,6 +67,15 @@ def require_owned(record: dict, identity: str, name: str, token: str, service: s
     return port
 
 
+def wait_for_owned_removal(token: str, timeout: float = 10) -> None:
+    """Allow Docker's asynchronous --rm cleanup to settle after docker stop."""
+    deadline = time.monotonic() + timeout
+    while docker("ps", "-aq", "--filter", f"label={LABEL}={token}"):
+        if time.monotonic() >= deadline:
+            raise RuntimeError("Disposable test containers remain; cleanup was unsuccessful")
+        time.sleep(0.1)
+
+
 def assert_free(port: int) -> None:
     with socket.socket() as connection:
         if connection.connect_ex(("127.0.0.1", port)) == 0:
@@ -229,8 +238,7 @@ def run(python_override: str | None = None) -> int:
                     cleanup_errors.append(type(error).__name__)
             if cleanup_errors:
                 raise RuntimeError("Owned-service cleanup was incomplete; inspect the labelled test containers")
-            if docker("ps", "-aq", "--filter", f"label={LABEL}={token}"):
-                raise RuntimeError("Disposable test containers remain; cleanup was unsuccessful")
+            wait_for_owned_removal(token)
             print("Cleanup complete: only this invocation's disposable containers and state removed", flush=True)
 
 

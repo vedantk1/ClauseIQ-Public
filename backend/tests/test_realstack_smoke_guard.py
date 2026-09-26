@@ -109,3 +109,20 @@ def test_stubborn_browser_descendants_receive_bounded_group_cleanup(monkeypatch)
     monkeypatch.setattr(smoke.time, "monotonic", lambda: next(ticks))
     assert smoke.run_browser() == 0
     assert events == [(23456, signal.SIGTERM), (23456, 0), (23456, signal.SIGKILL)]
+
+
+def test_disposable_container_removal_waits_for_docker_auto_remove(monkeypatch):
+    responses = iter(["owned-id", "owned-id", ""])
+    calls = []
+    monkeypatch.setattr(smoke, "docker", lambda *args: calls.append(args) or next(responses))
+    monkeypatch.setattr(smoke.time, "sleep", lambda _: None)
+    smoke.wait_for_owned_removal("owned-token")
+    assert calls == [("ps", "-aq", "--filter", f"label={smoke.LABEL}=owned-token")] * 3
+
+
+def test_disposable_container_removal_still_fails_after_deadline(monkeypatch):
+    monkeypatch.setattr(smoke, "docker", lambda *_: "owned-id")
+    ticks = iter([0, 11])
+    monkeypatch.setattr(smoke.time, "monotonic", lambda: next(ticks))
+    with pytest.raises(RuntimeError, match="cleanup was unsuccessful"):
+        smoke.wait_for_owned_removal("owned-token", timeout=10)
