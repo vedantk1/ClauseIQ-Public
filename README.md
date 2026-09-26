@@ -31,6 +31,9 @@ requested. There is no application-funded service or supported hosted deployment
 4. **Take your work with you.** Resume your reading position and export confirmed
    questions and markers as a Markdown review brief.
 
+Library also has an explicit, key-free agreement-text search. It returns source
+passages with PDF page links; it does not generate cross-contract conclusions.
+
 The reading workspace offers Black and Graphite themes. Settings exposes the
 application's GPT-6 Luna, Sol and Astra catalog with configurable reasoning effort;
 Sol/Medium is the default. Changing a model or instructions never reruns a review

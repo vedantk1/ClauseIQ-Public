@@ -71,6 +71,11 @@ period on the next cleanup run. Treat MongoDB, GridFS, vectors, logs and backups
 as sensitive. AI requests send relevant document content to OpenAI; local
 storage does not imply offline processing.
 
+Library agreement-text search reads current source extractions locally. It needs
+no key or provider call, and its terms are sent in a POST body rather than URLs
+or browser history. The API response contains verbatim document excerpts, so it
+remains sensitive workspace data even though the search itself is unpaid.
+
 My review brief copies/downloads contain selected saved questions, personal markers
 and finding context. They do not call a provider, but the resulting clipboard/file
 is outside ClauseIQ's storage protections and may be handled by other local apps

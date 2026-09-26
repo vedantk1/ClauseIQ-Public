@@ -582,6 +582,33 @@ tests perform local extraction checks only; no fixture is uploaded to the app or
 sent to an AI provider automatically. Live model evaluation remains separately
 approved and cost-capped.
 
+### Unpaid Library search and retrieval regression
+
+Library agreement-text search is a separate POST action over the current source
+extraction. It scans at most 100 agreements and 10,000 canonical page passages
+per request, returning up to 30 exact excerpts. Its coverage fields distinguish
+unsearched agreements, unavailable/partial sources and result truncation. It
+does not read Settings credentials, build embeddings, call an AI provider or
+write an index. The retained per-document Qdrant chat uses a different path.
+
+The frozen synthetic retrieval set verifies source labels against the checked-in
+PDFs, then scores the current lexical ranker without touching the application
+database. From `backend`:
+
+~~~bash
+venv/bin/python -m pytest tests/test_library_search.py tests/test_library_search_evaluation.py -q
+venv/bin/python -m evaluations.library_search_evaluation --limit 5
+~~~
+
+The JSON report separates document and exact-passage precision/recall, no-answer
+near matches and latency. It is a visible 24-question development regression set,
+not a held-out benchmark, legal answer evaluation or an AI-quality pass. The
+source-reviewed labels and interpretation limits are in
+[library_search_evaluations](../backend/fixtures/library_search_evaluations/README.md)
+and [Evaluation](EVALUATION.md#retrieval-boundary). Dense/hybrid indexing and
+cross-contract answers are not part of this command and would need their own
+approval, cost boundary and evaluation.
+
 ## Existing local installations
 
 ### Model defaults and bounded requests

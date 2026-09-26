@@ -5,7 +5,7 @@ workspace namespace (`local`), not a default user, membership model or account.
 
 | Component | Responsibility |
 | --- | --- |
-| Next.js | Import, review workspace, document library, chat and Settings |
+| Next.js | Import, review workspace, document library/search, chat and Settings |
 | FastAPI | Local request boundary, document processing and AI orchestration |
 | MongoDB / GridFS | Documents, PDFs, interactions, chats, settings and encrypted credentials |
 | Qdrant | Per-document vector data for retrieval-augmented chat |
@@ -62,6 +62,24 @@ independent of search filters. Its resume=1 workspace link restores the latest
 run's saved view/finding/evidence locally after loading, once per opening, without
 enqueueing a write. Regular Open workspace still starts at Overview. No source,
 prompt or saved-review data is copied from design mockups into the app.
+
+### Agreement-text search
+
+Library filename/type filtering remains a metadata-only browser interaction.
+Agreement-text search is a separate, explicit local API request over the current
+workspace's stored source extractions. It derives bounded page-local passages
+from the same exact source spans used by review, ranks them lexically, and returns
+verbatim excerpts with document, source-revision, passage and physical-page
+identity. It does not use legacy Qdrant chat chunks, create vectors or contact an
+AI provider. No search index is persisted, so deletion or source-revision change
+cannot leave a stale secondary hit.
+
+The search response distinguishes searchable, unavailable and partial sources
+and reports result truncation. A result is a candidate passage, not a legal
+answer or proof that every agreement was considered. Opening its PDF page checks
+the current source revision again; a stale or invalid target fails visibly rather
+than opening a substitute page. Search terms are sent in a POST body instead of
+being copied into URLs or browser history.
 
 ## Original sources and extraction
 
@@ -198,11 +216,11 @@ separate. Filters never narrow the whole-run confirmed brief export. Pending,
 conflicted and paid-operation states retain the existing mutation/export guards.
 
 DocumentWorkspace gives the PDF the available viewport beneath compact controls.
-Plain document reading uses one toolbar: extraction access sits with page/zoom
-controls, without a separate placeholder header. Extraction access remains
-available when PDF loading/rendering fails.
-Matched source navigation offers an explicit return action and collapsed source
-context, while an ordinary Document tab opens without unrelated finding context.
+Document reading uses one toolbar: extraction access sits with page/zoom controls.
+Source navigation adds its return action and optional context disclosure to that
+same toolbar; Library search links do not add a placeholder source heading.
+Return and extraction actions remain available when PDF loading/rendering fails.
+An ordinary Document tab opens without unrelated finding context.
 Extracted text is an optional side panel for the visible physical page, not a
 substitute for the original layout. PDFViewer groups page, zoom and viewing-mode
 controls, with bounded direct physical-page entry and explicit fit-width/fit-page

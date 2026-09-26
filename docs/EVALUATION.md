@@ -12,6 +12,7 @@ different things. None establishes a complete or legally reliable review.
 | Generation references | Two source-reviewed synthetic cases with frozen criteria | A repeatable basis for assessing short and long reviews, not an automated semantic score |
 | Diagnostic checker calibration | Ten authored candidates: six negative mutations and four positive controls | Known errors and valid counterexamples for evaluating the development-only checker |
 | Import corpus | Seven synthetic PDFs, including scanned and adversarial inputs | Extraction and workflow edge cases; these are not seven labelled AI-quality benchmarks |
+| Library retrieval | 24 labelled synthetic development questions and a local lexical-ranking harness | Passage/document retrieval regression, including missed passages and irrelevant near-matches |
 
 The generator cases are in
 [backend/fixtures/review_evaluations](../backend/fixtures/review_evaluations/README.md).
@@ -52,16 +53,91 @@ independent ground truth: its misses and false alarms also need assessment.
 
 ## Retrieval boundary
 
+| Product path | Current method | Evaluation status |
+| --- | --- | --- |
+| Individual review and finding-scoped Ask | Complete supported extracted source with bounded input | Source-reviewed criteria and a small recorded live baseline; known omissions remain |
+| Library agreement-text search | Local BM25 ranking over canonical page passages | Implemented; offline development-set results below and real-stack search/page-navigation coverage |
+| Retained earlier document chat | Embeddings and Qdrant retrieval followed by generation | Existing legacy RAG; not exercised by the Library retrieval benchmark |
+| Library-wide answers | Planned retrieval followed by generation over selected evidence | Not implemented or evaluated |
+
 The current review workspace and finding-scoped Ask use the complete supported
 extracted source, subject to their input guards. They do not use top-k retrieval.
-Retained earlier document chat uses Qdrant retrieval; library-wide retrieval is not
-implemented and no measured library-search recall is claimed.
+Retained earlier document chat uses Qdrant retrieval. Library agreement-text
+search is a separate, key-free lexical baseline over current page-aware passages;
+it does not generate cross-contract answers or claim hybrid/vector performance.
 
-For a retrieval-based system, locating relevant passages and answering from them
-are separate evaluation problems. Recall at a chosen result limit measures how
-many labelled relevant passages were returned; it does not prove that every
-agreement in a collection was inspected. Exact source identity and quote matching
-also do not establish retrieval completeness.
+The frozen [24-question synthetic development set](../backend/fixtures/library_search_evaluations/README.md)
+contains six searchable PDFs plus one image-only exclusion, with 203 canonical
+passages. The initial local lexical run at five returned passages per question
+reported:
+
+| Retrieval measure | Initial result |
+| --- | ---: |
+| Macro document recall@5 / precision@5 | 93.3% / 54.8% |
+| Macro exact-passage recall@5 / precision@5 | 80.8% / 25.0% |
+| Exact-term / paraphrase passage recall@5 | 100% / 60% |
+| Multi-document / exception passage recall@5 | 73.3% / 90% |
+| Reviewed unanswerable queries returning a lexical match | 4 of 4 |
+| Invalid source hits | 0 |
+
+The dataset is visible and small, so these are local regression measurements,
+not independent benchmark accuracy. In particular, a returned lexical match is
+not an answer: all four no-answer cases still produced near-matches. Latency
+depends on the computer and library size; the harness reports its own query
+timings and excludes PDF extraction/preparation.
+
+The synthetic retrieval set freezes source-relevant document/page/passage labels
+for exact-term, paraphrase, multi-document, near-match and unanswerable questions.
+Run the unpaid harness on the same corpus and query set when changing passage
+construction or ranking. Record document and passage recall/precision at a fixed
+result limit separately, along with latency, skipped sources and the dataset,
+passage and extraction versions. Small authored fixtures are a regression set,
+not a population-wide accuracy estimate. Do not tune on a held-out question
+family and then report it as unseen performance.
+
+Locating relevant passages and answering from them are separate evaluation
+problems. Recall at a chosen result limit measures how many labelled relevant
+passages were returned; it does not prove that every agreement in a collection
+was inspected. Exact source identity and quote matching also do not establish
+retrieval completeness. Any future retrieval-grounded answer evaluation must
+hold the retrieved evidence fixed while assessing support, missed qualifications,
+cross-document confusion and abstention; all/every claims additionally require
+explicit collection coverage. No such generated-answer score is claimed here.
+
+### Next comparison
+
+The lexical baseline is a publishable result for this search implementation.
+The broader retrieval/answer evaluation remains open. Before developing a new
+ranker, freeze a separate holdout containing new question families and label its
+relevant passages against the source. Use the visible 24-question set for
+development, then compare lexical, dense and hybrid candidates under the same
+corpus, passage construction, result limit and scoring rules. Report exact-term,
+paraphrase, exception and multi-document results separately, plus near-matches on
+unanswerable questions, query latency and indexing/query cost. Keep failures and
+source exclusions in the report. No dense/hybrid result is available yet.
+
+Source revision changes, partial indexing and deletion must have defined behavior
+before a persistent vector index becomes a product dependency. Generated library
+answers then need separate source-grounded assessments with fixed evidence inputs
+and an end-to-end assessment that includes retrieval failures. Publish the dataset
+and implementation versions, commands, sample counts and limitations alongside
+results; keep a concise result/link in the README rather than an overall AI
+accuracy badge.
+
+## Operational evidence
+
+The backend has correlated HTTP request/error logs and in-memory endpoint timings,
+error counts and system metrics. Review and Ask preserve attempt outcomes and
+generation metadata. These aid debugging but do not measure answer quality.
+The current search endpoint has no persistent index and the retrieval harness
+measures local query latency; neither provides durable retrieval-stage traces.
+
+As retrieval stages are added, useful diagnostics include stage duration,
+outcome, source/index version, collection coverage and provider usage where
+applicable, linked to the request or paid attempt. Routine telemetry must omit
+queries, source/answer text and credentials. This instrumentation is proposed;
+there is no new external telemetry service, monitoring dashboard or operational
+reliability claim attached to the offline scores.
 
 ## Running checks
 

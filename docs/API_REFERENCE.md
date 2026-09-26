@@ -20,6 +20,7 @@ when present, an allowed local Origin. In Swagger, select Authorize and enter
 | --- | --- |
 | /api/v1/workspace | Key status, key save/removal and ordinary Settings |
 | /api/v1/documents | Local source import/extraction, list, fetch, PDF access and delete |
+| /api/v1/library/search | Explicit, key-free agreement-text search across current source snapshots |
 | /api/v1/analysis | Legacy clauses, notes, flags, rewrites and deprecated upload/analysis |
 | /api/v1/chat | Document sessions, messages, history and status |
 | /api/v1/reports | Document PDF reports |
@@ -76,6 +77,30 @@ question timestamps; upload/update timestamps do not fabricate review activity.
 Listing does not write timestamps or migrate records. Legacy records without a
 source revision retain their original analysis metadata and earlier review route;
 the new workspace summary does not reinterpret them.
+
+## Library agreement-text search
+
+POST /api/v1/library/search accepts `{ "query": "...", "limit": 20 }` under
+the same local boundary and server-selected workspace. The result limit defaults
+to 20 and may be 1–30. Search text stays in the request body, not a URL. This
+read does not save a search, read an API key, call an AI provider or mutate document records.
+It is separate from the Library's filename/type filter.
+
+Results contain document_id, filename, source_revision_id, one-based
+page_number, passage_id and an exact excerpt from the saved page text. Excerpt
+and source-incomplete flags identify limited source context; the result is not
+a claim that the excerpt is a complete clause. Coverage reports the number of
+library documents, scanned and not-examined documents, searchable/unsearchable/
+partial sources, examined/matched passages, and distinct scan/result truncation
+flags. A request scans at most 100 documents and 10,000 passages. An unexamined
+document or unsearchable source does not silently count as a negative match.
+The reader rechecks revision and physical-page validity on opening a result;
+obsolete links fail visibly.
+
+This is unpaid lexical retrieval. It neither uses the retained document-chat
+Qdrant vectors nor generates an answer. Ranking and exact source location do
+not establish legal correctness, an exhaustive comparison or absence across the
+library.
 
 ## Source import and extraction
 
