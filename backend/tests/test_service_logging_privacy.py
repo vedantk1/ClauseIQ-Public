@@ -72,16 +72,30 @@ def _direct_sensitive_value(node: ast.AST) -> bool:
     return any(_direct_sensitive_value(child) for child in ast.iter_child_nodes(node))
 
 
+def _raw_exception_string(node: ast.AST) -> bool:
+    # Inspect executable calls, not comments documenting why conversion is unsafe.
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name) and node.func.id == "str"
+        and bool(node.args) and isinstance(node.args[0], ast.Name)
+        and re.fullmatch(r"(?:e|exc|error|[A-Za-z_]+_error)", node.args[0].id) is not None
+    )
+
+
+def test_exception_string_guard_distinguishes_comments_from_calls():
+    safe = ast.parse('# Never retain str(error).\nlogger.warning("Failure: %s", type(error).__name__)')
+    assert not any(_raw_exception_string(node) for node in ast.walk(safe))
+    for expression in ("str(error)", "str ( exc )", "str(provider_error)", "logger.warning(str(e))"):
+        assert any(_raw_exception_string(node) for node in ast.walk(ast.parse(expression)))
+
+
 @pytest.mark.parametrize("relative_path", SERVICE_SOURCES)
 def test_service_logs_do_not_render_private_runtime_values(relative_path):
     source_path = BACKEND_DIR / relative_path
     source = source_path.read_text(encoding="utf-8")
     tree = ast.parse(source)
 
-    raw_exception_pattern = re.compile(
-        r"str\(\s*(?:e|exc|error|[A-Za-z_]+_error)\s*\)"
-    )
-    assert raw_exception_pattern.search(source) is None
+    assert not any(_raw_exception_string(node) for node in ast.walk(tree))
     assert "query_preview" not in source
     assert "traceback.format_exc" not in source
     assert "exc_info=True" not in source
