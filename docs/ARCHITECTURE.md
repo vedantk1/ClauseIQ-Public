@@ -268,13 +268,18 @@ Editing restores the action and retains the previously saved wording. Opening
 Ask replaces the centre-column reading content while the evidence companion stays
 visible. Compact source chips preview the exact evidence associated with each
 answer paragraph rather than repeating full quotations in the conversation.
-Some stored answer text includes request-local passage IDs with no persisted
-inline association. The display labels these as unlinked references and preserves
-the original IDs in a disclosure; it does not infer a mapping from their order or
-wording. The Send action, independent Ask drafts and saved personal questions
+For newly generated answers, services/ai/ask_citations.py binds explicitly mentioned
+bracketed passage IDs to that paragraph's already-resolved evidence indexes.
+The saved optional inline_citations mapping drives inline excerpt previews; it is
+not a semantic support check. The response schema and original generated prose
+remain unchanged, and UI-only mappings are excluded from subsequent model history.
+Some historical text has no persisted inline association. Unknown/historical IDs
+remain labelled as unlinked references with the original IDs in a disclosure;
+no mapping is inferred from order, page number or wording.
+The Send action, independent Ask drafts and saved personal questions
 retain their existing controller contracts. Layout styles consume the shared
 Black/Graphite theme tokens; this presentation layer does not change provider or
-persistence schemas.
+personal-work semantics.
 
 Physical source-page navigation disables the viewer's smooth-scroll animation;
 an animated jump would keep writing a pixel offset measured before a resize.
@@ -501,6 +506,16 @@ The application ports bind to loopback by default. The API validates loopback
 Host names, exact configured browser Origins and the X-ClauseIQ-Local header.
 The header is a browser preflight marker, not a password. See SECURITY.md for
 the trusted-OS-user boundary and limitations.
+
+Inside that boundary, middleware/request_context.py supplies one server-generated
+HTTP identity shared by safe logs, standard response correlation_id and both
+X-Request-ID/X-Correlation-ID header aliases. Caller-supplied IDs are not adopted.
+Context is reset after the request; persisted review/Ask attempt IDs remain a
+different concern. Early rate-limit responses use the same error envelope.
+Module logger lookup does not configure global handlers. Backend startup explicitly
+configures INFO-level rotating application logs; reconfiguration replaces only
+application-owned handlers. Diagnostic events retain allowlisted metadata and
+exception classes, not document content, credentials or raw exception messages.
 
 ## Model selection and request contracts
 

@@ -30,6 +30,18 @@ Account, admin and AI-debug routes are removed. The server supplies workspace_id
 request data cannot change the workspace. Document IDs remain required for
 document-specific operations.
 
+## HTTP diagnostics
+
+For requests admitted by the local-access boundary, the server creates one HTTP
+request identity; X-Request-ID and X-Correlation-ID
+are compatibility aliases for the same value. Standard error envelopes use that
+identity as correlation_id, and application diagnostics carry it without logging
+request bodies, document text or credential values. Caller-supplied correlation
+headers do not set this identity. These diagnostic IDs are distinct from the
+persisted request_id supplied to review/Ask operations for idempotency; a retry
+can have a new HTTP identity while referring to the same saved paid attempt.
+Local-access rejections deliberately occur before request logging.
+
 The standalone Analytics API is removed; /api/v1/analytics/dashboard returns 404
 for authorized local requests. POST /api/v1/analysis/analyze/ remains available
 but is marked deprecated in OpenAPI. Its frontend uploader is retired; new work
@@ -238,6 +250,15 @@ source-range contract as review findings. Uncited clarification/uncertainty is n
 source-verified. Status is processing/ready/incomplete/failed/interrupted; ready
 means available, not legally verified. Invalid output is withheld. Known provider
 usage remains available even when references fail.
+
+New answer items may also contain inline_citations: a list of passage_id and
+zero-based evidence_index pairs. The server derives these only for explicitly
+mentioned bracketed IDs that resolved within that paragraph's own evidence list
+against the prepared source. This is an attribution/navigation mapping, not a
+claim-support verdict. The frontend previews the indexed saved evidence, retaining
+source-match guards before opening its PDF page. Historical answers default to an
+empty list; unknown IDs remain unlinked. No mapping is inferred from page numbers,
+nearby wording or evidence display order, and existing answer text is not rewritten.
 
 include_history=true supplies up to six recent usable answers within the same
 run/finding, respecting the latest successful fresh-question boundary. The

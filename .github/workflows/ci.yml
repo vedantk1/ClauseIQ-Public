@@ -18,7 +18,7 @@ env:
 
 jobs:
   backend:
-    name: Backend tests
+    name: Backend tests and incremental quality
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults:
@@ -34,9 +34,14 @@ jobs:
           cache: pip
           cache-dependency-path: |
             backend/requirements.txt
+            backend/requirements-dev.txt
             shared/setup.py
       - name: Install declared Python dependencies
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install -r requirements-dev.txt
+      - name: Critical Python lint (whole backend)
+        run: python -m ruff check --config pyproject.toml . ../scripts/run_realstack_smoke.py
+      - name: Strict Python types (declared incremental scope)
+        run: python -m mypy
       - name: Prepare public tokenizer vocabularies (no API key)
         env:
           TIKTOKEN_CACHE_DIR: ${{ runner.temp }}/clauseiq-tokenizers
@@ -46,7 +51,17 @@ jobs:
         env:
           TIKTOKEN_CACHE_DIR: ${{ runner.temp }}/clauseiq-tokenizers
         # Live storage and paid evaluation scripts are manual opt-ins, not pytest tests.
-        run: python -m pytest tests -q
+        run: |
+          python -m coverage run -m pytest tests -q
+          python -m coverage report
+          python -m coverage xml
+      - name: Retain backend branch-coverage report
+        if: success()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: backend-coverage
+          path: backend/coverage/backend.xml
+          retention-days: 7
 
   frontend:
     name: Frontend checks and build
@@ -80,7 +95,7 @@ jobs:
         run: npm --prefix frontend run build
 
   browser:
-    name: Unpaid browser smoke
+    name: Mock-API browser smoke
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -112,6 +127,53 @@ jobs:
         with:
           name: browser-smoke-failure
           path: output/playwright/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  real-stack:
+    name: Real API and storage browser smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            shared/setup.py
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            shared/package-lock.json
+            frontend/package-lock.json
+      - name: Install backend and browser dependencies
+        run: |
+          (cd backend && python -m pip install -r requirements.txt)
+          npm --prefix shared ci
+          npm --prefix shared run build
+          npm --prefix frontend ci
+          (cd frontend && npx --no-install playwright install --with-deps chromium)
+      - name: Pull digest-pinned disposable database images
+        run: |
+          python scripts/run_realstack_smoke.py --print-images | while IFS= read -r image; do
+            docker pull "$image"
+          done
+      - name: Exercise real local API and storage without AI
+        # The runner owns tmpfs-only service containers, an isolated credential-free
+        # dev API and browser. It refuses to reuse the normal installation.
+        run: npm --prefix frontend run test:e2e:real
+      - name: Retain synthetic real-stack failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: real-stack-smoke-failure
+          path: output/playwright/real-stack/
           if-no-files-found: ignore
           retention-days: 7
 

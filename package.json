@@ -2,7 +2,7 @@
   "name": "clauseiq",
   "version": "1.0.0",
   "private": true,
-  "description": "ClauseIQ - AI-powered contract analysis platform",
+  "description": "ClauseIQ - local, evidence-linked contract review workspace",
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:backend": "cd backend && venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload",

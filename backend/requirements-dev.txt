@@ -1,0 +1,5 @@
+# Optional development checks; runtime requirements remain separate.
+-r requirements.txt
+ruff==0.12.12
+mypy==1.17.1
+coverage==7.10.6

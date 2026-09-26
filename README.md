@@ -82,6 +82,8 @@ The implementation separates immutable source/review snapshots from revisioned
 personal work. Review-workspace generation and Ask have explicit dispatch, bounded
 input/output, persisted attempt identities and no automatic retries. Source
 matching and deterministic tests check engineering contracts, not legal quality.
+See [Evaluation](docs/EVALUATION.md) for the existing synthetic cases, assessment
+method and the distinction between reference matching and supported conclusions.
 
 ~~~bash
 npm test           # deterministic backend and frontend tests; no paid AI
@@ -95,7 +97,8 @@ meaningful checkpoints. See [Development](docs/DEVELOPMENT.md) for commands,
 isolated storage checks and separately approved live evaluations.
 
 [CI](.github/workflows/ci.yml) checks backend/frontend tests, types, lint, a
-production build, synthetic Chromium journeys and reachable-history secret scanning.
+production build, mocked and real-stack synthetic Chromium journeys, backend
+branch coverage and reachable-history secret scanning.
 It needs no AI key and does not deploy the application.
 
 ## More information

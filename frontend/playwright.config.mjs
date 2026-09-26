@@ -5,6 +5,7 @@ const baseURL = "http://127.0.0.1:3100";
 
 export default defineConfig({
   testDir: "./e2e",
+  testIgnore: "**/real-stack/**",
   fullyParallel: false,
   workers: 1,
   retries: 0,

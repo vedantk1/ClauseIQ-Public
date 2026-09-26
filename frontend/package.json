@@ -13,7 +13,8 @@
     "test": "node --test tests/*.test.mjs",
     "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test",
-    "test:e2e:screenshots": "playwright test --grep showcase"
+    "test:e2e:screenshots": "playwright test --grep showcase",
+    "test:e2e:real": "python3 ../scripts/run_realstack_smoke.py --run-isolated-live"
   },
   "dependencies": {
     "@clauseiq/shared-types": "file:../shared",

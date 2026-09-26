@@ -26,6 +26,11 @@ Add focused tests when changing local request boundaries, workspace and document
 scoping, BYOK handling, deletion, or API response contracts. Do not hard-code a test
 count in this file because it becomes stale as the suite evolves.
 
+CI also runs critical Ruff rules across the backend, strict mypy in the explicitly
+declared domain/helper subset, and branch-coverage reporting. These optional tools
+live in requirements-dev.txt; scope and commands are in docs/DEVELOPMENT.md.
+Neither coverage nor a structurally valid source reference measures AI quality.
+
 tests/test_pdf_fixtures.py checks the public synthetic PDFs in
 ../tests/fixtures/pdfs (relative to the backend directory): deterministic bytes,
 metadata, page/text expectations and the real local extractor, including image-only
@@ -165,6 +170,13 @@ synthetic database/GridFS files. It restores answers through a fresh connection,
 checks concurrency and unknown/interrupted outcomes, and verifies scoped deletion.
 Credentials/provider calls are mocked and application data is never read. Inspect
 its final cleanup report. None of these checks establishes real answer quality.
+
+The smoke also verifies new inline citation mappings through MongoDB readback and
+leaves historical unmapped answer text unchanged. --mongo-port selects a separate
+loopback test service. The real-stack CI harness runs it against its own disposable
+MongoDB, then exercises import, saved questions and PDF-page navigation through
+the actual browser/API. See docs/DEVELOPMENT.md for the guarded runner and cleanup
+boundaries; the existing mocked-API browser journeys remain a separate suite.
 
 ## Development-only checker contracts
 

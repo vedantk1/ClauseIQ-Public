@@ -27,6 +27,7 @@
   "exclude": [
     "node_modules",
     ".next-e2e",
+    ".next-e2e-real",
     "**/*.test.ts",
     "**/*.test.tsx",
     "src/__tests__/**",

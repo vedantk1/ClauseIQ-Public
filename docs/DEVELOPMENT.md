@@ -75,6 +75,7 @@ also prepare these assets. The Docker build follows the same npm hook.
 | npm run test:backend | Backend tests only |
 | npm run test:frontend | Local API, persistence state, viewer adapter and render-contract tests |
 | npm --prefix frontend run test:e2e | Isolated, synthetic Chromium UI journeys; separate from npm run check |
+| npm --prefix frontend run test:e2e:real | Real API/storage Chromium journey using disposable Docker services |
 | npm run typecheck | Frontend types |
 | npm run lint | Frontend lint |
 | npm run build | Shared types and frontend production build |
@@ -85,12 +86,16 @@ also prepare these assets. The Docker build follows the same npm hook.
 [The CI workflow](../.github/workflows/ci.yml) runs on pull requests targeting main
 and pushes to main. Its independent jobs cover:
 
-- Backend deterministic Pytest tests using Python 3.13. A key-free preflight
-  downloads the public tokenizer vocabularies needed by the tests.
+- Backend deterministic Pytest tests using Python 3.13, with branch-coverage
+  reporting, critical Python lint and a declared strict typing subset. A key-free
+  preflight downloads the public tokenizer vocabularies needed by the tests.
 - Shared TypeScript build; frontend unit/component tests, typecheck, lint and
   production bundle build using Node.js 24.
 - Chromium browser journeys on an isolated development frontend with synthetic
   API responses. No real backend, database or saved credentials are accessed.
+- A separate Chromium journey through real FastAPI, MongoDB/GridFS and Qdrant
+  startup, using test-owned disposable services. Import, authored findings,
+  confirmed saving, reopening and physical PDF navigation use the real API.
 - Gitleaks scanning across the fetched reachable Git history, with redacted output.
 
 Actions and the secret scanner are pinned; workflow permissions are read-only and
@@ -98,8 +103,9 @@ checkout credentials are not persisted. Failed browser runs can retain synthetic
 diagnostics for seven days. Dependency installation and tokenizer/browser downloads
 need network access; this is an unpaid workflow, not an air-gapped one.
 
-There are no paid evaluations, live storage harnesses, deployment steps or changes
-to repository settings. Required-check enforcement must be configured separately.
+There are no paid evaluations, deployment steps or changes to repository settings.
+The real-stack check does not use an existing installation or saved API key.
+Required-check enforcement must be configured separately.
 Passing CI does not establish legal quality, exhaustive security or compatibility
 with a particular person's saved installation. Keep isolated storage smoke checks
 for changes to persistence or migration, and retain the batched visual review.
@@ -152,7 +158,82 @@ This runs the synthetic showcase case and produces Black/Graphite captures under
 Review selected images against [repository policy](REPOSITORY_POLICY.md) before
 publishing a copy under docs/images; generated test-output folders stay untracked.
 
+### Real API/storage browser smoke
+
+This separate check uses real frontend and FastAPI development servers, MongoDB/
+GridFS persistence and Qdrant startup. It creates its own digest-pinned MongoDB and
+Qdrant containers with temporary in-memory storage, unique ownership labels and
+random loopback store ports. Existing Compose services, backend environment files,
+credential directories and application records are not used or changed. Next.js
+may load the normal frontend environment files; the test overrides its API origin
+explicitly and blocks requests outside the isolated origins. No environment file
+is modified by the harness.
+
+After normal dependencies and Chromium are installed, inspect and explicitly pull
+the prerequisites once, then run from the repository root:
+
+~~~bash
+python3 scripts/run_realstack_smoke.py --print-images
+# Run docker pull for each exact image printed above.
+npm --prefix frontend run test:e2e:real
+~~~
+
+The runner uses backend/venv when present, otherwise the launching interpreter.
+It checks the declared Qdrant client version before starting the journey. If a
+working installation has dependency drift, use a separate interpreter installed
+from backend/requirements.txt rather than altering a running application's venv:
+
+~~~bash
+python3.13 scripts/run_realstack_smoke.py --run-isolated-live --python path/to/isolated/python
+~~~
+
+The runner never pulls implicitly. It refuses occupied test ports 3101/8101,
+starts a separate Next.js cache at .next-e2e-real and runs FastAPI from a temporary
+directory with application environment-file loading disabled. The test launcher
+blocks provider construction, credential-file reads and connections outside its
+owned database services. Browser requests are allowlisted to the isolated UI and
+the unpaid API routes exercised. These controls are test-only; they do not add a
+production bypass or a second application configuration mode.
+
+The journey imports the unchanged 25-page PDF, loads its labelled authored example,
+saves a question, clears browser storage and reloads it from the API, then previews
+evidence and opens the original physical page. It checks downloaded original bytes
+against the fixture hash. A separate Ask lifecycle smoke on the same test-owned
+MongoDB uses a fresh fixture database and mocked provider boundary to check
+fresh-connection readback, inline citation mappings and historical-answer preservation.
+No embeddings, real model answers or legal quality are tested.
+
+Cleanup validates exact container IDs, invocation labels, mounts and bindings
+before stopping only owned disposable services. Failures must remain visible;
+never use volume pruning or stop the person's normal services to resolve a test
+failure. Diagnostics contain synthetic data and remain ignored under
+output/playwright/real-stack. The temporary source/credential-state directory is
+removed. Do not run this suite alongside the mock-browser suite, frontend typecheck
+or a build: Next.js still shares the generated next-env.d.ts file, which the
+test wrapper restores on exit.
+
 ### Focused local checks
+
+Incremental backend quality tools are optional for normal runtime setup:
+
+~~~bash
+cd backend
+venv/bin/python -m pip install -r requirements-dev.txt
+venv/bin/python -m ruff check .
+venv/bin/python -m mypy
+venv/bin/python -m coverage run -m pytest tests -q
+venv/bin/python -m coverage report
+venv/bin/python -m coverage xml
+~~~
+
+Ruff currently checks critical syntax, invalid comparisons and undefined names
+across backend source and tests, not a comprehensive style policy. Strict mypy
+is limited to source-passage construction, Ask inline-citation binding and HTTP
+request context; imports retain their types but unrelated modules are not claimed
+as checked. Expand this explicit scope as modules are maintained. Branch coverage
+is reported over backend source without an arbitrary global percentage gate;
+the report identifies gaps, not model quality. Generated coverage files stay
+ignored. CI retains the XML report for seven days.
 
 Focused commands:
 

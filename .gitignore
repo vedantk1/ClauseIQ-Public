@@ -76,6 +76,7 @@ test-results/
 playwright-report/
 /output/playwright/
 /frontend/.next-e2e/
+/frontend/.next-e2e-real/
 artifacts/
 screenshots/
 tempimages/
