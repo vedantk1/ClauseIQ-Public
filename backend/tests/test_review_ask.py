@@ -273,6 +273,59 @@ async def test_complete_answer_resolves_full_source_range_and_retains_usage(prep
 
 
 @pytest.mark.asyncio
+async def test_inline_links_bind_only_canonical_evidence_in_the_same_answer_item(prepared, output):
+    first, last = prepared.passages[0].id, prepared.passages[-1].id
+    text = f"Exit remains conditional [{last}; {first}; p99_b1_v1]. Again [{last}]."
+    output["answer"][0]["text"] = text
+    output["answer"].append({"text": f"A different rule [{first}].", "evidence": [{"passage_id": first, "label": "Fees"}]})
+    before = deepcopy(output)
+    client, call, _ = mock_client(response(output))
+    result = await engine.generate_ask(prepared, client)
+    assert result.status == "ready"
+    assert result.answer[0].text == text and output == before
+    assert [citation.model_dump() for citation in result.answer[0].inline_citations] == [
+        {"passage_id": last, "evidence_index": 0},
+    ]
+    assert [citation.model_dump() for citation in result.answer[1].inline_citations] == [
+        {"passage_id": first, "evidence_index": 0},
+    ]
+    assert result.answer[0].evidence[0].quote == prepared.evidence_by_id[last].quote
+    call.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_inline_evidence_order_is_explicit_not_text_or_page_order(prepared, output):
+    first, last = prepared.passages[0].id, prepared.passages[-1].id
+    output["answer"][0].update(text=f"Read [{last}, {first}].", evidence=[
+        {"passage_id": first, "label": "First"}, {"passage_id": last, "label": "Last"},
+    ])
+    client, _, _ = mock_client(response(output))
+    result = await engine.generate_ask(prepared, client)
+    assert [(citation.passage_id, citation.evidence_index) for citation in result.answer[0].inline_citations] == [
+        (first, 0), (last, 1),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_inline_mapping_is_not_accepted_from_provider(prepared, output):
+    output["answer"][0]["inline_citations"] = [{"passage_id": prepared.passages[0].id, "evidence_index": 0}]
+    client, _, _ = mock_client(response(output))
+    result = await engine.generate_ask(prepared, client)
+    assert result.failure.code == "INVALID_ASK_SHAPE" and not result.answer
+
+
+@pytest.mark.asyncio
+async def test_unknown_or_non_citation_syntax_is_not_repaired_or_given_a_mapping(prepared, output):
+    identifier = prepared.passages[-1].id
+    text = f"Read [{identifier} amended] and [p99_b1_v1]. Outside brackets: {identifier}."
+    output["answer"][0]["text"] = text
+    client, _, _ = mock_client(response(output))
+    result = await engine.generate_ask(prepared, client)
+    assert result.status == "ready" and result.answer[0].text == text
+    assert result.answer[0].inline_citations == []
+
+
+@pytest.mark.asyncio
 async def test_clarification_or_external_unknown_needs_no_invented_evidence(prepared):
     output = {"outcome": "answer", "answer": [{"text": "Have you already given notice? The source cannot establish that event.", "evidence": []}], "limitations": []}
     client, _, _ = mock_client(response(output))

@@ -513,6 +513,33 @@ async def test_old_workspace_defaults_are_read_only(setup):
     assert state.ask_turns == [] and setup.documents.document == before and setup.documents.writes == []
 
 
+@pytest.mark.asyncio
+async def test_inline_mapping_survives_save_reopen_and_request_replay_without_another_call(setup):
+    result_item = setup.result.answer[0].model_dump()
+    result_item.update(text="Charges recur monthly [p1_b1_v1].", inline_citations=[
+        {"passage_id": "p1_b1_v1", "evidence_index": 0},
+    ])
+    setup.result.answer = [ReviewAskAnswerItem.model_validate(result_item)]
+    saved = await start(setup)
+    reopened = await setup.service.read("doc-1", WORKSPACE)
+    repeated = await start(setup)
+    assert reopened == saved == repeated
+    assert reopened.ask_turns[0].answer[0].model_dump() == result_item
+    setup.generate.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_historical_inline_ids_are_not_reconstructed_on_read(setup):
+    setup.result.answer[0].text = "Charges recur monthly [p1_b1_v1]."
+    await start(setup)
+    setup.documents.document["review_workspace"]["ask_turns"][0]["answer"][0].pop("inline_citations")
+    before = deepcopy(setup.documents.document)
+    reopened = await setup.service.read("doc-1", WORKSPACE)
+    assert reopened.ask_turns[0].answer[0].inline_citations == []
+    assert setup.documents.document == before
+    setup.generate.assert_awaited_once()
+
+
 def test_http_start_interrupt_and_safe_error_contract(setup, monkeypatch):
     monkeypatch.setattr(review_workspace, "get_document_service", lambda: setup.documents)
     app = add_api_standardization(FastAPI())

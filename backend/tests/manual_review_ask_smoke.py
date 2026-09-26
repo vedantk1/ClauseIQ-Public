@@ -1,6 +1,7 @@
 """Opt-in isolated MongoDB/GridFS Ask lifecycle smoke; synthetic and no paid AI.
 
 Run from backend: venv/bin/python tests/manual_review_ask_smoke.py --run-isolated-live
+Pass --mongo-port for a separately owned test service (default 27017).
 Uses an already-running localhost MongoDB. Only a verified-absent, uniquely named
 fixture database is created and removed. No application data or credentials are
 read. Provider boundaries are mocked; persistence and source-file reads are real.
@@ -19,8 +20,10 @@ from uuid import uuid4
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from clauseiq_types.review import (
-    ReviewAskAnswerItem, ReviewCoverage, ReviewGeneration, ReviewUsage, ReviewWorkspaceUpdate, StartAskRequest,
+    ReviewAskAnswerItem, ReviewCoverage, ReviewEvidence, ReviewGeneration, ReviewUsage, ReviewWorkspaceUpdate, StartAskRequest,
 )
+from clauseiq_types.source import SourceExtraction
+from services.ai.review_passages import build_review_passages
 from services.ai.text_extractor import TextExtractor
 from services.file_storage_service import GridFSFileStorage
 from services.review_ask_service import ReviewAskService
@@ -43,10 +46,10 @@ async def expect_error(operation, code):
         raise AssertionError("Expected scoped Ask operation to fail")
 
 
-async def run_smoke():
+async def run_smoke(mongo_port=27017):
     suffix = uuid4().hex
     database_name = f"clauseiq_ask_smoke_{suffix}"
-    adapter = isolated_adapter(database_name)
+    adapter = isolated_adapter(database_name, mongo_port)
     connections, owned_database = [adapter], False
     report = {"passed": False, "checks": [], "cleaned": [], "leftovers": []}
     stage = "connect to existing localhost MongoDB"
@@ -96,8 +99,15 @@ async def run_smoke():
                 extraction_version=imported["source_extraction"]["extraction_version"], estimated_input_tokens=100)
             coverage = ReviewCoverage(page_count=25, extracted_pages=list(range(1, 26)), omitted_pages=[])
             prepared = SimpleNamespace(generation=generation, coverage=coverage)
+            passage = next(item for item in build_review_passages(
+                SourceExtraction.model_validate(imported["source_extraction"]), current.source_revision_id,
+            ) if finding.evidence[0].span_id in item.span_ids)
+            evidence = ReviewEvidence(source_revision_id=current.source_revision_id, span_id=passage.span_ids[0],
+                end_span_id=passage.span_ids[-1], page_number=passage.page_number, quote=passage.text, label="Synthetic source")
             result = SimpleNamespace(status="ready", answer=[ReviewAskAnswerItem(
-                text="Synthetic source-linked answer for persistence testing.", evidence=[finding.evidence[0]])],
+                text=f"Synthetic source-linked answer [{passage.id}].", evidence=[evidence],
+                inline_citations=[{"passage_id": passage.id, "evidence_index": 0}]), ReviewAskAnswerItem(
+                text=f"Synthetic historical unlinked answer [{passage.id}].", evidence=[evidence])],
                 limitations=[], failure=None, coverage=coverage, generation=generation.model_copy(update={
                     "usage": ReviewUsage(prompt_tokens=100, completion_tokens=50, total_tokens=150), "duration_ms": 1}))
 
@@ -128,13 +138,20 @@ async def run_smoke():
             assert current.runs[0] == run and preparation.call_args.args[1] == run
             report["checks"].append("real Ask claim/final persistence preserves concurrent Ask draft, saved question, markers and original review context")
 
+            # Simulate the old persisted shape only inside this run's owned fixture.
+            # A subsequent read must not backfill IDs into an immutable old answer.
+            await db.documents.update_one({"id": imported["id"]}, {
+                "$unset": {"review_workspace.ask_turns.0.answer.1.inline_citations": ""},
+            })
+            before_read = await db.documents.find_one({"id": imported["id"]})
+
             stage = "key-free replay and fresh connection restore"
             documents.get_workspace_api_key.reset_mock()
             documents.get_workspace_api_key.side_effect = AssertionError("Credential access forbidden during replay")
             assert await service.start(imported["id"], WORKSPACE, run.id, finding.id, first_request) == current
             documents.get_workspace_api_key.assert_not_awaited()
             provider.assert_awaited_once()
-            fresh_adapter = isolated_adapter(database_name)
+            fresh_adapter = isolated_adapter(database_name, mongo_port)
             connections.append(fresh_adapter)
             await fresh_adapter.connect()
             factory.return_value = fresh_adapter
@@ -143,10 +160,17 @@ async def run_smoke():
             file_factory.return_value = fresh_files
             fresh_documents = document_service(fresh_adapter)
             fresh_documents.get_workspace_api_key = AsyncMock(side_effect=AssertionError("Credential access forbidden on read"))
-            assert await ReviewWorkspaceService(fresh_documents).read(imported["id"], WORKSPACE) == current
+            reopened = await ReviewWorkspaceService(fresh_documents).read(imported["id"], WORKSPACE)
+            assert reopened == current
+            assert reopened.ask_turns[0].answer[0].inline_citations[0].passage_id == passage.id
+            assert reopened.ask_turns[0].answer[0].inline_citations[0].evidence_index == 0
+            assert reopened.ask_turns[0].answer[0].evidence[0] == evidence
+            assert reopened.ask_turns[0].answer[1].inline_citations == []
+            assert await db.documents.find_one({"id": imported["id"]}) == before_read
             assert (await fresh_documents.get_pdf_file(imported["id"], WORKSPACE))["content"] == content
             fresh_documents.get_workspace_api_key.assert_not_awaited()
             report["checks"].append("same request never recharges; fresh connection restores exact source evidence and original PDF without reading a key")
+            report["checks"].append("inline citation mapping survives MongoDB readback while historical unmapped text is neither inferred nor rewritten")
 
             stage = "history and stale-write isolation"
             documents.get_workspace_api_key.side_effect = None
@@ -218,7 +242,10 @@ async def run_smoke():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-isolated-live", action="store_true", help="Permit disposable localhost MongoDB/GridFS fixtures")
+    parser.add_argument("--mongo-port", type=int, default=27017, help="Nonprivileged 127.0.0.1 MongoDB port; no remote URI accepted")
     args = parser.parse_args()
     if not args.run_isolated_live:
         parser.error("Pass --run-isolated-live to create and remove disposable localhost fixtures.")
-    raise SystemExit(0 if asyncio.run(run_smoke()) else 1)
+    if not 1024 <= args.mongo_port <= 65535:
+        parser.error("--mongo-port must be between 1024 and 65535.")
+    raise SystemExit(0 if asyncio.run(run_smoke(args.mongo_port)) else 1)

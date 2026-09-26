@@ -5,7 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from clauseiq_types.review import (
-    ReviewAskTurn, ReviewPersonalState, ReviewWorkspaceResponse,
+    ReviewAskAnswerItem, ReviewAskTurn, ReviewPersonalState, ReviewWorkspaceResponse,
     ReviewWorkspaceUpdate, StartAskRequest,
 )
 
@@ -96,6 +96,33 @@ def test_terminal_answer_preserves_exact_evidence_and_provenance():
     assert restored.answer[0].evidence[0].quote == "Payment is due.\nOnly after acceptance."
     assert restored.generation.reasoning_effort == "medium"
     assert restored.history_turn_ids == ["old-1"]
+    assert restored.answer[0].inline_citations == []
+
+
+def test_inline_mapping_round_trip_preserves_original_text_and_exact_index():
+    item = answer()[0]
+    item.update(text="Payment has a condition [p1_b3_v1].", inline_citations=[
+        {"passage_id": "p1_b3_v1", "evidence_index": 0},
+    ])
+    parsed = ReviewAskAnswerItem.model_validate(item)
+    restored = ReviewAskAnswerItem.model_validate_json(parsed.model_dump_json())
+    assert restored == parsed and restored.text == item["text"]
+    assert restored.inline_citations[0].evidence_index == 0
+
+
+@pytest.mark.parametrize("mapping", [
+    None, [{"passage_id": "p1_b3_v1", "evidence_index": -1}],
+    [{"passage_id": "p1_b3_v1", "evidence_index": 1}],
+    [{"passage_id": "p1_b3_v1", "evidence_index": True}],
+    [{"passage_id": "p1_b3_v1", "evidence_index": 0.5}],
+    [{"passage_id": "unknown", "evidence_index": 0}],
+    [{"passage_id": "p0_b3_v1", "evidence_index": 0}],
+    [{"passage_id": "p1_b3_v1", "evidence_index": 0}] * 2,
+    [{"passage_id": "p1_b3_v1", "evidence_index": 0}, {"passage_id": "p1_b4_v1", "evidence_index": 0}],
+])
+def test_malformed_inline_mapping_cannot_select_an_unrelated_or_missing_reference(mapping):
+    with pytest.raises(ValidationError):
+        ReviewAskAnswerItem.model_validate({**answer()[0], "inline_citations": mapping})
 
 
 def test_partial_source_answer_remains_incomplete():

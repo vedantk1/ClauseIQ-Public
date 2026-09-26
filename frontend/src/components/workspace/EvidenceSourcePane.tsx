@@ -104,6 +104,18 @@ export function EvidenceSourcePane({ finding, source, onOpen, selectedEvidence, 
   </section>;
 }
 
+export function InlineEvidenceReference({ number, evidence, source, onOpen }: {
+  number: number; evidence: ReviewEvidence; source: DocumentSourceResponse | null;
+  onOpen: (evidence: ReviewEvidence) => void;
+}) {
+  const presentation = presentEvidence(evidence, source);
+  return <button type="button" className="cw-inline-citation"
+    aria-label={`Preview excerpt · source ${number} · page ${evidence.page_number} · ${evidence.label}${presentation.matched ? "" : " · source not matched"}`}
+    title={`${evidence.label} · ${presentation.matchLabel}`} onClick={() => onOpen(evidence)}>
+    Source {number}{!presentation.matched && <span className="cw-evidence-unmatched"> · not matched</span>}
+  </button>;
+}
+
 export function EvidenceList({ evidence, source, onOpen, preview = false }: {
   evidence: ReviewEvidence[]; source: DocumentSourceResponse | null; onOpen: (evidence: ReviewEvidence) => void;
   preview?: boolean;

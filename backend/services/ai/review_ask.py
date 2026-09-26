@@ -13,6 +13,7 @@ from clauseiq_types.review import (
     ReviewFailure, ReviewFinding, ReviewGeneration, ReviewModel, ReviewRun,
 )
 from .generation import AIRequestError, create_chat_completion, generation_metadata
+from .ask_citations import bind_inline_citations
 from .review_ask_prompt import ASK_SYSTEM_PROMPT, PROMPT_VERSION, SCHEMA_VERSION
 from .review_generation import (
     SOURCE_LIMITATION, GeneratedEvidence, _EvidenceMismatch, _resolve_evidence,
@@ -127,7 +128,7 @@ def prepare_ask(
         "selected_finding_untrusted": finding.model_dump(),
         "conversation_history_untrusted": [
             {"turn_id": turn.id, "question": turn.question,
-             "answer": [item.model_dump() for item in turn.answer],
+             "answer": [item.model_dump(exclude={"inline_citations"}) for item in turn.answer],
              "limitations": turn.limitations}
             for turn in history
         ],
@@ -221,7 +222,13 @@ async def generate_ask(prepared: PreparedAsk, client) -> AskGenerationResult:
                                         ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
         answer = []
         for item in parsed.answer:
-            resolved = ReviewAskAnswerItem(text=item.text, evidence=_resolve_evidence(item.evidence, prepared))
+            # Resolve against this exact request's inventory before retaining any
+            # association. Neither prose nor the frontend can supply quote/page data.
+            evidence = _resolve_evidence(item.evidence, prepared)
+            resolved = ReviewAskAnswerItem(
+                text=item.text, evidence=evidence,
+                inline_citations=bind_inline_citations(item.text, [entry.passage_id for entry in item.evidence]),
+            )
             resolved_bytes += len(resolved.model_dump_json().encode("utf-8")) + bool(answer)
             if resolved_bytes > MAX_RESOLVED_ASK_BYTES:
                 return failed("ASK_RESOLVED_OUTPUT_LIMIT", "The answer and its complete source passages exceeded the safe result-size limit. No answer was published; no automatic retry was made.")

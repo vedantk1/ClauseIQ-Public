@@ -87,9 +87,28 @@ class ReviewFailure(ReviewModel):
     message: str = Field(max_length=2000)
 
 
+class ReviewAskInlineCitation(ReviewModel):
+    """Server-resolved request-local identifier, never inferred from display order."""
+
+    passage_id: str = Field(max_length=128, pattern=r"^p[1-9]\d*_b[1-9]\d*_v[1-9]\d*$")
+    evidence_index: int = Field(ge=0, lt=10)
+
+
 class ReviewAskAnswerItem(ReviewModel):
     text: str = Field(min_length=1, max_length=5000)
     evidence: list[ReviewEvidence] = Field(default_factory=list, max_length=10)
+    # Historical answers remain unlinked; loading must not manufacture a mapping.
+    inline_citations: list[ReviewAskInlineCitation] = Field(default_factory=list, max_length=10)
+
+    @model_validator(mode="after")
+    def check_inline_citations(self):
+        passage_ids = [citation.passage_id for citation in self.inline_citations]
+        evidence_indexes = [citation.evidence_index for citation in self.inline_citations]
+        if (len(set(passage_ids)) != len(passage_ids)
+                or len(set(evidence_indexes)) != len(evidence_indexes)
+                or any(index >= len(self.evidence) for index in evidence_indexes)):
+            raise ValueError("Inline citations require distinct references to this answer's evidence")
+        return self
 
 
 class ReviewAskTurn(ReviewModel):

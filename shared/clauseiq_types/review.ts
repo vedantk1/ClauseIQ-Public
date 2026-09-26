@@ -50,9 +50,18 @@ export interface ReviewGeneration {
   duration_ms: number | null;
 }
 
+export interface ReviewAskInlineCitation {
+  /** Request-local ID resolved by the server against the exact supplied inventory. */
+  passage_id: string;
+  /** Zero-based index into this answer item's evidence, never the finding's evidence. */
+  evidence_index: number;
+}
+
 export interface ReviewAskAnswerItem {
   text: string;
   evidence: ReviewEvidence[];
+  /** Missing on historical answers; never reconstructed by matching display order. */
+  inline_citations?: ReviewAskInlineCitation[];
 }
 
 export interface ReviewAskTurn {

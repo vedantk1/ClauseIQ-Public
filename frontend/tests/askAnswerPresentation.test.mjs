@@ -75,6 +75,46 @@ test("legal brackets, unfamiliar identifiers and malformed tokens are never stri
   }
 });
 
+test("explicit mappings retain text byte-for-byte and link exact evidence regardless of prose order", () => {
+  const { first, second } = fixture();
+  const text = "Read 🧭 [p2_b3_v1; p1_b3_v1].\nAgain [p2_b3_v1].";
+  const parts = presentAskAnswer(text, [first, second], [
+    { passage_id: "p1_b3_v1", evidence_index: 0 }, { passage_id: "p2_b3_v1", evidence_index: 1 },
+  ]);
+  assert.equal(parts.map(part => part.text).join(""), text);
+  const linked = parts.filter(part => part.kind === "linked-reference");
+  assert.equal(linked.length, 3);
+  assert.equal(linked[0].evidence, second);
+  assert.equal(linked[1].evidence, first);
+  assert.equal(linked[2].evidence, second);
+  assert.deepEqual(Array.from(linked, part => part.number), [2, 1, 2]);
+});
+
+test("mixed reference groups keep unknown identifiers explicitly unlinked", () => {
+  const { first, second } = fixture();
+  const text = "Read [p1_b3_v1; p2_b3_v1; p99_b1_v1].";
+  const parts = presentAskAnswer(text, [first, second], [{ passage_id: "p1_b3_v1", evidence_index: 0 }]);
+  assert.equal(parts.map(part => part.text).join(""), text);
+  assert.equal(parts.filter(part => part.kind === "linked-reference").length, 1);
+  assert.deepEqual(Array.from(parts.filter(part => part.kind === "unlinked-reference"), part => part.text), ["p2_b3_v1", "p99_b1_v1"]);
+});
+
+test("malformed or ambiguous mapping fails closed instead of guessing an evidence index", () => {
+  const { first, second } = fixture();
+  const text = "Read [p1_b3_v1].";
+  for (const mapping of [null, {}, [null], [{ passage_id: "p1_b3_v1", evidence_index: -1 }],
+    [{ passage_id: "p1_b3_v1", evidence_index: 2 }], [{ passage_id: "p1_b3_v1", evidence_index: 0.5 }],
+    [{ passage_id: "p1_b3_v1", evidence_index: "0" }], [{ passage_id: "p1_b3_v1", evidence_index: true }],
+    [{ passage_id: "p1_b3_v1", evidence_index: 0 }, { passage_id: "p1_b3_v1", evidence_index: 1 }],
+    [{ passage_id: "p1_b3_v1", evidence_index: 0 }, { passage_id: "p2_b3_v1", evidence_index: 0 }],
+  ]) {
+    const parts = presentAskAnswer(text, [first, second], mapping);
+    assert.equal(parts.map(part => part.text).join(""), text);
+    assert.equal(parts.filter(part => part.kind === "linked-reference").length, 0);
+    assert.equal(parts.filter(part => part.kind === "unlinked-reference").length, 1);
+  }
+});
+
 test("compact answer references preserve each exact associated entry rather than grouping by page", () => {
   const { first, second, source } = fixture();
   const previews = [];
@@ -122,6 +162,41 @@ test("Ask prose carries an explicit unlinked indicator with raw IDs accessible w
   assert.equal(selected.text, turn.answer[0].text);
   assert.equal(selected.evidence, second);
   assert.equal(JSON.stringify(turn), saved);
+});
+
+test("linked inline Ask references preview their associated exact passage without sending or changing saved content", () => {
+  const { turn, source, second } = fixture();
+  turn.answer[0].inline_citations = [
+    { passage_id: "p1_b3_v1", evidence_index: 0 }, { passage_id: "p2_b3_v1", evidence_index: 1 },
+  ];
+  const saved = JSON.stringify(turn);
+  let selected;
+  const tree = AskTurn({ turn, source, onEvidence: (text, evidence) => { selected = { text, evidence }; },
+    onRefresh() { assert.fail("preview must not reload"); }, onInterrupt() { assert.fail("preview must not interrupt"); }, controlsDisabled: false });
+  const html = renderToStaticMarkup(tree);
+  assert.doesNotMatch(html, /unlinked reference|p1_b3_v1|p2_b3_v1|View page/);
+  assert.match(html, /Preview excerpt · source 2 · page 1 · Exception/);
+  const references = nodes(tree, node => node.type === evidenceControls.InlineEvidenceReference);
+  assert.equal(references.length, 2);
+  const button = evidenceControls.InlineEvidenceReference(references[1].props);
+  button.props.onClick();
+  assert.equal(selected.text, turn.answer[0].text);
+  assert.equal(selected.evidence, second);
+  assert.equal(JSON.stringify(turn), saved);
+});
+
+test("inline preview uses existing source-match guards and does not imply an available PDF jump", () => {
+  const { first, source } = fixture();
+  source.source_revision_id = "different-source";
+  let selected;
+  const tree = evidenceControls.InlineEvidenceReference({ number: 1, evidence: first, source,
+    onOpen: evidence => { selected = evidence; } });
+  const html = renderToStaticMarkup(tree);
+  assert.match(html, /source not matched/);
+  assert.match(html, /Quote could not be matched/);
+  assert.doesNotMatch(html, /View page|Passage matched/);
+  tree.props.onClick();
+  assert.equal(selected, first, "preview retains saved evidence for inspection without repairing its source");
 });
 
 test("incomplete answers keep their specific warning outside the generic answer-details disclosure", () => {

@@ -5,7 +5,7 @@ import type { DocumentSourceResponse, ReviewAskTurn, ReviewEvidence, ReviewFindi
 import Modal from "@/components/ui/Modal";
 import { useWorkspace } from "@/context/WorkspaceContext";
 import { Action, fieldClass, Panel } from "./WorkspaceControls";
-import { EvidenceList } from "./EvidenceSourcePane";
+import { EvidenceList, InlineEvidenceReference } from "./EvidenceSourcePane";
 import { presentAskAnswer } from "./askAnswerPresentation";
 import { askHistorySummary, draftKey, paidActionBusy, runStatus, type ReviewWorkspaceController, type WorkspaceSaveState } from "./workspaceState";
 
@@ -114,10 +114,12 @@ export function AskTurn({ turn, source, onEvidence, onRefresh, onInterrupt, cont
     <div className="cw-ask-question"><h3>You</h3><p className="whitespace-pre-wrap">{turn.question}</p></div>
     <p className="cw-ask-answer-label">ClauseIQ{turn.status !== "ready" ? ` · ${turn.status}` : ""}</p>
     {turn.answer.map((item, index) => {
-      const parts = presentAskAnswer(item.text);
+      const parts = presentAskAnswer(item.text, item.evidence, item.inline_citations);
       const unlinked = parts.filter(part => part.kind === "unlinked-reference");
       return <div className="cw-ask-answer" key={index}>
         <p className="whitespace-pre-wrap leading-relaxed">{parts.map((part, partIndex) => part.kind === "text" ? part.text :
+          part.kind === "linked-reference" ? <InlineEvidenceReference key={partIndex} number={part.number}
+            evidence={part.evidence} source={source} onOpen={evidence => onEvidence(item.text, evidence)} /> :
           <span className="cw-unlinked-citation" key={partIndex} title="This inline reference has no saved source link. Original ID is available below.">[unlinked reference {part.number}]</span>)}</p>
         <EvidenceList preview evidence={item.evidence} source={source} onOpen={evidence => onEvidence(item.text, evidence)} />
         {!!unlinked.length && <details className="cw-unlinked-citations"><summary>Unlinked source references ({unlinked.length})</summary>
