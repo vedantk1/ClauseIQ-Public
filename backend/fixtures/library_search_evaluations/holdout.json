@@ -1,0 +1,352 @@
+{
+  "id": "synthetic-library-retrieval-question-holdout",
+  "version": "1.0.0",
+  "purpose": "New question-family holdout frozen before dense/hybrid ranking implementation; known synthetic documents, not unseen-contract or independent legal-quality evaluation.",
+  "review_basis": "Authored labels cross-checked against source fixture text and exact physical-page extraction; representative PDF pages inspected. Related variants stay within this split. Labels are not independent expert annotations.",
+  "documents": [
+    {
+      "id": "mutual-nda",
+      "filename": "mutual-nda.pdf",
+      "source_revision_id": "eval-mutual-nda-v1",
+      "sha256": "188ff1007f2840d79ab679330e39702c158328b4bc29b36307b235f95dd6fcd1",
+      "pages": 1,
+      "extractable": true
+    },
+    {
+      "id": "service-terms-conflict",
+      "filename": "service-terms-conflict.pdf",
+      "source_revision_id": "eval-service-terms-conflict-v1",
+      "sha256": "1c78e881d719328ab5807b306c94595482d86c0c05b349b0777629e5c640b759",
+      "pages": 2,
+      "extractable": true
+    },
+    {
+      "id": "embedded-instructions",
+      "filename": "embedded-instructions.pdf",
+      "source_revision_id": "eval-embedded-instructions-v1",
+      "sha256": "ef69cb7624262a214a33838059a619291f8392108eafda8de0f1819d96e4a3d6",
+      "pages": 1,
+      "extractable": true
+    },
+    {
+      "id": "consulting-agreement-5p",
+      "filename": "consulting-agreement-5p.pdf",
+      "source_revision_id": "eval-consulting-agreement-5p-v1",
+      "sha256": "0a2615b3727855457d98fdab5afca6d182f036708164b1cc5f1d171766ca492a",
+      "pages": 5,
+      "extractable": true
+    },
+    {
+      "id": "software-license-12p",
+      "filename": "software-license-12p.pdf",
+      "source_revision_id": "eval-software-license-12p-v1",
+      "sha256": "0652883d4d43bea4a7a8b2b0c4cdf7213fba95ba53beb81390a9b2324407ab08",
+      "pages": 12,
+      "extractable": true
+    },
+    {
+      "id": "managed-services-25p",
+      "filename": "managed-services-25p.pdf",
+      "source_revision_id": "eval-managed-services-25p-v1",
+      "sha256": "8ceb74201548b29a7f5c35d7443db7c58a10d2486b9b23cb3716affd5cfa23bd",
+      "pages": 25,
+      "extractable": true
+    },
+    {
+      "id": "image-only-scan",
+      "filename": "image-only-scan.pdf",
+      "source_revision_id": "eval-image-only-scan-v1",
+      "sha256": "55935a51a1fda94a7b31e0cbe38e2ca527d0b51d2c2b7e1f8eb3f0aae315778e",
+      "pages": 1,
+      "extractable": false
+    }
+  ],
+  "extraction_version": "pdfplumber:0.11.10:page-lines-v1",
+  "passage_version": "source-passages-v1",
+  "anchors": {
+    "subcontractors": {
+      "document_id": "managed-services-25p",
+      "source_revision_id": "eval-managed-services-25p-v1",
+      "page_number": 6,
+      "passage_id": "p6_b3_v1",
+      "quote": "Example Customer may raise a reasoned security or service continuity objection within ten business days."
+    },
+    "qualified_response": {
+      "document_id": "managed-services-25p",
+      "source_revision_id": "eval-managed-services-25p-v1",
+      "page_number": 16,
+      "passage_id": "p16_b3_v1",
+      "quote": "A qualified response identifies an investigating role and an initial action; an automated receipt alone does not satisfy the target."
+    },
+    "restore_test": {
+      "document_id": "managed-services-25p",
+      "source_revision_id": "eval-managed-services-25p-v1",
+      "page_number": 17,
+      "passage_id": "p17_b3_v1",
+      "quote": "At least once each quarter, Example Supplier will restore a representative dataset into an isolated test location and verify document counts, metadata relationships and selected content integrity."
+    },
+    "feedback": {
+      "document_id": "software-license-12p",
+      "source_revision_id": "eval-software-license-12p-v1",
+      "page_number": 9,
+      "passage_id": "p9_b4_v1",
+      "quote": "A feedback message does not itself authorize publication of the message, use of a business name in marketing or access to additional records."
+    },
+    "staffing": {
+      "document_id": "managed-services-25p",
+      "source_revision_id": "eval-managed-services-25p-v1",
+      "page_number": 6,
+      "passage_id": "p6_b2_v1",
+      "quote": "The operating model must not depend on a single person holding undocumented knowledge or exclusive access."
+    },
+    "consulting_change": {
+      "document_id": "consulting-agreement-5p",
+      "source_revision_id": "eval-consulting-agreement-5p-v1",
+      "page_number": 2,
+      "passage_id": "p2_b3_v1",
+      "quote": "A change takes effect only when both parties record their agreement to those points."
+    },
+    "managed_change": {
+      "document_id": "managed-services-25p",
+      "source_revision_id": "eval-managed-services-25p-v1",
+      "page_number": 9,
+      "passage_id": "p9_b2_v1",
+      "quote": "An estimate is not approval to proceed."
+    },
+    "capacity": {
+      "document_id": "software-license-12p",
+      "source_revision_id": "eval-software-license-12p-v1",
+      "page_number": 2,
+      "passage_id": "p2_b5_v1",
+      "quote": "A temporary burst does not by itself authorize suspension or automatic purchase of a higher service level."
+    },
+    "backups": {
+      "document_id": "managed-services-25p",
+      "source_revision_id": "eval-managed-services-25p-v1",
+      "page_number": 17,
+      "passage_id": "p17_b2_v1",
+      "quote": "A reported successful job does not eliminate the need for restoration testing."
+    },
+    "support_target": {
+      "document_id": "software-license-12p",
+      "source_revision_id": "eval-software-license-12p-v1",
+      "page_number": 5,
+      "passage_id": "p5_b4_v1",
+      "quote": "These are acknowledgment targets, not promises that every underlying defect can be corrected within the same period."
+    },
+    "load_testing": {
+      "document_id": "software-license-12p",
+      "source_revision_id": "eval-software-license-12p-v1",
+      "page_number": 2,
+      "passage_id": "p2_b4_v1",
+      "quote": "Testing that could degrade availability requires a separately agreed plan defining timing, traffic limits and recovery arrangements."
+    },
+    "audit": {
+      "document_id": "managed-services-25p",
+      "source_revision_id": "eval-managed-services-25p-v1",
+      "page_number": 18,
+      "passage_id": "p18_b3_v1",
+      "quote": "A substantiated material incident may justify an additional focused audit without consuming the routine allowance."
+    },
+    "nda_exclusions": {
+      "document_id": "mutual-nda",
+      "source_revision_id": "eval-mutual-nda-v1",
+      "page_number": 1,
+      "passage_id": "p1_b3_v1",
+      "quote": "It excludes information already public, independently developed, or lawfully received without a confidentiality duty."
+    },
+    "emergency": {
+      "document_id": "managed-services-25p",
+      "source_revision_id": "eval-managed-services-25p-v1",
+      "page_number": 9,
+      "passage_id": "p9_b4_v1",
+      "quote": "Emergency authority does not permit a permanent expansion of scope, a new recurring charge or deletion of the only recoverable data copy."
+    },
+    "urgent_update": {
+      "document_id": "software-license-12p",
+      "source_revision_id": "eval-software-license-12p-v1",
+      "page_number": 5,
+      "passage_id": "p5_b5_v1",
+      "quote": "An urgent security correction may be applied sooner, with a description of its operational effect as soon as practicable."
+    }
+  },
+  "cases": [
+    {
+      "id": "holdout-exact_term-01",
+      "category": "exact_term",
+      "query": "Subcontractor security or service continuity objection ten business days",
+      "anchors": [
+        "subcontractors"
+      ],
+      "rationale": "New subcontractor approval family; the objection window is not a general response deadline."
+    },
+    {
+      "id": "holdout-exact_term-02",
+      "category": "exact_term",
+      "query": "Priority One qualified response investigating role automated receipt",
+      "anchors": [
+        "qualified_response"
+      ],
+      "rationale": "Locate what counts as a qualified incident response."
+    },
+    {
+      "id": "holdout-exact_term-03",
+      "category": "exact_term",
+      "query": "Quarterly restoration exercise document counts metadata relationships content integrity",
+      "anchors": [
+        "restore_test"
+      ],
+      "rationale": "The restoration exercise, rather than ordinary backup job monitoring, supplies the checks."
+    },
+    {
+      "id": "holdout-exact_term-04",
+      "category": "exact_term",
+      "query": "Feedback message business name in marketing",
+      "anchors": [
+        "feedback"
+      ],
+      "rationale": "Feedback permission does not imply permission to use a business name."
+    },
+    {
+      "id": "holdout-paraphrase-01",
+      "category": "paraphrase",
+      "query": "Does the managed provider have to avoid having just one employee who knows how everything works?",
+      "anchors": [
+        "staffing"
+      ],
+      "rationale": "Paraphrase of staffing continuity and undocumented single-person knowledge."
+    },
+    {
+      "id": "holdout-paraphrase-02",
+      "category": "paraphrase",
+      "query": "Does repeatedly commenting on a consultant's draft mean we have accepted extra work and a bigger bill?",
+      "anchors": [
+        "consulting_change"
+      ],
+      "rationale": "Distinguish draft comments from a recorded scope and charging agreement."
+    },
+    {
+      "id": "holdout-paraphrase-03",
+      "category": "paraphrase",
+      "query": "If we briefly use too much of the inventory app, can the vendor force us onto a more expensive tier?",
+      "anchors": [
+        "capacity"
+      ],
+      "rationale": "Temporary capacity burst does not automatically permit upgrade or suspension."
+    },
+    {
+      "id": "holdout-paraphrase-04",
+      "category": "paraphrase",
+      "query": "The backup dashboard says success. Must the managed provider still prove that our data can be recovered?",
+      "anchors": [
+        "backups",
+        "restore_test"
+      ],
+      "rationale": "Pair the limit of successful job status with the required restore exercise."
+    },
+    {
+      "id": "holdout-multi_document-01",
+      "category": "multi_document",
+      "query": "Find the consulting and managed-services rules requiring agreement before proposed changes or investigation become chargeable.",
+      "anchors": [
+        "consulting_change",
+        "managed_change"
+      ],
+      "rationale": "Two explicitly named contracts; approval gates live in each change-control provision."
+    },
+    {
+      "id": "holdout-multi_document-02",
+      "category": "multi_document",
+      "query": "Compare what the software and managed-services contracts count as an initial incident response rather than fixing the whole problem.",
+      "anchors": [
+        "support_target",
+        "qualified_response"
+      ],
+      "rationale": "Keep acknowledgement and qualified response separate; no cross-contract deadline blending."
+    },
+    {
+      "id": "holdout-multi_document-03",
+      "category": "multi_document",
+      "query": "What safeguards do the software and managed-services agreements put on testing that could disrupt live operations?",
+      "anchors": [
+        "load_testing",
+        "audit"
+      ],
+      "rationale": "Software load testing requires an agreed plan; managed audit permission is not uncontrolled penetration-test authority."
+    },
+    {
+      "id": "holdout-multi_document-04",
+      "category": "multi_document",
+      "query": "Where do software capacity increases and managed-service change investigations require agreement before extra charges?",
+      "anchors": [
+        "capacity",
+        "managed_change"
+      ],
+      "rationale": "Two distinct charging consent rules; do not infer common prices or automatic approvals."
+    },
+    {
+      "id": "holdout-exception_near_match-01",
+      "category": "exception_near_match",
+      "query": "Under the NDA, is independently developed information confidential just because it relates to the proposed work?",
+      "anchors": [
+        "nda_exclusions"
+      ],
+      "rationale": "Definition includes exclusions; a broad confidentiality-use duty is not enough."
+    },
+    {
+      "id": "holdout-exception_near_match-02",
+      "category": "exception_near_match",
+      "query": "Does the managed-service one-audit-per-year allowance prevent an additional audit after a substantiated material incident?",
+      "anchors": [
+        "audit"
+      ],
+      "rationale": "The incident exception qualifies the ordinary routine allowance in the same passage."
+    },
+    {
+      "id": "holdout-exception_near_match-03",
+      "category": "exception_near_match",
+      "query": "Can an emergency managed-service change permanently expand scope or introduce a new recurring charge without ordinary approval?",
+      "anchors": [
+        "emergency"
+      ],
+      "rationale": "Emergency containment authority has explicit limits; ordinary approved change controls alone miss the exception."
+    },
+    {
+      "id": "holdout-exception_near_match-04",
+      "category": "exception_near_match",
+      "query": "Must the software provider always wait twenty days before a security-related interface correction?",
+      "anchors": [
+        "urgent_update"
+      ],
+      "rationale": "Urgent security corrections can precede the ordinary interface-change notice period."
+    },
+    {
+      "id": "holdout-unanswerable-01",
+      "category": "unanswerable",
+      "query": "What is the managed supplier's cyber insurance policy number and named insurer?",
+      "anchors": [],
+      "rationale": "Insurance categories and summaries are described; no policy identifier or named insurer is supplied."
+    },
+    {
+      "id": "holdout-unanswerable-02",
+      "category": "unanswerable",
+      "query": "What passport number must a witness enter when signing these contracts?",
+      "anchors": [],
+      "rationale": "No witness passport-number requirement is supplied; general signing or access wording is not evidence."
+    },
+    {
+      "id": "holdout-unanswerable-03",
+      "category": "unanswerable",
+      "query": "What exact ISO 27001 certificate number is recorded for the managed supplier?",
+      "anchors": [],
+      "rationale": "The assurance provision discusses certifications generically, not a specific certificate number."
+    },
+    {
+      "id": "holdout-unanswerable-04",
+      "category": "unanswerable",
+      "query": "What mileage rate per kilometre must the consultant receive for business travel?",
+      "anchors": [],
+      "rationale": "No specified per-kilometre travel reimbursement rate is supplied; general charging rules do not answer it."
+    }
+  ]
+}

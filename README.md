@@ -88,6 +88,12 @@ matching and deterministic tests check engineering contracts, not legal quality.
 See [Evaluation](docs/EVALUATION.md) for the existing synthetic cases, assessment
 method and the distinction between reference matching and supported conclusions.
 
+The [first 44-question retrieval comparison](docs/evaluations/LIBRARY_RETRIEVAL_V1.md)
+measures lexical, dense and hybrid search separately, including category results,
+missed passages, no-answer near-matches, latency and usage. These are synthetic
+retrieval measurements, not an overall AI-accuracy score; the app still uses
+key-free lexical search while the measured failures guide the next refinement.
+
 ~~~bash
 npm test           # deterministic backend and frontend tests; no paid AI
 npm run typecheck

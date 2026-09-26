@@ -13,6 +13,7 @@ different things. None establishes a complete or legally reliable review.
 | Diagnostic checker calibration | Ten authored candidates: six negative mutations and four positive controls | Known errors and valid counterexamples for evaluating the development-only checker |
 | Import corpus | Seven synthetic PDFs, including scanned and adversarial inputs | Extraction and workflow edge cases; these are not seven labelled AI-quality benchmarks |
 | Library retrieval | 24 labelled synthetic development questions and a local lexical-ranking harness | Passage/document retrieval regression, including missed passages and irrelevant near-matches |
+| Live retrieval comparison | Fixed lexical/dense/hybrid comparison using 24 development and 20 new-family known-corpus questions | Measured retrieval gains, per-case regressions, near-matches, usage and latency; not generated-answer quality |
 
 The generator cases are in
 [backend/fixtures/review_evaluations](../backend/fixtures/review_evaluations/README.md).
@@ -104,20 +105,70 @@ hold the retrieved evidence fixed while assessing support, missed qualifications
 cross-document confusion and abstention; all/every claims additionally require
 explicit collection coverage. No such generated-answer score is claimed here.
 
-### Next comparison
+### Dense/hybrid comparison
 
-The lexical baseline is a publishable result for this search implementation.
-The broader retrieval/answer evaluation remains open. Before developing a new
-ranker, freeze a separate holdout containing new question families and label its
-relevant passages against the source. Use the visible 24-question set for
-development, then compare lexical, dense and hybrid candidates under the same
-corpus, passage construction, result limit and scoring rules. Report exact-term,
-paraphrase, exception and multi-document results separately, plus near-matches on
-unanswerable questions, query latency and indexing/query cost. Keep failures and
-source exclusions in the report. No dense/hybrid result is available yet.
+The lexical baseline is published. The development-only comparison tooling now
+includes a separate frozen 20-question holdout on new topics, with four cases per
+category. Labels were checked against authored source text, exact PDF passages
+and representative rendered pages before implementing the candidate rankers.
+These are assistant-authored labels on the **same known synthetic contracts**, not
+independent annotations or evidence of generalization to unseen agreements.
+
+The first comparison is fixed: `text-embedding-3-small` at 1536 dimensions,
+unchanged canonical passages, exact cosine search, and equal-weight reciprocal
+rank fusion (RRF constant 60, top 20 candidates from each ranker), scored at five
+results. It reuses the current lexical ranker. There is no query rewrite, reranker,
+generated answer or Qdrant approximation in this experiment. Embeddings contain
+only passage text or the question; labels/rationales are never provider inputs.
+Dense/hybrid use no abstention threshold and therefore return near-matches even
+for no-answer questions. Their cosine scores are not confidence probabilities.
+
+Hypothesis before live results: hybrid improves paraphrase/multi-document passage
+recall without reducing exact-term/exception recall against lexical retrieval.
+Report category results and failures even if that hypothesis fails. Inspect the
+missed qualifications and latency/cost tradeoff before recommending a product
+change; a tied result is not a reason to introduce a paid indexing dependency.
+Do not tune on the holdout or report post-tuning performance as unseen evidence.
+
+The [first live comparison](evaluations/LIBRARY_RETRIEVAL_V1.md) completed on
+2026-09-26: 51 embedding requests, no retries/failures, 18,776 provider-reported
+input tokens and $0.00037552 usage-based cost. Macro passage recall@5 was:
+
+| Split | Lexical | Dense | Hybrid |
+| --- | ---: | ---: | ---: |
+| Development | 80.8% | 85.0% | 97.5% |
+| New-family holdout | 71.9% | 93.8% | 87.5% |
+
+Hybrid improved the hypothesized category means against lexical, but did not
+dominate individual questions or dense search. In one holdout case, all five
+dense/hybrid hits were title/disclaimer/heading blocks, displacing testing
+restrictions that lexical found. All methods returned near-matches for all eight
+no-answer cases. The linked report preserves category precision/recall, concrete
+misses, source checks, exact configuration and limits. **The app's search has not
+been switched to these experimental candidates.**
+
+The run used an approved finite budget, reserved all conservative input ceilings
+before reading the saved key, and dispatched serially without retries or model
+changes. Completed private vectors support unpaid replay; source/config/code
+drift rejects the cache. Application data, model settings and legacy vectors were
+unchanged. The next refinement is non-clause retrieval noise and multi-document
+candidate coverage, not another model switch. These inspected questions are now
+regression evidence for any resulting change, not a fresh holdout to tune on.
+
+Reports separate indexing and single-query embedding usage/API latency from
+offline ranking latency. Lexical rebuilds its in-memory index per query; dense
+uses a preloaded exact matrix. These timings are not a production-scale or Qdrant
+benchmark. See [comparison commands and safeguards](DEVELOPMENT.md#retrieval-comparison-experiment).
 
 Source revision changes, partial indexing and deletion must have defined behavior
-before a persistent vector index becomes a product dependency. Generated library
+before a persistent vector index becomes a product dependency. The proposed
+boundary is explicit indexing consent and a cost estimate, identities scoped to
+workspace/document/source revision plus extraction/passage/model versions, and
+visible pending/failed/partial coverage. Querying must check current source
+identity so deleted or superseded vectors cannot appear while cleanup is pending.
+Deletion must remove associated vectors with retryable cleanup/reconciliation;
+do not reuse or silently merge the retained legacy collection. These product
+indexing features are **not implemented** by the experiment. Generated library
 answers then need separate source-grounded assessments with fixed evidence inputs
 and an end-to-end assessment that includes retrieval failures. Publish the dataset
 and implementation versions, commands, sample counts and limitations alongside
@@ -130,7 +181,10 @@ The backend has correlated HTTP request/error logs and in-memory endpoint timing
 error counts and system metrics. Review and Ask preserve attempt outcomes and
 generation metadata. These aid debugging but do not measure answer quality.
 The current search endpoint has no persistent index and the retrieval harness
-measures local query latency; neither provides durable retrieval-stage traces.
+measures local query latency. The embedding experiment additionally retains an
+exclusive developer-only reservation/attempt ledger with batch outcome, input
+fingerprints, usage and latency. This does not provide durable retrieval-stage
+traces for the application's Library search.
 
 As retrieval stages are added, useful diagnostics include stage duration,
 outcome, source/index version, collection coverage and provider usage where

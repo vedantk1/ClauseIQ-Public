@@ -5,6 +5,16 @@ benchmark, legal checklist or evidence of production answer quality. It contains
 24 questions: five exact-term, five paraphrase, five multi-document, five
 exception/near-match, and four reviewed unanswerable cases.
 
+`holdout.json` adds 20 questions (four per category), frozen before implementing
+the dense/hybrid candidates. Its topics include staffing/subcontractors,
+change-control approval, capacity, incident response, backups/restoration,
+audit/testing safeguards, feedback, confidentiality exclusions and urgent updates.
+Its labelled passages do not overlap development-set labels. Related variants
+stay within the holdout, rather than being split into development and test.
+Both splits use the **same known contracts**; this is not an unseen-document test,
+blind study or independently annotated legal benchmark. Once results inform a
+change, that set becomes regression data; new claims need a new untouched set.
+
 The corpus is the seven existing synthetic PDFs. Six have text; the image-only
 scan remains explicitly unavailable, not OCRed or silently treated as searched.
 Consulting questions here are retrieval-specific; they are not generated-review
@@ -49,9 +59,15 @@ quality-pass threshold after seeing a run or turn these 24 questions into a broa
 retrieval-accuracy claim. Multi-document questions have specific finite labels;
 top-k recall does not establish exhaustive answers to “all” or “every”.
 
-The label set is intentionally visible and may be used for debugging. Before
-tuning synonyms, embeddings, reranking or fusion on it, reserve a separate new
-set for an honest comparison. Dense and hybrid candidates need separately
-approved indexing/provider work; this harness does not authorize paid calls.
+The development labels are intentionally visible and may be used for debugging.
+The new question-family holdout must not be used to tune the current comparison.
+`evaluations.retrieval_embeddings` prepares a fixed lexical/exact-dense/RRF-hybrid
+experiment; its default dry run is key-free. Live embeddings require separately
+approved spending; mocked tests are not semantic measurements. See
+[the comparison protocol](../../../docs/EVALUATION.md#densehybrid-comparison)
+and [commands](../../../docs/DEVELOPMENT.md#retrieval-comparison-experiment).
+The [first live result](../../../docs/evaluations/LIBRARY_RETRIEVAL_V1.md) records
+both improvements and regressions. After inspecting these results, do not treat
+the same holdout as untouched evidence for subsequent tuning.
 Deliberate fixture/label changes require source review, a dataset version update
 and a reviewed checksum update. Never refresh hashes simply to silence drift.

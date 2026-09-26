@@ -609,6 +609,57 @@ and [Evaluation](EVALUATION.md#retrieval-boundary). Dense/hybrid indexing and
 cross-contract answers are not part of this command and would need their own
 approval, cost boundary and evaluation.
 
+### Retrieval comparison experiment
+
+This is a development command, not a new Library search mode. It uses only the
+seven allowlisted repository PDFs, the 24-question development set and a frozen
+20-question new-family holdout. Existing application data and Qdrant stay intact.
+From `backend`, prepare the public tokenizer vocabulary once, then run offline:
+
+~~~bash
+TIKTOKEN_CACHE_DIR=.local-only/tokenizers venv/bin/python -c 'import tiktoken; tiktoken.get_encoding("cl100k_base")'
+TIKTOKEN_CACHE_DIR=.local-only/tokenizers venv/bin/python -m evaluations.retrieval_embeddings
+TIKTOKEN_CACHE_DIR=.local-only/tokenizers venv/bin/python -m pytest tests/test_retrieval_comparison.py -q
+~~~
+
+The default command validates PDF/split hashes, exact labels and token limits,
+then prints a plan digest, input counts, pricing date, estimate and conservative
+reservation. It reads no key and makes no paid call. Tokenizer failure stops
+preflight; do not substitute a character-count guess. The public vocabulary
+download is not an embedding request. CI already prepares this tokenizer.
+
+Only after a current finite-budget approval and pricing review:
+
+~~~bash
+TIKTOKEN_CACHE_DIR=.local-only/tokenizers venv/bin/python -m evaluations.retrieval_embeddings --run-paid --cap-usd APPROVED_CAP --approved-plan DIGEST_FROM_DRY_RUN
+TIKTOKEN_CACHE_DIR=.local-only/tokenizers venv/bin/python -m evaluations.retrieval_embeddings --replay
+~~~
+
+The runner batches 203 passage inputs in groups of at most 32 and sends the
+44 queries individually for query-latency measurement: 51 serial requests total.
+It uses `text-embedding-3-small`, 1536 dimensions, the official endpoint and zero
+SDK retries. All per-input 8192-token maximums are reserved before saved-key
+access. The price review expires after seven days. A unique plan directory under
+the repository's ignored `.local-only/retrieval-comparison` is created exclusively;
+an existing attempt refuses another dispatch, even if interrupted or failed.
+There is no automatic resumption, retry, model switch or paid grading call.
+Keep the attempt ledger and full reservation for uncertain outcomes. To repeat
+an experiment, obtain new approval and deliberately design a new version; do not
+delete a failed ledger to get around this guard.
+
+A complete cache requires all vectors, valid source/config/code fingerprints,
+provider usage, and a completed ledger. Corruption, missing/stale vectors or
+unknown usage fail closed. `--replay` prints all three rankers' per-case/category
+results without contacting a provider. Raw caches, reports and attempt logs stay
+ignored; publish reviewed aggregate results and failures with their dataset and
+implementation versions. Mocked contract tests do not establish dense/hybrid
+retrieval quality. The comparison and product-index limits are in
+[Evaluation](EVALUATION.md#densehybrid-comparison). The
+[first recorded comparison](evaluations/LIBRARY_RETRIEVAL_V1.md) includes real
+embedding usage, all three methods' results and observed regressions. Replaying
+an existing complete cache is unpaid; reproducing without it requires new
+embedding calls. Do not mix those measurements with fake-vector unit tests.
+
 ## Existing local installations
 
 ### Model defaults and bounded requests
