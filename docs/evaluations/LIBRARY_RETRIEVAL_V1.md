@@ -145,6 +145,11 @@ calls; a mutable model alias or environment change can produce different results
 
 ## Interpretation and next step
 
+The later [header/diversity refinement](LIBRARY_RETRIEVAL_REFINEMENT.md) follows
+this recommendation and records both improvements and new regressions. The
+original results and configuration remain the baseline, not overwritten with
+post-change scores.
+
 This is useful engineering evidence, not an academic benchmark. The same known
 synthetic contracts appear in both splits; labels were authored and checked in
 the development workflow, not independently annotated by legal experts. Category

@@ -92,7 +92,9 @@ The [first 44-question retrieval comparison](docs/evaluations/LIBRARY_RETRIEVAL_
 measures lexical, dense and hybrid search separately, including category results,
 missed passages, no-answer near-matches, latency and usage. These are synthetic
 retrieval measurements, not an overall AI-accuracy score; the app still uses
-key-free lexical search while the measured failures guide the next refinement.
+key-free lexical search. A [cached-vector refinement](docs/evaluations/LIBRARY_RETRIEVAL_REFINEMENT.md)
+records header-filtering gains, remaining misses and why blanket document
+diversity was rejected; it is regression evidence, not a fresh benchmark.
 
 ~~~bash
 npm test           # deterministic backend and frontend tests; no paid AI

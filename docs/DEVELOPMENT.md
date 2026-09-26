@@ -614,6 +614,8 @@ approval, cost boundary and evaluation.
 This is a development command, not a new Library search mode. It uses only the
 seven allowlisted repository PDFs, the 24-question development set and a frozen
 20-question new-family holdout. Existing application data and Qdrant stay intact.
+After the recorded first comparison, both question sets are inspected regression
+data for subsequent changes, not an untouched holdout.
 From `backend`, prepare the public tokenizer vocabulary once, then run offline:
 
 ~~~bash
@@ -659,6 +661,31 @@ retrieval quality. The comparison and product-index limits are in
 embedding usage, all three methods' results and observed regressions. Replaying
 an existing complete cache is unpaid; reproducing without it requires new
 embedding calls. Do not mix those measurements with fake-vector unit tests.
+
+### Offline retrieval refinement
+
+The follow-up ablates repeated page-header eligibility and document diversity
+over the original real embedding cache. It never calls a provider, reads a saved
+key or writes an application index. Run from `backend`:
+
+~~~bash
+TIKTOKEN_CACHE_DIR=.local-only/tokenizers venv/bin/python -m pytest tests/test_retrieval_refinement.py -q
+TIKTOKEN_CACHE_DIR=.local-only/tokenizers venv/bin/python -m evaluations.retrieval_refinement
+~~~
+
+The second command prints the report. Optional `--output` writes an exclusive
+file only under the repository's ignored `.local-only/retrieval-comparison`;
+it refuses to overwrite an earlier result. Missing or incompatible original
+cache fails closed and never triggers fresh embedding calls. This requires the
+same tokenizer preflight as the baseline. Reproduction without the private cache
+requires a separately approved embedding collection, not a fake-vector substitute.
+
+The baseline validator remains intact, including the producer code, inputs,
+source hashes, labels and request accounting. The new consumer records separate
+code and cache fingerprints. Both inspected question sets are regression data;
+new adversarial unit tests test mechanics, not unseen semantic quality. See the
+[refinement result and rejected diversity default](evaluations/LIBRARY_RETRIEVAL_REFINEMENT.md).
+No product search mode or source passage is changed by this command.
 
 ## Existing local installations
 

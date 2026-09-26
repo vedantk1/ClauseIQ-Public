@@ -69,5 +69,9 @@ and [commands](../../../docs/DEVELOPMENT.md#retrieval-comparison-experiment).
 The [first live result](../../../docs/evaluations/LIBRARY_RETRIEVAL_V1.md) records
 both improvements and regressions. After inspecting these results, do not treat
 the same holdout as untouched evidence for subsequent tuning.
+The [header/diversity follow-up](../../../docs/evaluations/LIBRARY_RETRIEVAL_REFINEMENT.md)
+uses both unchanged datasets as inspected regression sets, reuses real cached
+embeddings and records losses as well as gains. Fresh adversarial unit tests
+check mechanics; they are not fresh semantic holdout questions.
 Deliberate fixture/label changes require source review, a dataset version update
 and a reviewed checksum update. Never refresh hashes simply to silence drift.

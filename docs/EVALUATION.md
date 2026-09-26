@@ -14,6 +14,7 @@ different things. None establishes a complete or legally reliable review.
 | Import corpus | Seven synthetic PDFs, including scanned and adversarial inputs | Extraction and workflow edge cases; these are not seven labelled AI-quality benchmarks |
 | Library retrieval | 24 labelled synthetic development questions and a local lexical-ranking harness | Passage/document retrieval regression, including missed passages and irrelevant near-matches |
 | Live retrieval comparison | Fixed lexical/dense/hybrid comparison using 24 development and 20 new-family known-corpus questions | Measured retrieval gains, per-case regressions, near-matches, usage and latency; not generated-answer quality |
+| Retrieval refinement | Header-filtering and diversity ablations replayed over the same real provider embeddings | Post-change regression tradeoffs on inspected questions; no additional API calls or new holdout claim |
 
 The generator cases are in
 [backend/fixtures/review_evaluations](../backend/fixtures/review_evaluations/README.md).
@@ -151,9 +152,12 @@ The run used an approved finite budget, reserved all conservative input ceilings
 before reading the saved key, and dispatched serially without retries or model
 changes. Completed private vectors support unpaid replay; source/config/code
 drift rejects the cache. Application data, model settings and legacy vectors were
-unchanged. The next refinement is non-clause retrieval noise and multi-document
-candidate coverage, not another model switch. These inspected questions are now
-regression evidence for any resulting change, not a fresh holdout to tune on.
+unchanged. The [completed header/diversity refinement](evaluations/LIBRARY_RETRIEVAL_REFINEMENT.md)
+reuses this cache: filtered hybrid recovers the testing restrictions but introduces
+one paraphrase miss; blanket document diversity loses qualifications and is not
+selected as a default. These inspected questions are regression evidence, not a
+fresh holdout. The app's ranker remains unchanged; product index lifecycle work
+is the next boundary, not another model switch.
 
 Reports separate indexing and single-query embedding usage/API latency from
 offline ranking latency. Lexical rebuilds its in-memory index per query; dense
